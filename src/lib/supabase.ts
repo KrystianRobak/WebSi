@@ -3,13 +3,12 @@ import { createClient, SupabaseClient } from '@supabase/supabase-js';
 export interface SupabaseRuntimeConfig {
   url: string;
   anonKey: string;
-  gmEmail: string;
 }
 
 const STORAGE_KEY = 'aethelgard_supabase_config';
+const TOKEN_STORAGE_KEY = 'aethelgard_vault_token_v1';
 const DEFAULT_SUPABASE_URL = 'https://wanorbimpezokyzuepoe.supabase.co';
 const DEFAULT_SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_9qwOuG1LDs9YK96OMxjnyQ_-n6v-fdj';
-const DEFAULT_GM_EMAIL = '';
 
 export function getSupabaseConfig(): SupabaseRuntimeConfig {
   let saved: Partial<SupabaseRuntimeConfig> = {};
@@ -26,7 +25,6 @@ export function getSupabaseConfig(): SupabaseRuntimeConfig {
       saved.anonKey ||
       import.meta.env.VITE_SUPABASE_ANON_KEY ||
       DEFAULT_SUPABASE_PUBLISHABLE_KEY,
-    gmEmail: saved.gmEmail || import.meta.env.VITE_GM_EMAIL || DEFAULT_GM_EMAIL,
   };
 }
 
@@ -37,6 +35,28 @@ export function saveSupabaseConfig(config: SupabaseRuntimeConfig): void {
 
 export function clearSupabaseConfig(): void {
   localStorage.removeItem(STORAGE_KEY);
+  cachedClient = null;
+}
+
+export function getStoredVaultToken(): string {
+  try {
+    return localStorage.getItem(TOKEN_STORAGE_KEY) || '';
+  } catch {
+    return '';
+  }
+}
+
+export function saveStoredVaultToken(token: string): void {
+  localStorage.setItem(TOKEN_STORAGE_KEY, token);
+  cachedClient = null;
+}
+
+export function clearStoredVaultToken(): void {
+  try {
+    localStorage.removeItem(TOKEN_STORAGE_KEY);
+  } catch {
+    // ignore storage errors
+  }
   cachedClient = null;
 }
 
@@ -53,74 +73,82 @@ export function isSupabaseConfigured(): boolean {
   );
 }
 
+function createVaultClient(url: string, anonKey: string, vaultToken: string): SupabaseClient {
+  return createClient(url, anonKey, {
+    global: vaultToken ? { headers: { 'x-vault-token': vaultToken } } : undefined,
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+    },
+    realtime: {
+      params: {
+        eventsPerSecond: 10,
+      },
+    },
+  });
+}
+
 export function getSupabaseClient(): SupabaseClient | null {
   if (!isSupabaseConfigured()) return null;
   const cfg = getSupabaseConfig();
-  const compositeKey = `${cfg.url}::${cfg.anonKey}`;
+  const token = getStoredVaultToken();
+  const compositeKey = `${cfg.url}::${cfg.anonKey}::${token}`;
   if (!cachedClient || cachedKey !== compositeKey) {
-    cachedClient = createClient(cfg.url, cfg.anonKey, {
-      auth: {
-        persistSession: true,
-        autoRefreshToken: true,
-      },
-      realtime: {
-        params: {
-          eventsPerSecond: 10,
-        },
-      },
-    });
+    cachedClient = createVaultClient(cfg.url, cfg.anonKey, token);
     cachedKey = compositeKey;
   }
   return cachedClient;
 }
 
-export async function signInWithCampaignToken(token: string, emailOverride?: string) {
-  const client = getSupabaseClient();
-  if (!client) {
-    throw new Error('Supabase is not configured. Open Settings to add your Supabase URL and Key.');
+export async function verifyAndUnlockVaultToken(rawToken: string): Promise<void> {
+  const token = rawToken.trim();
+  if (!token) throw new Error('Enter your Vault Access Token.');
+  if (!isSupabaseConfigured()) {
+    throw new Error('Supabase is not configured. Open Settings to check your URL and Key.');
   }
+
   const cfg = getSupabaseConfig();
-  const email = (emailOverride || cfg.gmEmail).trim();
-  if (emailOverride && email !== cfg.gmEmail) {
-    saveSupabaseConfig({ ...cfg, gmEmail: email });
+  const probeClient = createVaultClient(cfg.url, cfg.anonKey, token);
+  const { data, error } = await probeClient.from('vault_probe').select('id').limit(1);
+  if (error) {
+    throw new Error(error.message || 'Unable to verify token against Supabase.');
   }
-  return client.auth.signInWithPassword({
-    email,
-    password: token,
-  });
+  if (!data || data.length === 0) {
+    throw new Error('Invalid Access Token.');
+  }
+
+  saveStoredVaultToken(token);
 }
 
-export async function signUpWithCampaignToken(token: string, emailOverride?: string) {
+export async function verifyStoredVaultToken(): Promise<boolean> {
+  const token = getStoredVaultToken();
+  if (!token || !isSupabaseConfigured()) return false;
   const client = getSupabaseClient();
-  if (!client) {
-    throw new Error('Supabase is not configured. Open Settings to add your Supabase URL and Key.');
+  if (!client) return false;
+  const { data, error } = await client.from('vault_probe').select('id').limit(1);
+  if (error || !data || data.length === 0) {
+    return false;
   }
-  const cfg = getSupabaseConfig();
-  const email = (emailOverride || cfg.gmEmail).trim();
-  if (email !== cfg.gmEmail) {
-    saveSupabaseConfig({ ...cfg, gmEmail: email });
+  return true;
+}
+
+export async function getVaultSyncTopic(): Promise<string> {
+  const token = getStoredVaultToken();
+  const input = new TextEncoder().encode(`aethelgard-vault-sync:${token}`);
+  if (typeof crypto !== 'undefined' && crypto.subtle) {
+    const hashBuf = await crypto.subtle.digest('SHA-256', input);
+    const hex = Array.from(new Uint8Array(hashBuf))
+      .map((b) => b.toString(16).padStart(2, '0'))
+      .join('');
+    return `vault-room-${hex.slice(0, 24)}`;
   }
-  return client.auth.signUp({
-    email,
-    password: token,
-  });
+  return 'vault-room-shared';
 }
 
 export async function uploadVaultAsset(file: File, folder = 'uploads'): Promise<string> {
   const client = getSupabaseClient();
-  if (!client) {
-    // Offline/demo fallback: return a Data URL so local preview works immediately
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(String(reader.result));
-      reader.onerror = reject;
-      reader.readAsDataURL(file);
-    });
-  }
-
-  const { data: sessionData } = await client.auth.getSession();
-  if (!sessionData.session) {
-    // Local demo session without authenticated cloud user falls back cleanly to Data URL
+  const token = getStoredVaultToken();
+  if (!client || !token) {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.onload = () => resolve(String(reader.result));

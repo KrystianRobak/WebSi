@@ -23,7 +23,7 @@ export type EntityCategory = 'encyclopedia' | 'campaign' | 'world';
 
 export interface World {
   id: string;
-  owner_id: string;
+  owner_id?: string | null;
   name: string;
   description: string;
 }

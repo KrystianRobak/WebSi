@@ -47,6 +47,7 @@ export function App() {
     activeTabId,
     splitPaneTabId,
     initSupabaseSync,
+    syncFromSupabase,
     maps,
     undo,
     redo,
@@ -79,6 +80,21 @@ export function App() {
   useEffect(() => {
     initSupabaseSync();
   }, [initSupabaseSync]);
+
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    const onFocusOrVisible = () => {
+      if (document.visibilityState === 'visible') {
+        syncFromSupabase();
+      }
+    };
+    window.addEventListener('focus', onFocusOrVisible);
+    document.addEventListener('visibilitychange', onFocusOrVisible);
+    return () => {
+      window.removeEventListener('focus', onFocusOrVisible);
+      document.removeEventListener('visibilitychange', onFocusOrVisible);
+    };
+  }, [isAuthenticated, syncFromSupabase]);
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {

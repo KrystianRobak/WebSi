@@ -6,7 +6,13 @@ import {
   createSeededSmugglerVaultsBattlemap,
   generateBattlemapFloorUrl,
 } from '../lib/battlemapGenerator';
-import { getSupabaseClient, isSupabaseConfigured } from '../lib/supabase';
+import {
+  clearStoredVaultToken,
+  getSupabaseClient,
+  getVaultSyncTopic,
+  isSupabaseConfigured,
+  verifyStoredVaultToken,
+} from '../lib/supabase';
 import { generateCustomTerrain } from '../lib/terrainEditorEngine';
 import { generateEntityArtwork } from '../lib/terrainGenerator';
 import { computeEntityLinksForSource, slugify } from '../lib/wikilinks';
@@ -289,12 +295,26 @@ interface VaultState {
 }
 
 const seed = buildSeedDataset();
+const CLIENT_INSTANCE_ID =
+  typeof crypto !== 'undefined' && crypto.randomUUID
+    ? crypto.randomUUID()
+    : `client-${Date.now()}-${Math.random()}`;
 const entitySyncTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const mapSyncTimers = new Map<string, ReturnType<typeof setTimeout>>();
+let broadcastSyncDebounce: ReturnType<typeof setTimeout> | null = null;
 const ASSETS_STORAGE_KEY = 'aethelgard_vault_assets_v1';
 const TEMPLATES_STORAGE_KEY = 'aethelgard_vault_templates_v1';
 const MAPS_STORAGE_KEY = 'aethelgard_vault_maps_v1';
 const LOCAL_VAULT_STORAGE_KEY = 'aethelgard_vault_local_data_v1';
+
+function broadcastVaultChange(reason: string) {
+  if (!realtimeChannel) return;
+  realtimeChannel.send({
+    type: 'broadcast',
+    event: 'vault-changed',
+    payload: { senderId: CLIENT_INSTANCE_ID, reason, ts: Date.now() },
+  });
+}
 
 function serializeMapRow(m: VaultMap) {
   return {
@@ -346,6 +366,7 @@ function scheduleMapSync(
     const latestMap = getState().maps.find((m) => m.id === mapId);
     if (!latestMap) return;
     const { error } = await client.from('maps').upsert(serializeMapRow(latestMap));
+    if (!error) broadcastVaultChange('maps');
     setState({
       syncStatus: error ? 'error' : 'synced',
       lastSyncError: error ? error.message : null,
@@ -711,6 +732,7 @@ export const useVaultStore = create<VaultState>((set, get) => ({
     if (client && state.isAuthenticated) {
       set({ syncStatus: 'syncing' });
       const { error } = await client.from('map_paths').insert(newPath);
+      if (!error) broadcastVaultChange('map_paths');
       set({
         syncStatus: error ? 'error' : 'synced',
         lastSyncError: error ? error.message : null,
@@ -934,6 +956,7 @@ export const useVaultStore = create<VaultState>((set, get) => ({
       if (!error && newLinks.length > 0) {
         await client.from('entity_links').upsert(newLinks);
       }
+      if (!error) broadcastVaultChange('entities');
       set({
         syncStatus: error ? 'error' : 'synced',
         lastSyncError: error ? error.message : null,
@@ -970,6 +993,7 @@ export const useVaultStore = create<VaultState>((set, get) => ({
         .from('vault_assets')
         .upsert({ ...newAsset, world_id: state.world.id })
         .then(({ error }) => {
+          if (!error) broadcastVaultChange('vault_assets');
           set({
             syncStatus: error ? 'error' : 'synced',
             lastSyncError: error ? error.message : null,
@@ -1062,6 +1086,7 @@ export const useVaultStore = create<VaultState>((set, get) => ({
         .from('entity_templates')
         .upsert(serializeTemplateRow(state.world.id, updatedTpl))
         .then(({ error }) => {
+          if (!error) broadcastVaultChange('entity_templates');
           set({
             syncStatus: error ? 'error' : 'synced',
             lastSyncError: error ? error.message : null,
@@ -1137,6 +1162,7 @@ export const useVaultStore = create<VaultState>((set, get) => ({
           if (linksForSource.length > 0) {
             await client.from('entity_links').upsert(linksForSource);
           }
+          broadcastVaultChange('entities');
         }
         set({
           syncStatus: error ? 'error' : 'synced',
@@ -1172,6 +1198,7 @@ export const useVaultStore = create<VaultState>((set, get) => ({
     const client = getSupabaseClient();
     if (client && state.isAuthenticated) {
       await client.from('entities').delete().eq('id', id);
+      broadcastVaultChange('entities');
     }
   },
 
@@ -1200,6 +1227,7 @@ export const useVaultStore = create<VaultState>((set, get) => ({
     if (client && state.isAuthenticated) {
       set({ syncStatus: 'syncing' });
       const { error } = await client.from('map_pins').insert(newPin);
+      if (!error) broadcastVaultChange('map_pins');
       set({
         syncStatus: error ? 'error' : 'synced',
         lastSyncError: error ? error.message : null,
@@ -1225,6 +1253,7 @@ export const useVaultStore = create<VaultState>((set, get) => ({
         .from('map_pins')
         .update({ entity_id: entityId, label: entity?.title })
         .eq('id', pinId);
+      broadcastVaultChange('map_pins');
     }
   },
 
@@ -1239,6 +1268,7 @@ export const useVaultStore = create<VaultState>((set, get) => ({
     const client = getSupabaseClient();
     if (client && state.isAuthenticated) {
       await client.from('map_pins').delete().eq('id', pinId);
+      broadcastVaultChange('map_pins');
     }
   },
 
@@ -1252,6 +1282,7 @@ export const useVaultStore = create<VaultState>((set, get) => ({
     const client = getSupabaseClient();
     if (client && state.isAuthenticated) {
       await client.from('map_paths').delete().eq('id', pathId);
+      broadcastVaultChange('map_paths');
     }
   },
 
@@ -1502,6 +1533,7 @@ export const useVaultStore = create<VaultState>((set, get) => ({
         .from('maps')
         .insert(serializeMapRow(newMap))
         .then(({ error }) => {
+          if (!error) broadcastVaultChange('maps');
           set({
             syncStatus: error ? 'error' : 'synced',
             lastSyncError: error ? error.message : null,
@@ -1585,6 +1617,7 @@ export const useVaultStore = create<VaultState>((set, get) => ({
         .from('maps')
         .insert(serializeMapRow(newMap))
         .then(({ error }) => {
+          if (!error) broadcastVaultChange('maps');
           set({
             syncStatus: error ? 'error' : 'synced',
             lastSyncError: error ? error.message : null,
@@ -1824,160 +1857,32 @@ export const useVaultStore = create<VaultState>((set, get) => ({
       return;
     }
 
-    set({ syncStatus: 'connecting' });
-    const { data } = await client.auth.getSession();
-    const session = data.session;
-    if (!session) {
+    set({ syncStatus: 'connecting', lastSyncError: null });
+    const valid = await verifyStoredVaultToken();
+    if (!valid) {
+      clearStoredVaultToken();
       set({ syncStatus: 'demo', isAuthenticated: false, userEmail: null });
       return;
     }
 
-    set({ isAuthenticated: true, userEmail: session.user.email || null });
+    set({ isAuthenticated: true, userEmail: 'Vault Token' });
     await get().syncFromSupabase();
 
     if (realtimeChannel) {
       await client.removeChannel(realtimeChannel);
     }
 
+    const topic = await getVaultSyncTopic();
     realtimeChannel = client
-      .channel('aethelgard-vault-realtime')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'entities' },
-        (payload) => {
-          set((s) => {
-            if (payload.eventType === 'DELETE') {
-              const oldId = (payload.old as { id: string }).id;
-              return { entities: s.entities.filter((e) => e.id !== oldId) };
-            }
-            const row = payload.new as Entity;
-            const exists = s.entities.some((e) => e.id === row.id);
-            return {
-              entities: exists
-                ? s.entities.map((e) => (e.id === row.id ? row : e))
-                : [...s.entities, row],
-            };
-          });
-        }
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'maps' },
-        (payload) => {
-          set((s) => {
-            if (payload.eventType === 'DELETE') {
-              const oldId = (payload.old as { id: string }).id;
-              return { maps: s.maps.filter((m) => m.id !== oldId) };
-            }
-            const row = payload.new as VaultMap;
-            const exists = s.maps.some((m) => m.id === row.id);
-            const nextMaps = exists
-              ? s.maps.map((m) => (m.id === row.id ? row : m))
-              : [...s.maps, row];
-            saveMapsToStorage(nextMaps);
-            return { maps: nextMaps };
-          });
-        }
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'map_pins' },
-        (payload) => {
-          set((s) => {
-            if (payload.eventType === 'DELETE') {
-              const oldId = (payload.old as { id: string }).id;
-              return { mapPins: s.mapPins.filter((p) => p.id !== oldId) };
-            }
-            const row = payload.new as MapPin;
-            const exists = s.mapPins.some((p) => p.id === row.id);
-            return {
-              mapPins: exists
-                ? s.mapPins.map((p) => (p.id === row.id ? row : p))
-                : [...s.mapPins, row],
-            };
-          });
-        }
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'map_paths' },
-        (payload) => {
-          set((s) => {
-            if (payload.eventType === 'DELETE') {
-              const oldId = (payload.old as { id: string }).id;
-              return { mapPaths: s.mapPaths.filter((p) => p.id !== oldId) };
-            }
-            const row = payload.new as MapPath;
-            const exists = s.mapPaths.some((p) => p.id === row.id);
-            return {
-              mapPaths: exists
-                ? s.mapPaths.map((p) => (p.id === row.id ? row : p))
-                : [...s.mapPaths, row],
-            };
-          });
-        }
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'vault_assets' },
-        (payload) => {
-          set((s) => {
-            if (payload.eventType === 'DELETE') {
-              const oldId = (payload.old as { id: string }).id;
-              const nextAssets = s.assets.filter((a) => a.id !== oldId);
-              saveAssetsToStorage(nextAssets);
-              return { assets: nextAssets };
-            }
-            const row = payload.new as VaultAsset;
-            const exists = s.assets.some((a) => a.id === row.id);
-            const nextAssets = exists
-              ? s.assets.map((a) => (a.id === row.id ? row : a))
-              : [row, ...s.assets];
-            saveAssetsToStorage(nextAssets);
-            return { assets: nextAssets };
-          });
-        }
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'entity_templates' },
-        (payload) => {
-          if (payload.eventType === 'DELETE') return;
-          const r = payload.new as {
-            type: EntityType;
-            label: string;
-            summary_placeholder: string;
-            default_tags: string[];
-            metadata: Record<string, string | number | boolean>;
-            content: string;
-            custom_css: string;
-          };
-          set((s) => {
-            const next: Record<EntityType, EntityTemplate> = {
-              ...s.templates,
-              [r.type]: {
-                type: r.type,
-                label: r.label,
-                summaryPlaceholder: r.summary_placeholder || '',
-                defaultTags: r.default_tags || [],
-                metadata: r.metadata || {},
-                content: r.content || '',
-                customCss: r.custom_css || '',
-              },
-            };
-            saveTemplatesToStorage(next);
-            return { templates: next };
-          });
-        }
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'entity_links' },
-        () => {
-          // Refresh links quietly
+      .channel(topic)
+      .on('broadcast', { event: 'vault-changed' }, (msg) => {
+        const sender = (msg?.payload as { senderId?: string } | undefined)?.senderId;
+        if (sender && sender === CLIENT_INSTANCE_ID) return;
+        if (broadcastSyncDebounce) clearTimeout(broadcastSyncDebounce);
+        broadcastSyncDebounce = setTimeout(() => {
           get().syncFromSupabase();
-        }
-      )
+        }, 250);
+      })
       .subscribe((status) => {
         if (status === 'SUBSCRIBED') {
           set({ syncStatus: 'synced' });
@@ -2124,9 +2029,6 @@ export const useVaultStore = create<VaultState>((set, get) => ({
   seedSupabaseWorld: async () => {
     const client = getSupabaseClient();
     if (!client) return;
-    const { data: userRes } = await client.auth.getUser();
-    const userId = userRes.user?.id;
-    if (!userId) return;
 
     const currentState = get();
     const freshSeed = buildSeedDataset();
@@ -2155,7 +2057,7 @@ export const useVaultStore = create<VaultState>((set, get) => ({
     const worldRow: World = {
       ...currentState.world,
       id: worldUuid,
-      owner_id: userId,
+      owner_id: null,
     };
 
     const { error: wErr } = await client.from('worlds').insert(worldRow);
@@ -2241,13 +2143,11 @@ export const useVaultStore = create<VaultState>((set, get) => ({
 
   signOutVault: async () => {
     const client = getSupabaseClient();
-    if (client) {
-      if (realtimeChannel) {
-        await client.removeChannel(realtimeChannel);
-        realtimeChannel = null;
-      }
-      await client.auth.signOut();
+    if (client && realtimeChannel) {
+      await client.removeChannel(realtimeChannel);
+      realtimeChannel = null;
     }
+    clearStoredVaultToken();
     set({ isAuthenticated: false, userEmail: null, syncStatus: 'demo' });
   },
 }));

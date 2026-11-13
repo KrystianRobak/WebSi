@@ -1,20 +1,32 @@
 -- ============================================================================
--- Aethelgard Vault — Full Multi-Device Schema, RLS, Indexes, Realtime & Storage
+-- Aethelgard Vault — Shared-Token Multi-Device Schema, RLS, Storage & Probe
 -- ============================================================================
 
 create extension if not exists "pgcrypto";
 
--- 1. Worlds
+create schema if not exists private;
+revoke all on schema private from public;
+grant usage on schema private to anon, authenticated;
+
+create table if not exists private.vault_credentials (
+  id text primary key,
+  salt text not null,
+  token_hash text not null,
+  updated_at timestamptz not null default now()
+);
+revoke all on table private.vault_credentials from public, anon, authenticated;
+
+-- 1. Worlds (nullable owner_id so no auth.users account is required)
 create table if not exists public.worlds (
   id uuid primary key default gen_random_uuid(),
-  owner_id uuid not null references auth.users(id) on delete cascade default auth.uid(),
+  owner_id uuid references auth.users(id) on delete set null,
   name text not null,
   description text default '',
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
 
--- 2. Entities (Characters, Locations, Factions, Sessions, Lore, etc.)
+-- 2. Entities
 create table if not exists public.entities (
   id uuid primary key default gen_random_uuid(),
   world_id uuid not null references public.worlds(id) on delete cascade,
@@ -33,7 +45,7 @@ create table if not exists public.entities (
   unique(world_id, slug)
 );
 
--- 3. Entity Links (Bidirectional WikiLink graph edges)
+-- 3. Entity Links
 create table if not exists public.entity_links (
   source_id uuid not null references public.entities(id) on delete cascade,
   target_id uuid not null references public.entities(id) on delete cascade,
@@ -41,7 +53,7 @@ create table if not exists public.entity_links (
   primary key (source_id, target_id)
 );
 
--- 4. Maps (3D Worldsmith Heightmaps/Rivers/Props + 2D Tactical Battlemaps)
+-- 4. Maps (3D Worldsmith + 2D Tactical Battlemaps)
 create table if not exists public.maps (
   id uuid primary key default gen_random_uuid(),
   world_id uuid not null references public.worlds(id) on delete cascade,
@@ -61,7 +73,7 @@ create table if not exists public.maps (
   created_at timestamptz not null default now()
 );
 
--- 5. Map Pins (3D Coordinates bound to Entities)
+-- 5. Map Pins
 create table if not exists public.map_pins (
   id uuid primary key default gen_random_uuid(),
   map_id uuid not null references public.maps(id) on delete cascade,
@@ -75,7 +87,7 @@ create table if not exists public.map_pins (
   created_at timestamptz not null default now()
 );
 
--- 6. Map Paths & Regions
+-- 6. Map Paths
 create table if not exists public.map_paths (
   id uuid primary key default gen_random_uuid(),
   map_id uuid not null references public.maps(id) on delete cascade,
@@ -86,7 +98,7 @@ create table if not exists public.map_paths (
   created_at timestamptz not null default now()
 );
 
--- 7. Vault Assets (![[asset-slug]] gallery & portraits)
+-- 7. Vault Assets
 create table if not exists public.vault_assets (
   id uuid primary key default gen_random_uuid(),
   world_id uuid not null references public.worlds(id) on delete cascade,
@@ -98,7 +110,7 @@ create table if not exists public.vault_assets (
   unique(world_id, slug)
 );
 
--- 8. Custom Encyclopedia & Note Templates per World
+-- 8. Entity Templates
 create table if not exists public.entity_templates (
   world_id uuid not null references public.worlds(id) on delete cascade,
   type text not null,
@@ -112,22 +124,58 @@ create table if not exists public.entity_templates (
   primary key (world_id, type)
 );
 
--- ============================================================================
--- Indexes for Foreign Keys & RLS Ownership Lookups
--- ============================================================================
-create index if not exists worlds_owner_id_idx on public.worlds (owner_id);
-create index if not exists entities_world_id_idx on public.entities (world_id);
-create index if not exists entity_links_world_id_idx on public.entity_links (world_id);
-create index if not exists entity_links_target_id_idx on public.entity_links (target_id);
-create index if not exists maps_world_id_idx on public.maps (world_id);
-create index if not exists map_pins_map_id_idx on public.map_pins (map_id);
-create index if not exists map_pins_entity_id_idx on public.map_pins (entity_id);
-create index if not exists map_paths_map_id_idx on public.map_paths (map_id);
-create index if not exists vault_assets_world_id_idx on public.vault_assets (world_id);
+-- 9. Single-row token verification probe
+create table if not exists public.vault_probe (
+  id integer primary key
+);
+insert into public.vault_probe (id) values (1) on conflict (id) do nothing;
 
--- ============================================================================
--- Row Level Security (RLS)
--- ============================================================================
+-- Token verification helper in private schema
+create or replace function private.has_valid_vault_token()
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select exists (
+    select 1
+    from private.vault_credentials vc
+    where vc.id = 'master'
+      and encode(
+        extensions.digest(
+          vc.salt || coalesce(
+            nullif(current_setting('request.headers', true), '')::jsonb ->> 'x-vault-token',
+            ''
+          ),
+          'sha256'
+        ),
+        'hex'
+      ) = vc.token_hash
+  );
+$$;
+revoke all on function private.has_valid_vault_token() from public;
+grant execute on function private.has_valid_vault_token() to anon, authenticated;
+
+-- Set/rotate your Vault Access Token cleanly via SQL Editor:
+-- with s as (select encode(extensions.gen_random_bytes(16), 'hex') as salt)
+-- insert into private.vault_credentials (id, salt, token_hash)
+-- select 'master', s.salt, encode(extensions.digest(s.salt || 'YOUR_MEMORABLE_TOKEN', 'sha256'), 'hex') from s
+-- on conflict (id) do update set salt = excluded.salt, token_hash = excluded.token_hash, updated_at = now();
+
+-- Grants + RLS
+grant select, insert, update, delete on
+  public.worlds,
+  public.entities,
+  public.entity_links,
+  public.maps,
+  public.map_pins,
+  public.map_paths,
+  public.vault_assets,
+  public.entity_templates
+to anon, authenticated;
+grant select on public.vault_probe to anon, authenticated;
+
 alter table public.worlds enable row level security;
 alter table public.entities enable row level security;
 alter table public.entity_links enable row level security;
@@ -136,153 +184,69 @@ alter table public.map_pins enable row level security;
 alter table public.map_paths enable row level security;
 alter table public.vault_assets enable row level security;
 alter table public.entity_templates enable row level security;
+alter table public.vault_probe enable row level security;
 
-drop policy if exists "worlds_owner_all" on public.worlds;
-create policy "worlds_owner_all" on public.worlds
-  for all to authenticated
-  using ((select auth.uid()) = owner_id)
-  with check ((select auth.uid()) = owner_id);
+create policy "worlds_token_all" on public.worlds
+  for all to anon, authenticated
+  using ((select private.has_valid_vault_token()))
+  with check ((select private.has_valid_vault_token()));
 
-drop policy if exists "entities_owner_all" on public.entities;
-create policy "entities_owner_all" on public.entities
-  for all to authenticated
-  using (
-    exists (select 1 from public.worlds w where w.id = world_id and w.owner_id = (select auth.uid()))
-  )
-  with check (
-    exists (select 1 from public.worlds w where w.id = world_id and w.owner_id = (select auth.uid()))
-  );
+create policy "entities_token_all" on public.entities
+  for all to anon, authenticated
+  using ((select private.has_valid_vault_token()))
+  with check ((select private.has_valid_vault_token()));
 
-drop policy if exists "entity_links_owner_all" on public.entity_links;
-create policy "entity_links_owner_all" on public.entity_links
-  for all to authenticated
-  using (
-    exists (select 1 from public.worlds w where w.id = world_id and w.owner_id = (select auth.uid()))
-  )
-  with check (
-    exists (select 1 from public.worlds w where w.id = world_id and w.owner_id = (select auth.uid()))
-  );
+create policy "entity_links_token_all" on public.entity_links
+  for all to anon, authenticated
+  using ((select private.has_valid_vault_token()))
+  with check ((select private.has_valid_vault_token()));
 
-drop policy if exists "maps_owner_all" on public.maps;
-create policy "maps_owner_all" on public.maps
-  for all to authenticated
-  using (
-    exists (select 1 from public.worlds w where w.id = world_id and w.owner_id = (select auth.uid()))
-  )
-  with check (
-    exists (select 1 from public.worlds w where w.id = world_id and w.owner_id = (select auth.uid()))
-  );
+create policy "maps_token_all" on public.maps
+  for all to anon, authenticated
+  using ((select private.has_valid_vault_token()))
+  with check ((select private.has_valid_vault_token()));
 
-drop policy if exists "map_pins_owner_all" on public.map_pins;
-create policy "map_pins_owner_all" on public.map_pins
-  for all to authenticated
-  using (
-    exists (
-      select 1 from public.maps m
-      join public.worlds w on w.id = m.world_id
-      where m.id = map_id and w.owner_id = (select auth.uid())
-    )
-  )
-  with check (
-    exists (
-      select 1 from public.maps m
-      join public.worlds w on w.id = m.world_id
-      where m.id = map_id and w.owner_id = (select auth.uid())
-    )
-  );
+create policy "map_pins_token_all" on public.map_pins
+  for all to anon, authenticated
+  using ((select private.has_valid_vault_token()))
+  with check ((select private.has_valid_vault_token()));
 
-drop policy if exists "map_paths_owner_all" on public.map_paths;
-create policy "map_paths_owner_all" on public.map_paths
-  for all to authenticated
-  using (
-    exists (
-      select 1 from public.maps m
-      join public.worlds w on w.id = m.world_id
-      where m.id = map_id and w.owner_id = (select auth.uid())
-    )
-  )
-  with check (
-    exists (
-      select 1 from public.maps m
-      join public.worlds w on w.id = m.world_id
-      where m.id = map_id and w.owner_id = (select auth.uid())
-    )
-  );
+create policy "map_paths_token_all" on public.map_paths
+  for all to anon, authenticated
+  using ((select private.has_valid_vault_token()))
+  with check ((select private.has_valid_vault_token()));
 
-drop policy if exists "vault_assets_owner_all" on public.vault_assets;
-create policy "vault_assets_owner_all" on public.vault_assets
-  for all to authenticated
-  using (
-    exists (select 1 from public.worlds w where w.id = world_id and w.owner_id = (select auth.uid()))
-  )
-  with check (
-    exists (select 1 from public.worlds w where w.id = world_id and w.owner_id = (select auth.uid()))
-  );
+create policy "vault_assets_token_all" on public.vault_assets
+  for all to anon, authenticated
+  using ((select private.has_valid_vault_token()))
+  with check ((select private.has_valid_vault_token()));
 
-drop policy if exists "entity_templates_owner_all" on public.entity_templates;
-create policy "entity_templates_owner_all" on public.entity_templates
-  for all to authenticated
-  using (
-    exists (select 1 from public.worlds w where w.id = world_id and w.owner_id = (select auth.uid()))
-  )
-  with check (
-    exists (select 1 from public.worlds w where w.id = world_id and w.owner_id = (select auth.uid()))
-  );
+create policy "entity_templates_token_all" on public.entity_templates
+  for all to anon, authenticated
+  using ((select private.has_valid_vault_token()))
+  with check ((select private.has_valid_vault_token()));
 
--- ============================================================================
--- Realtime Publication
--- ============================================================================
-do $$
-declare
-  t text;
-begin
-  foreach t in array array[
-    'worlds',
-    'entities',
-    'entity_links',
-    'maps',
-    'map_pins',
-    'map_paths',
-    'vault_assets',
-    'entity_templates'
-  ] loop
-    if not exists (
-      select 1 from pg_publication_tables
-      where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = t
-    ) then
-      execute format('alter publication supabase_realtime add table public.%I', t);
-    end if;
-  end loop;
-end $$;
+create policy "vault_probe_token_select" on public.vault_probe
+  for select to anon, authenticated
+  using ((select private.has_valid_vault_token()));
 
--- ============================================================================
--- Storage Bucket for Maps, Portraits & Asset Gallery
--- ============================================================================
+-- Storage Bucket
 insert into storage.buckets (id, name, public)
 values ('vault-assets', 'vault-assets', true)
 on conflict (id) do nothing;
 
-drop policy if exists "vault_assets_public_read" on storage.objects;
 create policy "vault_assets_public_read" on storage.objects
   for select using (bucket_id = 'vault-assets');
 
-drop policy if exists "vault_assets_auth_select" on storage.objects;
-create policy "vault_assets_auth_select" on storage.objects
-  for select to authenticated
-  using (bucket_id = 'vault-assets');
+create policy "vault_assets_token_insert" on storage.objects
+  for insert to anon, authenticated
+  with check (bucket_id = 'vault-assets' and (select private.has_valid_vault_token()));
 
-drop policy if exists "vault_assets_auth_insert" on storage.objects;
-create policy "vault_assets_auth_insert" on storage.objects
-  for insert to authenticated
-  with check (bucket_id = 'vault-assets');
+create policy "vault_assets_token_update" on storage.objects
+  for update to anon, authenticated
+  using (bucket_id = 'vault-assets' and (select private.has_valid_vault_token()))
+  with check (bucket_id = 'vault-assets' and (select private.has_valid_vault_token()));
 
-drop policy if exists "vault_assets_auth_update" on storage.objects;
-create policy "vault_assets_auth_update" on storage.objects
-  for update to authenticated
-  using (bucket_id = 'vault-assets')
-  with check (bucket_id = 'vault-assets');
-
-drop policy if exists "vault_assets_auth_delete" on storage.objects;
-create policy "vault_assets_auth_delete" on storage.objects
-  for delete to authenticated
-  using (bucket_id = 'vault-assets');
+create policy "vault_assets_token_delete" on storage.objects
+  for delete to anon, authenticated
+  using (bucket_id = 'vault-assets' and (select private.has_valid_vault_token()));

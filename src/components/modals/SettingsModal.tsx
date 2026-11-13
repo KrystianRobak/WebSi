@@ -21,7 +21,6 @@ export const SettingsModal: React.FC = () => {
 
   const [url, setUrl] = useState('');
   const [anonKey, setAnonKey] = useState('');
-  const [gmEmail, setGmEmail] = useState('');
   const [uploadingAlbedo, setUploadingAlbedo] = useState(false);
   const [uploadingHeight, setUploadingHeight] = useState(false);
 
@@ -32,7 +31,6 @@ export const SettingsModal: React.FC = () => {
       const cfg = getSupabaseConfig();
       setUrl(cfg.url);
       setAnonKey(cfg.anonKey);
-      setGmEmail(cfg.gmEmail);
     }
   }, [settingsModalOpen]);
 
@@ -43,7 +41,6 @@ export const SettingsModal: React.FC = () => {
     saveSupabaseConfig({
       url: url.trim(),
       anonKey: anonKey.trim(),
-      gmEmail: gmEmail.trim(),
     });
     await initSupabaseSync();
   };
@@ -122,18 +119,6 @@ export const SettingsModal: React.FC = () => {
                 value={anonKey}
                 onChange={(e) => setAnonKey(e.target.value)}
                 placeholder="eyJhbGciOi..."
-                className="w-full bg-[#0b0d10] border border-[#242a35] rounded px-3 py-1.5 font-mono text-xs text-[#e7e2d8] focus:outline-none focus:border-[#d4a853]"
-              />
-            </div>
-
-            <div>
-              <label className="block text-[11px] text-[#9aa3b2] mb-1">
-                GM Auth Email (`VITE_GM_EMAIL`)
-              </label>
-              <input
-                value={gmEmail}
-                onChange={(e) => setGmEmail(e.target.value)}
-                placeholder="gm@aethelgard-vault.com"
                 className="w-full bg-[#0b0d10] border border-[#242a35] rounded px-3 py-1.5 font-mono text-xs text-[#e7e2d8] focus:outline-none focus:border-[#d4a853]"
               />
             </div>
