@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ThreeEvent, useFrame } from '@react-three/fiber';
 import { Html, Line, Text } from '@react-three/drei';
 import * as THREE from 'three';
@@ -8,6 +8,7 @@ import {
   buildTerrainConformingPolygonGeometry,
   computePolygonCentroid,
   sampleClosedBorderPoints,
+  sampleLandOrSeaElevation,
 } from '../../lib/worldLayers';
 import {
   FogVolume,
@@ -921,6 +922,8 @@ export const TerrainProps3D: React.FC<TerrainProps3DProps> = ({
   );
 };
 
+export type ZoneGizmoDragMode = 'move-xz' | 'move-x' | 'move-z';
+
 interface SingleZoneMeshProps {
   zone: WorldMapZone;
   layer?: WorldMapLayer;
@@ -934,6 +937,23 @@ interface SingleZoneMeshProps {
   isSelected: boolean;
   interactive: boolean;
   onSelect: () => void;
+  onStartGizmoDrag?: (
+    zone: WorldMapZone,
+    mode: ZoneGizmoDragMode,
+    e: ThreeEvent<PointerEvent>
+  ) => void;
+  onStartVertexDrag?: (
+    zone: WorldMapZone,
+    vertexIndex: number,
+    e: ThreeEvent<PointerEvent>
+  ) => void;
+  onInsertVertexAndDrag?: (
+    zone: WorldMapZone,
+    insertIndex: number,
+    pt: { x: number; y: number; z: number },
+    e: ThreeEvent<PointerEvent>
+  ) => void;
+  onRemoveVertex?: (zone: WorldMapZone, vertexIndex: number) => void;
 }
 
 const noopRaycast = () => null;
@@ -951,7 +971,12 @@ const SingleZoneMesh: React.FC<SingleZoneMeshProps> = ({
   isSelected,
   interactive,
   onSelect,
+  onStartGizmoDrag,
+  onStartVertexDrag,
+  onInsertVertexAndDrag,
+  onRemoveVertex,
 }) => {
+  const [hoveredHandle, setHoveredHandle] = useState<string | null>(null);
   const layerOffset = (layer?.order ?? 1) * 0.035;
 
   const fillGeom = useMemo(() => {
@@ -992,20 +1017,106 @@ const SingleZoneMesh: React.FC<SingleZoneMeshProps> = ({
 
   const centroid = useMemo(() => {
     const c = computePolygonCentroid(zone.points);
-    const ty = sampleTerrainElevation(
+    const surfaceY = sampleLandOrSeaElevation(
       heightData,
       heightRes,
       c.x,
       c.z,
       terrainSize,
-      displacementScale
+      displacementScale,
+      seaY
     );
     return {
       x: c.x,
-      y: Math.max(seaY + 0.45, ty + 0.72) + layerOffset,
+      surfaceY,
+      y: surfaceY + 0.72 + layerOffset,
       z: c.z,
     };
   }, [zone.points, heightData, heightRes, displacementScale, seaY, terrainVersion, layerOffset, terrainSize]);
+
+  const vertexHandles = useMemo(() => {
+    if (!isSelected || !interactive) return [];
+    return zone.points.map((pt, idx) => {
+      const surfaceY = sampleLandOrSeaElevation(
+        heightData,
+        heightRes,
+        pt.x,
+        pt.z,
+        terrainSize,
+        displacementScale,
+        seaY
+      );
+      return {
+        idx,
+        x: pt.x,
+        surfaceY,
+        y: surfaceY + 0.56 + layerOffset,
+        z: pt.z,
+      };
+    });
+  }, [
+    isSelected,
+    interactive,
+    zone.points,
+    heightData,
+    heightRes,
+    terrainSize,
+    displacementScale,
+    seaY,
+    terrainVersion,
+    layerOffset,
+  ]);
+
+  const edgeMidpoints = useMemo(() => {
+    if (!isSelected || !interactive || zone.points.length < 3 || zone.points.length >= 48) {
+      return [];
+    }
+    const mids: Array<{
+      insertIndex: number;
+      x: number;
+      surfaceY: number;
+      y: number;
+      z: number;
+    }> = [];
+    for (let i = 0; i < zone.points.length; i++) {
+      const a = zone.points[i];
+      const b = zone.points[(i + 1) % zone.points.length];
+      if (Math.hypot(b.x - a.x, b.z - a.z) < 2.2) continue;
+      const mx = Number(((a.x + b.x) * 0.5).toFixed(2));
+      const mz = Number(((a.z + b.z) * 0.5).toFixed(2));
+      const surfaceY = sampleLandOrSeaElevation(
+        heightData,
+        heightRes,
+        mx,
+        mz,
+        terrainSize,
+        displacementScale,
+        seaY
+      );
+      mids.push({
+        insertIndex: i + 1,
+        x: mx,
+        surfaceY: Number(surfaceY.toFixed(2)),
+        y: surfaceY + 0.48 + layerOffset,
+        z: mz,
+      });
+    }
+    return mids;
+  }, [
+    isSelected,
+    interactive,
+    zone.points,
+    heightData,
+    heightRes,
+    terrainSize,
+    displacementScale,
+    seaY,
+    terrainVersion,
+    layerOffset,
+  ]);
+
+  const gizmoScale = Math.max(0.95, terrainSize / 120);
+  const gizmoY = centroid.surfaceY + 1.15 * gizmoScale + layerOffset;
 
   const fillOpacity = Math.min(
     0.85,
@@ -1078,6 +1189,235 @@ const SingleZoneMesh: React.FC<SingleZoneMeshProps> = ({
           {zone.name.toUpperCase()}
         </Text>
       )}
+
+      {/* Selected Zone 3D Move Gizmo + Corner Vertex & Edge Midpoint Handles */}
+      {isSelected && interactive && (
+        <group>
+          {/* Centroid Ground Anchor Ring & Stem */}
+          <mesh
+            position={[centroid.x, centroid.surfaceY + 0.36 + layerOffset, centroid.z]}
+            rotation={[-Math.PI / 2, 0, 0]}
+            raycast={noopRaycast}
+          >
+            <ringGeometry args={[0.45 * gizmoScale, 0.72 * gizmoScale, 24]} />
+            <meshBasicMaterial color="#facc15" transparent opacity={0.85} side={THREE.DoubleSide} />
+          </mesh>
+          <mesh
+            position={[
+              centroid.x,
+              (centroid.surfaceY + 0.36 + layerOffset + gizmoY) * 0.5,
+              centroid.z,
+            ]}
+            raycast={noopRaycast}
+          >
+            <cylinderGeometry
+              args={[
+                0.04 * gizmoScale,
+                0.04 * gizmoScale,
+                Math.max(0.2, gizmoY - (centroid.surfaceY + 0.36 + layerOffset)),
+                8,
+              ]}
+            />
+            <meshBasicMaterial color="#facc15" transparent opacity={0.75} />
+          </mesh>
+
+          {/* 3D Move Gizmo Hub at Centroid (Drag XZ free, +X red arrow, +Z cyan arrow) */}
+          <group position={[centroid.x, gizmoY, centroid.z]} scale={gizmoScale}>
+            {/* Center Free-Move XZ Handle */}
+            <mesh
+              renderOrder={12}
+              onPointerOver={(e) => {
+                e.stopPropagation();
+                setHoveredHandle('gizmo-xz');
+              }}
+              onPointerOut={() => setHoveredHandle((h) => (h === 'gizmo-xz' ? null : h))}
+              onPointerDown={(e) => {
+                if (e.button !== 0) return;
+                e.stopPropagation();
+                onStartGizmoDrag?.(zone, 'move-xz', e);
+              }}
+            >
+              <octahedronGeometry args={[0.62, 0]} />
+              <meshStandardMaterial
+                color={hoveredHandle === 'gizmo-xz' ? '#fef08a' : '#facc15'}
+                emissive={hoveredHandle === 'gizmo-xz' ? '#facc15' : '#b45309'}
+                emissiveIntensity={hoveredHandle === 'gizmo-xz' ? 1.1 : 0.6}
+                roughness={0.25}
+                metalness={0.5}
+              />
+            </mesh>
+            <mesh rotation={[-Math.PI / 2, 0, 0]} renderOrder={12} raycast={noopRaycast}>
+              <ringGeometry args={[0.78, 0.98, 24]} />
+              <meshBasicMaterial
+                color={hoveredHandle === 'gizmo-xz' ? '#fef08a' : '#facc15'}
+                transparent
+                opacity={0.85}
+                side={THREE.DoubleSide}
+              />
+            </mesh>
+
+            {/* +X Axis Move Arrow (Red) */}
+            <group
+              onPointerOver={(e) => {
+                e.stopPropagation();
+                setHoveredHandle('gizmo-x');
+              }}
+              onPointerOut={() => setHoveredHandle((h) => (h === 'gizmo-x' ? null : h))}
+              onPointerDown={(e) => {
+                if (e.button !== 0) return;
+                e.stopPropagation();
+                onStartGizmoDrag?.(zone, 'move-x', e);
+              }}
+            >
+              <mesh position={[1.9, 0, 0]} rotation={[0, 0, -Math.PI / 2]} renderOrder={12}>
+                <cylinderGeometry args={[0.1, 0.1, 2.2, 10]} />
+                <meshBasicMaterial color={hoveredHandle === 'gizmo-x' ? '#fca5a5' : '#ef4444'} />
+              </mesh>
+              <mesh position={[3.25, 0, 0]} rotation={[0, 0, -Math.PI / 2]} renderOrder={12}>
+                <coneGeometry args={[0.32, 0.72, 12]} />
+                <meshBasicMaterial color={hoveredHandle === 'gizmo-x' ? '#fca5a5' : '#ef4444'} />
+              </mesh>
+              {/* Invisible wider hit cylinder for easy grabbing */}
+              <mesh position={[2.2, 0, 0]} rotation={[0, 0, -Math.PI / 2]}>
+                <cylinderGeometry args={[0.48, 0.48, 3.0, 8]} />
+                <meshBasicMaterial transparent opacity={0} depthWrite={false} />
+              </mesh>
+            </group>
+
+            {/* +Z Axis Move Arrow (Blue/Cyan) */}
+            <group
+              onPointerOver={(e) => {
+                e.stopPropagation();
+                setHoveredHandle('gizmo-z');
+              }}
+              onPointerOut={() => setHoveredHandle((h) => (h === 'gizmo-z' ? null : h))}
+              onPointerDown={(e) => {
+                if (e.button !== 0) return;
+                e.stopPropagation();
+                onStartGizmoDrag?.(zone, 'move-z', e);
+              }}
+            >
+              <mesh position={[0, 0, 1.9]} rotation={[Math.PI / 2, 0, 0]} renderOrder={12}>
+                <cylinderGeometry args={[0.1, 0.1, 2.2, 10]} />
+                <meshBasicMaterial color={hoveredHandle === 'gizmo-z' ? '#bae6fd' : '#38bdf8'} />
+              </mesh>
+              <mesh position={[0, 0, 3.25]} rotation={[Math.PI / 2, 0, 0]} renderOrder={12}>
+                <coneGeometry args={[0.32, 0.72, 12]} />
+                <meshBasicMaterial color={hoveredHandle === 'gizmo-z' ? '#bae6fd' : '#38bdf8'} />
+              </mesh>
+              {/* Invisible wider hit cylinder for easy grabbing */}
+              <mesh position={[0, 0, 2.2]} rotation={[Math.PI / 2, 0, 0]}>
+                <cylinderGeometry args={[0.48, 0.48, 3.0, 8]} />
+                <meshBasicMaterial transparent opacity={0} depthWrite={false} />
+              </mesh>
+            </group>
+          </group>
+
+          {/* Draggable Corner Vertex Handles (Stuck to Land/Sea) */}
+          {vertexHandles.map((vh) => {
+            const key = `v-${vh.idx}`;
+            const isHot = hoveredHandle === key;
+            return (
+              <group key={key} position={[vh.x, vh.y, vh.z]}>
+                <mesh
+                  renderOrder={11}
+                  onPointerOver={(e) => {
+                    e.stopPropagation();
+                    setHoveredHandle(key);
+                  }}
+                  onPointerOut={() => setHoveredHandle((h) => (h === key ? null : h))}
+                  onPointerDown={(e) => {
+                    if (e.button !== 0) return;
+                    e.stopPropagation();
+                    if (e.shiftKey && zone.points.length > 3) {
+                      onRemoveVertex?.(zone, vh.idx);
+                    } else {
+                      onStartVertexDrag?.(zone, vh.idx, e);
+                    }
+                  }}
+                  onContextMenu={(e) => {
+                    if (zone.points.length > 3) {
+                      e.stopPropagation();
+                      e.nativeEvent?.preventDefault?.();
+                      onRemoveVertex?.(zone, vh.idx);
+                    }
+                  }}
+                >
+                  <sphereGeometry args={[0.44 * gizmoScale, 14, 14]} />
+                  <meshStandardMaterial
+                    color={isHot ? '#ffffff' : '#fef08a'}
+                    emissive={isHot ? '#facc15' : '#ca8a04'}
+                    emissiveIntensity={isHot ? 1.2 : 0.55}
+                    roughness={0.25}
+                  />
+                </mesh>
+                {/* Larger invisible hit sphere */}
+                <mesh
+                  onPointerOver={(e) => {
+                    e.stopPropagation();
+                    setHoveredHandle(key);
+                  }}
+                  onPointerOut={() => setHoveredHandle((h) => (h === key ? null : h))}
+                  onPointerDown={(e) => {
+                    if (e.button !== 0) return;
+                    e.stopPropagation();
+                    if (e.shiftKey && zone.points.length > 3) {
+                      onRemoveVertex?.(zone, vh.idx);
+                    } else {
+                      onStartVertexDrag?.(zone, vh.idx, e);
+                    }
+                  }}
+                  onContextMenu={(e) => {
+                    if (zone.points.length > 3) {
+                      e.stopPropagation();
+                      e.nativeEvent?.preventDefault?.();
+                      onRemoveVertex?.(zone, vh.idx);
+                    }
+                  }}
+                >
+                  <sphereGeometry args={[0.78 * gizmoScale, 8, 8]} />
+                  <meshBasicMaterial transparent opacity={0} depthWrite={false} />
+                </mesh>
+              </group>
+            );
+          })}
+
+          {/* Edge Midpoint Insert Handles (Click & drag to add vertex along edge) */}
+          {edgeMidpoints.map((mid) => {
+            const key = `m-${mid.insertIndex}`;
+            const isHot = hoveredHandle === key;
+            return (
+              <mesh
+                key={key}
+                position={[mid.x, mid.y, mid.z]}
+                renderOrder={10}
+                onPointerOver={(e) => {
+                  e.stopPropagation();
+                  setHoveredHandle(key);
+                }}
+                onPointerOut={() => setHoveredHandle((h) => (h === key ? null : h))}
+                onPointerDown={(e) => {
+                  if (e.button !== 0) return;
+                  e.stopPropagation();
+                  onInsertVertexAndDrag?.(
+                    zone,
+                    mid.insertIndex,
+                    { x: mid.x, y: mid.surfaceY, z: mid.z },
+                    e
+                  );
+                }}
+              >
+                <octahedronGeometry args={[(isHot ? 0.36 : 0.26) * gizmoScale, 0]} />
+                <meshBasicMaterial
+                  color={isHot ? '#6ee7b7' : '#34d399'}
+                  transparent
+                  opacity={isHot ? 0.95 : 0.72}
+                />
+              </mesh>
+            );
+          })}
+        </group>
+      )}
     </group>
   );
 };
@@ -1097,6 +1437,23 @@ interface TerrainZones3DProps {
   selectedZoneId: string | null;
   interactive: boolean;
   onSelectZone: (zoneId: string) => void;
+  onStartGizmoDrag?: (
+    zone: WorldMapZone,
+    mode: ZoneGizmoDragMode,
+    e: ThreeEvent<PointerEvent>
+  ) => void;
+  onStartVertexDrag?: (
+    zone: WorldMapZone,
+    vertexIndex: number,
+    e: ThreeEvent<PointerEvent>
+  ) => void;
+  onInsertVertexAndDrag?: (
+    zone: WorldMapZone,
+    insertIndex: number,
+    pt: { x: number; y: number; z: number },
+    e: ThreeEvent<PointerEvent>
+  ) => void;
+  onRemoveVertex?: (zone: WorldMapZone, vertexIndex: number) => void;
 }
 
 export const TerrainZones3D: React.FC<TerrainZones3DProps> = ({
@@ -1114,6 +1471,10 @@ export const TerrainZones3D: React.FC<TerrainZones3DProps> = ({
   selectedZoneId,
   interactive,
   onSelectZone,
+  onStartGizmoDrag,
+  onStartVertexDrag,
+  onInsertVertexAndDrag,
+  onRemoveVertex,
 }) => {
   if (!showRegionsLayer || zones.length === 0) return null;
 
@@ -1140,6 +1501,10 @@ export const TerrainZones3D: React.FC<TerrainZones3DProps> = ({
             isSelected={selectedZoneId === zone.id}
             interactive={interactive}
             onSelect={() => onSelectZone(zone.id)}
+            onStartGizmoDrag={onStartGizmoDrag}
+            onStartVertexDrag={onStartVertexDrag}
+            onInsertVertexAndDrag={onInsertVertexAndDrag}
+            onRemoveVertex={onRemoveVertex}
           />
         );
       })}

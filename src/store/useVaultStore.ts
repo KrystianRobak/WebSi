@@ -131,6 +131,7 @@ interface VaultState {
   cameraResetSignal: number;
   cameraTopViewSignal: number;
   cameraZoomSignal: { delta: number; seq: number };
+  zoneTransformSignal: { action: 'rotate' | 'scale' | 'snap'; value: number; seq: number };
   scaleBarKm: number;
 
   // 3D Worldsmith Editor State
@@ -199,6 +200,7 @@ interface VaultState {
   triggerCameraReset: () => void;
   triggerTopView: () => void;
   triggerCameraZoom: (delta: number) => void;
+  dispatchZoneTransform: (action: 'rotate' | 'scale' | 'snap', value?: number) => void;
   setScaleBarKm: (km: number) => void;
 
   // World Layers, Zones (Countries/Regions/Religions) & Text Labels
@@ -854,6 +856,7 @@ export const useVaultStore = create<VaultState>((set, get) => ({
   cameraResetSignal: 0,
   cameraTopViewSignal: 0,
   cameraZoomSignal: { delta: 0, seq: 0 },
+  zoneTransformSignal: { action: 'snap', value: 0, seq: 0 },
   scaleBarKm: 40,
 
   worldsmithMode: false,
@@ -999,6 +1002,8 @@ export const useVaultStore = create<VaultState>((set, get) => ({
     set((s) => ({ mapCameraView: 'top', cameraTopViewSignal: s.cameraTopViewSignal + 1 })),
   triggerCameraZoom: (delta) =>
     set((s) => ({ cameraZoomSignal: { delta, seq: s.cameraZoomSignal.seq + 1 } })),
+  dispatchZoneTransform: (action, value = 0) =>
+    set((s) => ({ zoneTransformSignal: { action, value, seq: s.zoneTransformSignal.seq + 1 } })),
   setScaleBarKm: (km) => set({ scaleBarKm: km }),
 
   addWorldLayer: (mapId, { name, category, color, opacity = 0.32 }) => {

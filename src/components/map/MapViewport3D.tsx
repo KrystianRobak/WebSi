@@ -76,6 +76,10 @@ import {
   WORLD_ELEMENT_CATALOG,
   ZONE_COLOR_PALETTE,
   createDefaultWorldLayers,
+  sampleLandOrSeaElevation,
+  snapPointToLandOrSea,
+  transformPolygonPointsOnSurface,
+  translatePolygonPointsOnSurface,
 } from '../../lib/worldLayers';
 import { useVaultStore } from '../../store/useVaultStore';
 import {
@@ -86,12 +90,14 @@ import {
   MapPin as MapPinType,
   MapProp,
   MapPropKind,
+  PathPoint,
   TerrainShadingSettings,
   VaultMap,
   WaterSettings,
   WorldAtmospherePreset,
   WorldLayerCategory,
   WorldMapLabel,
+  WorldMapZone,
   WorldsmithTool,
   ZoneBorderStyle,
 } from '../../types/vault';
@@ -104,6 +110,7 @@ import {
   TerrainProps3D,
   TerrainRivers3D,
   TerrainZones3D,
+  ZoneGizmoDragMode,
 } from './WorldsmithMeshes3D';
 
 const ATMOSPHERE_PRESETS: Record<
@@ -927,6 +934,7 @@ const TERRAIN_ROUGHNESS_CHUNK = `
 `;
 
 interface DisplacedTerrainMeshProps {
+  meshRef?: React.RefObject<THREE.Mesh>;
   heightData: Float32Array;
   heightRes: number;
   terrainSize: number;
@@ -946,6 +954,7 @@ interface DisplacedTerrainMeshProps {
 }
 
 const DisplacedTerrainMesh: React.FC<DisplacedTerrainMeshProps> = ({
+  meshRef,
   heightData,
   heightRes,
   terrainSize,
@@ -1047,6 +1056,7 @@ const DisplacedTerrainMesh: React.FC<DisplacedTerrainMeshProps> = ({
 
   return (
     <mesh
+      ref={meshRef}
       geometry={geom}
       receiveShadow
       castShadow
@@ -1321,7 +1331,8 @@ const TerrainPathOverlay: React.FC<{
   resolution: number;
   terrainSize: number;
   displacement: number;
-}> = ({ path, heightData, resolution, terrainSize, displacement }) => {
+  seaY: number;
+}> = ({ path, heightData, resolution, terrainSize, displacement, seaY }) => {
   const isRegion = path.style === 'region-polygon';
 
   const sampledPoints = useMemo(() => {
@@ -1339,7 +1350,7 @@ const TerrainPathOverlay: React.FC<{
           const x = THREE.MathUtils.lerp(a.x, b.x, t);
           const z = THREE.MathUtils.lerp(a.z, b.z, t);
           const y =
-            sampleTerrainElevation(heightData, resolution, x, z, terrainSize, displacement) + 0.35;
+            sampleLandOrSeaElevation(heightData, resolution, x, z, terrainSize, displacement, seaY) + 0.35;
           out.push([x, y, z]);
         }
       }
@@ -1351,10 +1362,10 @@ const TerrainPathOverlay: React.FC<{
     const curvePts = curve.getPoints(divisions);
     return curvePts.map((pt) => {
       const y =
-        sampleTerrainElevation(heightData, resolution, pt.x, pt.z, terrainSize, displacement) + 0.32;
+        sampleLandOrSeaElevation(heightData, resolution, pt.x, pt.z, terrainSize, displacement, seaY) + 0.32;
       return [pt.x, y, pt.z] as [number, number, number];
     });
-  }, [path.points, isRegion, heightData, resolution, terrainSize, displacement]);
+  }, [path.points, isRegion, heightData, resolution, terrainSize, displacement, seaY]);
 
   if (sampledPoints.length < 2) return null;
 
@@ -1533,6 +1544,7 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({
     cameraResetSignal,
     cameraTopViewSignal,
     cameraZoomSignal,
+    zoneTransformSignal,
     setMapToolMode,
     setSelectedPinId,
     setHoveredPinId,
@@ -1565,6 +1577,7 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({
     addMapProp,
     updateMapProp,
     deleteMapProp,
+    updateMapZone,
     createMapLabel,
     updateMapLabel,
     updateMapAssets,
@@ -1572,7 +1585,9 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({
 
   const controlsRef = useRef<OrbitControlsImpl>(null);
   const fogRef = useRef<THREE.Fog>(null);
-  const { camera } = useThree();
+  const terrainMeshRef = useRef<THREE.Mesh>(null);
+  const raycasterRef = useRef(new THREE.Raycaster());
+  const { camera, gl } = useThree();
 
   const worldSize = getWorldSize(mapData);
   const terrainSegments = terrainSegmentsForWorldSize(worldSize);
@@ -1589,6 +1604,10 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({
   const [activeHeightRes, setActiveHeightRes] = useState<number>(procedural.resolution);
   const [terrainVersion, setTerrainVersion] = useState(0);
   const [brushCursor, setBrushCursor] = useState<{ x: number; y: number; z: number } | null>(null);
+  const [liveZoneOverride, setLiveZoneOverride] = useState<{
+    id: string;
+    points: PathPoint[];
+  } | null>(null);
 
   const heightDataRef = useRef<Float32Array>(activeHeightData);
   const heightResRef = useRef<number>(activeHeightRes);
@@ -1606,9 +1625,21 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({
   const draggingPropIdRef = useRef<string | null>(null);
   const draggingLabelIdRef = useRef<string | null>(null);
   const draggingFogIdRef = useRef<string | null>(null);
+  const liveZoneOverrideRef = useRef<{ id: string; points: PathPoint[] } | null>(null);
+  const zoneDragRef = useRef<{
+    zoneId: string;
+    mode: ZoneGizmoDragMode | 'vertex';
+    vertexIndex: number;
+    originPoints: PathPoint[];
+    dragPlaneY: number;
+    startXZ: { x: number; z: number };
+    didMove: boolean;
+  } | null>(null);
+  const justFinishedZoneDragRef = useRef(false);
   const undoStackRef = useRef<TerrainHistorySnapshot[]>([]);
   const redoStackRef = useRef<TerrainHistorySnapshot[]>([]);
   const lastProcessedCmdSeqRef = useRef<number>(0);
+  const lastZoneCmdSeqRef = useRef<number>(zoneTransformSignal.seq);
 
   const activeSeaNorm = getSeaLevelNorm(mapData);
   const displacementScale = mapData.displacement_scale || DEFAULT_DISPLACEMENT;
@@ -2126,8 +2157,292 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({
     [mapData.props, mapData.id, brushRadius, deleteMapProp]
   );
 
+  const raycastScreenToXZ = useCallback(
+    (
+      clientX: number,
+      clientY: number,
+      mode: ZoneGizmoDragMode | 'vertex',
+      dragPlaneY: number
+    ): { x: number; z: number } | null => {
+      const rect = gl.domElement.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return null;
+      const ndc = new THREE.Vector2(
+        ((clientX - rect.left) / rect.width) * 2 - 1,
+        -((clientY - rect.top) / rect.height) * 2 + 1
+      );
+      const raycaster = raycasterRef.current;
+      raycaster.setFromCamera(ndc, camera);
+
+      if (mode === 'vertex') {
+        const seaPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -seaY);
+        const seaHit = new THREE.Vector3();
+        const hasSeaHit = raycaster.ray.intersectPlane(seaPlane, seaHit) !== null;
+
+        if (terrainMeshRef.current && mapLayers.terrain) {
+          const hits = raycaster.intersectObject(terrainMeshRef.current, false);
+          if (hits.length > 0 && hits[0].point.y >= seaY - 0.02) {
+            return { x: hits[0].point.x, z: hits[0].point.z };
+          }
+        }
+        if (hasSeaHit) {
+          return { x: seaHit.x, z: seaHit.z };
+        }
+      }
+
+      const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -dragPlaneY);
+      const hit = new THREE.Vector3();
+      if (!raycaster.ray.intersectPlane(plane, hit)) return null;
+      return { x: hit.x, z: hit.z };
+    },
+    [gl, camera, seaY, mapLayers.terrain]
+  );
+
+  const startZoneGizmoDrag = useCallback(
+    (zone: WorldMapZone, mode: ZoneGizmoDragMode, e: ThreeEvent<PointerEvent>) => {
+      const dragPlaneY = e.point.y;
+      const startXZ = raycastScreenToXZ(
+        e.nativeEvent.clientX,
+        e.nativeEvent.clientY,
+        mode,
+        dragPlaneY
+      ) || { x: e.point.x, z: e.point.z };
+      zoneDragRef.current = {
+        zoneId: zone.id,
+        mode,
+        vertexIndex: -1,
+        originPoints: zone.points.map((p) => ({ ...p })),
+        dragPlaneY,
+        startXZ,
+        didMove: false,
+      };
+      if (controlsRef.current) controlsRef.current.enabled = false;
+    },
+    [raycastScreenToXZ]
+  );
+
+  const startZoneVertexDrag = useCallback(
+    (zone: WorldMapZone, vertexIndex: number, e: ThreeEvent<PointerEvent>) => {
+      const origin = zone.points[vertexIndex];
+      const dragPlaneY = origin ? Math.max(seaY, origin.y) : e.point.y;
+      const startXZ = raycastScreenToXZ(
+        e.nativeEvent.clientX,
+        e.nativeEvent.clientY,
+        'vertex',
+        dragPlaneY
+      ) || { x: e.point.x, z: e.point.z };
+      zoneDragRef.current = {
+        zoneId: zone.id,
+        mode: 'vertex',
+        vertexIndex,
+        originPoints: zone.points.map((p) => ({ ...p })),
+        dragPlaneY,
+        startXZ,
+        didMove: false,
+      };
+      if (controlsRef.current) controlsRef.current.enabled = false;
+    },
+    [raycastScreenToXZ, seaY]
+  );
+
+  const insertZoneVertexAndDrag = useCallback(
+    (
+      zone: WorldMapZone,
+      insertIndex: number,
+      pt: { x: number; y: number; z: number },
+      e: ThreeEvent<PointerEvent>
+    ) => {
+      const snapped = snapPointToLandOrSea(
+        pt.x,
+        pt.z,
+        heightDataRef.current,
+        heightResRef.current,
+        effectiveDisplacementScale,
+        seaY,
+        worldSize
+      );
+      const nextPoints = [...zone.points.map((p) => ({ ...p }))];
+      nextPoints.splice(insertIndex, 0, snapped);
+
+      const override = { id: zone.id, points: nextPoints };
+      liveZoneOverrideRef.current = override;
+      setLiveZoneOverride(override);
+
+      const startXZ = raycastScreenToXZ(
+        e.nativeEvent.clientX,
+        e.nativeEvent.clientY,
+        'vertex',
+        snapped.y
+      ) || { x: snapped.x, z: snapped.z };
+
+      zoneDragRef.current = {
+        zoneId: zone.id,
+        mode: 'vertex',
+        vertexIndex: insertIndex,
+        originPoints: nextPoints,
+        dragPlaneY: snapped.y,
+        startXZ,
+        didMove: true,
+      };
+      if (controlsRef.current) controlsRef.current.enabled = false;
+    },
+    [raycastScreenToXZ, effectiveDisplacementScale, seaY, worldSize]
+  );
+
+  const removeZoneVertex = useCallback(
+    (zone: WorldMapZone, vertexIndex: number) => {
+      if (zone.points.length <= 3) return;
+      const nextPoints = zone.points.filter((_, idx) => idx !== vertexIndex);
+      updateMapZone(mapData.id, zone.id, { points: nextPoints });
+    },
+    [updateMapZone, mapData.id]
+  );
+
+  const handleSelectZone = useCallback(
+    (zoneId: string) => {
+      if (justFinishedZoneDragRef.current) return;
+      setSelectedZoneId(zoneId);
+    },
+    [setSelectedZoneId]
+  );
+
+  useEffect(() => {
+    const onWindowPointerMove = (ev: PointerEvent) => {
+      const drag = zoneDragRef.current;
+      if (!drag) return;
+      const curXZ = raycastScreenToXZ(ev.clientX, ev.clientY, drag.mode, drag.dragPlaneY);
+      if (!curXZ) return;
+
+      if (drag.mode === 'vertex') {
+        const snapped = snapPointToLandOrSea(
+          curXZ.x,
+          curXZ.z,
+          heightDataRef.current,
+          heightResRef.current,
+          effectiveDisplacementScale,
+          seaY,
+          worldSize
+        );
+        const nextPoints = drag.originPoints.map((p, idx) =>
+          idx === drag.vertexIndex ? snapped : p
+        );
+        drag.didMove = true;
+        const nextOverride = { id: drag.zoneId, points: nextPoints };
+        liveZoneOverrideRef.current = nextOverride;
+        setLiveZoneOverride(nextOverride);
+        return;
+      }
+
+      const rawDx = curXZ.x - drag.startXZ.x;
+      const rawDz = curXZ.z - drag.startXZ.z;
+      const dx = drag.mode === 'move-z' ? 0 : rawDx;
+      const dz = drag.mode === 'move-x' ? 0 : rawDz;
+      if (Math.hypot(dx, dz) < 0.04 && !drag.didMove) return;
+
+      drag.didMove = true;
+      const nextPoints = translatePolygonPointsOnSurface(
+        drag.originPoints,
+        dx,
+        dz,
+        heightDataRef.current,
+        heightResRef.current,
+        effectiveDisplacementScale,
+        seaY,
+        worldSize
+      );
+      const nextOverride = { id: drag.zoneId, points: nextPoints };
+      liveZoneOverrideRef.current = nextOverride;
+      setLiveZoneOverride(nextOverride);
+    };
+
+    const finishZoneDrag = () => {
+      const drag = zoneDragRef.current;
+      if (!drag) return;
+      zoneDragRef.current = null;
+      const committed = liveZoneOverrideRef.current;
+      liveZoneOverrideRef.current = null;
+      setLiveZoneOverride(null);
+      if (controlsRef.current) {
+        controlsRef.current.enabled = true;
+      }
+      if (drag.didMove && committed && committed.id === drag.zoneId) {
+        updateMapZone(mapData.id, drag.zoneId, { points: committed.points });
+      }
+      justFinishedZoneDragRef.current = true;
+      requestAnimationFrame(() => {
+        justFinishedZoneDragRef.current = false;
+      });
+    };
+
+    window.addEventListener('pointermove', onWindowPointerMove);
+    window.addEventListener('pointerup', finishZoneDrag);
+    window.addEventListener('pointercancel', finishZoneDrag);
+    return () => {
+      window.removeEventListener('pointermove', onWindowPointerMove);
+      window.removeEventListener('pointerup', finishZoneDrag);
+      window.removeEventListener('pointercancel', finishZoneDrag);
+    };
+  }, [raycastScreenToXZ, effectiveDisplacementScale, seaY, worldSize, updateMapZone, mapData.id]);
+
+  // Apply inspector rotate/scale/snap transforms to currently selected zone on land/sea
+  useEffect(() => {
+    if (zoneTransformSignal.seq === lastZoneCmdSeqRef.current) return;
+    lastZoneCmdSeqRef.current = zoneTransformSignal.seq;
+    if (!selectedZoneId) return;
+    const zone = (mapData.zones || []).find((z) => z.id === selectedZoneId);
+    if (!zone || zone.points.length < 3) return;
+
+    if (zoneTransformSignal.action === 'rotate') {
+      const rad = (zoneTransformSignal.value * Math.PI) / 180;
+      const nextPoints = transformPolygonPointsOnSurface(
+        zone.points,
+        1,
+        rad,
+        heightDataRef.current,
+        heightResRef.current,
+        effectiveDisplacementScale,
+        seaY,
+        worldSize
+      );
+      updateMapZone(mapData.id, zone.id, { points: nextPoints });
+    } else if (zoneTransformSignal.action === 'scale') {
+      const nextPoints = transformPolygonPointsOnSurface(
+        zone.points,
+        zoneTransformSignal.value,
+        0,
+        heightDataRef.current,
+        heightResRef.current,
+        effectiveDisplacementScale,
+        seaY,
+        worldSize
+      );
+      updateMapZone(mapData.id, zone.id, { points: nextPoints });
+    } else if (zoneTransformSignal.action === 'snap') {
+      const nextPoints = translatePolygonPointsOnSurface(
+        zone.points,
+        0,
+        0,
+        heightDataRef.current,
+        heightResRef.current,
+        effectiveDisplacementScale,
+        seaY,
+        worldSize
+      );
+      updateMapZone(mapData.id, zone.id, { points: nextPoints });
+    }
+  }, [
+    zoneTransformSignal,
+    selectedZoneId,
+    mapData.zones,
+    mapData.id,
+    effectiveDisplacementScale,
+    seaY,
+    worldSize,
+    updateMapZone,
+  ]);
+
   const handleSurfaceClick = (e: ThreeEvent<MouseEvent>) => {
     if (worldsmithMode) return;
+    if (justFinishedZoneDragRef.current) return;
     if (e.delta > 6) return;
     e.stopPropagation();
 
@@ -2157,7 +2472,16 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({
       });
       setMapToolMode('select');
     } else if (mapToolMode === 'path' || mapToolMode === 'region' || mapToolMode === 'zone') {
-      addDrawingPoint(pt);
+      const snappedPt = snapPointToLandOrSea(
+        e.point.x,
+        e.point.z,
+        heightDataRef.current,
+        heightResRef.current,
+        effectiveDisplacementScale,
+        seaY,
+        worldSize
+      );
+      addDrawingPoint(snappedPt);
     } else if (mapToolMode === 'element') {
       const draft = elementDraftRef.current;
       const created = addMapProp(mapData.id, {
@@ -2434,6 +2758,14 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({
   const mapWorldLayers =
     mapData.layers && mapData.layers.length > 0 ? mapData.layers : createDefaultWorldLayers();
 
+  const zonesForRender = useMemo(() => {
+    const base = mapData.zones || [];
+    if (!liveZoneOverride) return base;
+    return base.map((z) =>
+      z.id === liveZoneOverride.id ? { ...z, points: liveZoneOverride.points } : z
+    );
+  }, [mapData.zones, liveZoneOverride]);
+
   const isZoneDrawing = mapToolMode === 'zone' || mapToolMode === 'region';
   const shadowBounds = Math.max(65, worldSize * 0.58);
   const maxOrbitDist = Math.max(240, worldSize * 2.15);
@@ -2493,6 +2825,7 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({
 
       {/* CPU-Displaced 3D Terrain Mesh with Multi-Biome, Hand-Painted Biomes, Strata & Wet-Shore PBR */}
       <DisplacedTerrainMesh
+        meshRef={terrainMeshRef}
         heightData={activeHeightData}
         heightRes={activeHeightRes}
         terrainSize={worldSize}
@@ -2552,7 +2885,7 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({
 
       {/* Thematic Zones (Countries, Regions, Religions, Cultures, Custom Layers) */}
       <TerrainZones3D
-        zones={mapData.zones || []}
+        zones={zonesForRender}
         layers={mapWorldLayers}
         heightData={activeHeightData}
         heightRes={activeHeightRes}
@@ -2565,7 +2898,11 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({
         showLabelsLayer={mapLayers.labels}
         selectedZoneId={selectedZoneId}
         interactive={!worldsmithMode && mapToolMode === 'select'}
-        onSelectZone={(id) => setSelectedZoneId(id)}
+        onSelectZone={handleSelectZone}
+        onStartGizmoDrag={startZoneGizmoDrag}
+        onStartVertexDrag={startZoneVertexDrag}
+        onInsertVertexAndDrag={insertZoneVertexAndDrag}
+        onRemoveVertex={removeZoneVertex}
       />
 
       {/* 3D World Text Labels (Editable, Draggable & Layer-Filtered) */}
@@ -2648,7 +2985,8 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({
           heightData={activeHeightData}
           resolution={activeHeightRes}
           terrainSize={worldSize}
-          displacement={displacementScale}
+          displacement={effectiveDisplacementScale}
+          seaY={seaY}
         />
       ))}
 
@@ -2708,6 +3046,8 @@ export const MapViewport3D: React.FC<{ mapId: string }> = ({ mapId }) => {
     setMapToolMode,
     mapLayers,
     toggleMapLayer,
+    selectedZoneId,
+    setSelectedZoneId,
     activeZoneLayerId,
     setActiveZoneLayerId,
     drawingPoints,
@@ -3009,23 +3349,41 @@ export const MapViewport3D: React.FC<{ mapId: string }> = ({ mapId }) => {
               Inspector
             </button>
           </div>
+        ) : mapToolMode !== 'select' ? (
+          <div className="px-3 py-1 rounded-full bg-[#100d07]/92 border border-[#b68d40]/45 text-[11px] text-[#d6b16a] flex items-center gap-2 shadow-gold-sm pointer-events-auto">
+            <span>
+              {mapToolMode === 'pin' && 'Click terrain or sea to drop a Location Pin'}
+              {mapToolMode === 'text' && 'Configure label below, then click the world to place text'}
+              {(mapToolMode === 'zone' || mapToolMode === 'region') &&
+                'Click boundary points (min 3), choose Layer & Save Zone'}
+              {mapToolMode === 'path' && 'Click terrain points to trace a route, then Save'}
+              {mapToolMode === 'element' && 'Select a 3D element below and click to place it'}
+              {mapToolMode === 'link' && 'Click a pin or create a new linked grimoire note'}
+            </span>
+            <button
+              onClick={() => setMapToolMode('select')}
+              className="text-[#c9a050] hover:text-white underline text-[10.5px]"
+            >
+              Esc
+            </button>
+          </div>
         ) : (
-          mapToolMode !== 'select' && (
+          selectedZoneId && (
             <div className="px-3 py-1 rounded-full bg-[#100d07]/92 border border-[#b68d40]/45 text-[11px] text-[#d6b16a] flex items-center gap-2 shadow-gold-sm pointer-events-auto">
               <span>
-                {mapToolMode === 'pin' && 'Click terrain or sea to drop a Location Pin'}
-                {mapToolMode === 'text' && 'Configure label below, then click the world to place text'}
-                {(mapToolMode === 'zone' || mapToolMode === 'region') &&
-                  'Click boundary points (min 3), choose Layer & Save Zone'}
-                {mapToolMode === 'path' && 'Click terrain points to trace a route, then Save'}
-                {mapToolMode === 'element' && 'Select a 3D element below and click to place it'}
-                {mapToolMode === 'link' && 'Click a pin or create a new linked grimoire note'}
+                Drag gizmo center or X/Z arrows to move • Drag corner points • Click green edge dots to add (Shift+click to remove)
               </span>
               <button
-                onClick={() => setMapToolMode('select')}
-                className="text-[#c9a050] hover:text-white underline text-[10.5px]"
+                onClick={() => setRightInspectorCollapsed(false)}
+                className="text-[#c9a050] hover:text-white underline text-[10.5px] font-medium"
               >
-                Esc
+                Inspector
+              </button>
+              <button
+                onClick={() => setSelectedZoneId(null)}
+                className="text-[#9aa3b2] hover:text-white underline text-[10.5px]"
+              >
+                Done
               </button>
             </div>
           )

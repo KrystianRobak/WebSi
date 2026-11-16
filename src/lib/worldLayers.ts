@@ -177,6 +177,111 @@ export function computePolygonCentroid(points: PathPoint[]): { x: number; z: num
   };
 }
 
+export function sampleLandOrSeaElevation(
+  heightData: Float32Array,
+  heightRes: number,
+  worldX: number,
+  worldZ: number,
+  terrainSize: number,
+  displacementScale: number,
+  seaY: number
+): number {
+  const half = terrainSize * 0.5;
+  if (Math.abs(worldX) > half || Math.abs(worldZ) > half) {
+    return seaY;
+  }
+  const ty = sampleTerrainElevation(
+    heightData,
+    heightRes,
+    worldX,
+    worldZ,
+    terrainSize,
+    displacementScale
+  );
+  return Math.max(seaY, ty);
+}
+
+export function snapPointToLandOrSea(
+  worldX: number,
+  worldZ: number,
+  heightData: Float32Array,
+  heightRes: number,
+  displacementScale: number,
+  seaY: number,
+  terrainSize = TERRAIN_SIZE
+): PathPoint {
+  const maxExtent = terrainSize * 0.66;
+  const cx = Math.max(-maxExtent, Math.min(maxExtent, worldX));
+  const cz = Math.max(-maxExtent, Math.min(maxExtent, worldZ));
+  const sy = sampleLandOrSeaElevation(
+    heightData,
+    heightRes,
+    cx,
+    cz,
+    terrainSize,
+    displacementScale,
+    seaY
+  );
+  return {
+    x: Number(cx.toFixed(2)),
+    y: Number(sy.toFixed(2)),
+    z: Number(cz.toFixed(2)),
+  };
+}
+
+export function translatePolygonPointsOnSurface(
+  points: PathPoint[],
+  dx: number,
+  dz: number,
+  heightData: Float32Array,
+  heightRes: number,
+  displacementScale: number,
+  seaY: number,
+  terrainSize = TERRAIN_SIZE
+): PathPoint[] {
+  return points.map((p) =>
+    snapPointToLandOrSea(
+      p.x + dx,
+      p.z + dz,
+      heightData,
+      heightRes,
+      displacementScale,
+      seaY,
+      terrainSize
+    )
+  );
+}
+
+export function transformPolygonPointsOnSurface(
+  points: PathPoint[],
+  scale: number,
+  rotRad: number,
+  heightData: Float32Array,
+  heightRes: number,
+  displacementScale: number,
+  seaY: number,
+  terrainSize = TERRAIN_SIZE
+): PathPoint[] {
+  const c = computePolygonCentroid(points);
+  const cosR = Math.cos(rotRad);
+  const sinR = Math.sin(rotRad);
+  return points.map((p) => {
+    const rx = (p.x - c.x) * scale;
+    const rz = (p.z - c.z) * scale;
+    const nx = c.x + rx * cosR - rz * sinR;
+    const nz = c.z + rx * sinR + rz * cosR;
+    return snapPointToLandOrSea(
+      nx,
+      nz,
+      heightData,
+      heightRes,
+      displacementScale,
+      seaY,
+      terrainSize
+    );
+  });
+}
+
 /**
  * Triangulates a polygon in XZ, adaptively subdivides large triangles so the mesh hugs
  * mountain ridges & valleys smoothly without clipping, and elevates each vertex to terrain/sea.
@@ -238,15 +343,16 @@ export function buildTerrainConformingPolygonGeometry(
 
   const positions = new Float32Array(tris.length * 9);
   const sampleY = (wx: number, wz: number) => {
-    const ty = sampleTerrainElevation(
+    const surface = sampleLandOrSeaElevation(
       heightData,
       heightRes,
       wx,
       wz,
       terrainSize,
-      displacementScale
+      displacementScale,
+      seaY
     );
-    return Math.max(seaY + 0.05, ty) + yOffset;
+    return Math.max(seaY + 0.22, surface) + yOffset;
   };
 
   for (let i = 0; i < tris.length; i++) {
@@ -292,15 +398,16 @@ export function sampleClosedBorderPoints(
       const t = s / steps;
       const x = a.x + (b.x - a.x) * t;
       const z = a.z + (b.z - a.z) * t;
-      const ty = sampleTerrainElevation(
+      const surface = sampleLandOrSeaElevation(
         heightData,
         heightRes,
         x,
         z,
         terrainSize,
-        displacementScale
+        displacementScale,
+        seaY
       );
-      out.push([x, Math.max(seaY + 0.06, ty) + yOffset, z]);
+      out.push([x, Math.max(seaY + 0.24, surface) + yOffset, z]);
     }
   }
   if (out.length > 0) {

@@ -12,11 +12,16 @@ import {
   Image as ImageIcon,
   Layers,
   Link2,
+  Magnet,
   MapPin,
+  Maximize2,
+  Minimize2,
   Network,
   PanelRightClose,
   Pentagon,
   Plus,
+  RotateCcw,
+  RotateCw,
   Route,
   Trash2,
   Type,
@@ -77,6 +82,7 @@ export const RightInspector: React.FC = () => {
     soloWorldLayer,
     updateMapZone,
     deleteMapZone,
+    dispatchZoneTransform,
     updateMapLabel,
     deleteMapLabel,
     updateMapProp,
@@ -86,6 +92,7 @@ export const RightInspector: React.FC = () => {
     openNewEntryModal,
     deleteMapPath,
     worldsmithMode,
+    setWorldsmithMode,
     setRightInspectorCollapsed,
   } = useVaultStore();
 
@@ -284,6 +291,9 @@ export const RightInspector: React.FC = () => {
                           style={{ backgroundColor: selectedZone.color }}
                         />
                         Selected Zone
+                        <span className="text-[9.5px] text-[#7a8290] normal-case">
+                          ({selectedZone.points.length} pts)
+                        </span>
                       </span>
                       <div className="flex items-center gap-1">
                         <button
@@ -301,6 +311,10 @@ export const RightInspector: React.FC = () => {
                           <X className="w-3.5 h-3.5" />
                         </button>
                       </div>
+                    </div>
+
+                    <div className="rounded bg-[#040507] border border-[#181d26] px-2 py-1.5 text-[10px] leading-relaxed text-[#9aa3b2]">
+                      Drag gizmo center or X/Z arrows to move • Drag corner points • Click green edge dots to add / Shift+click to remove. Points stick to land & sea.
                     </div>
 
                     <input
@@ -386,6 +400,80 @@ export const RightInspector: React.FC = () => {
                         }
                         className="w-full accent-[#b68d40]"
                       />
+                    </div>
+
+                    <div className="space-y-1">
+                      <div className="flex justify-between text-[10.5px] text-[#8891a0]">
+                        <span>Border Width</span>
+                        <span className="font-mono">
+                          {(selectedZone.borderWidth ?? 2.6).toFixed(1)}
+                        </span>
+                      </div>
+                      <input
+                        type="range"
+                        min={0.8}
+                        max={5.0}
+                        step={0.2}
+                        value={selectedZone.borderWidth ?? 2.6}
+                        onChange={(e) =>
+                          updateMapZone(activeMap.id, selectedZone.id, {
+                            borderWidth: Number(e.target.value),
+                          })
+                        }
+                        className="w-full accent-[#b68d40]"
+                      />
+                    </div>
+
+                    {/* Geometry Transform Bar (Rotates, Scales & Snaps Polygon to Land/Sea) */}
+                    <div className="space-y-1">
+                      <span className="text-[10px] text-[#7a8290]">Shape & Surface Fit</span>
+                      <div className="grid grid-cols-5 gap-1">
+                        <button
+                          type="button"
+                          onClick={() => dispatchZoneTransform('rotate', -15)}
+                          className="flex items-center justify-center gap-0.5 py-1 rounded bg-[#040507] border border-[#141821] hover:border-[#b68d40]/60 text-[10px] text-[#ded8cc]"
+                          title="Rotate -15°"
+                        >
+                          <RotateCcw className="w-3 h-3" />
+                          <span>15°</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => dispatchZoneTransform('rotate', 15)}
+                          className="flex items-center justify-center gap-0.5 py-1 rounded bg-[#040507] border border-[#141821] hover:border-[#b68d40]/60 text-[10px] text-[#ded8cc]"
+                          title="Rotate +15°"
+                        >
+                          <RotateCw className="w-3 h-3" />
+                          <span>15°</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => dispatchZoneTransform('scale', 0.9)}
+                          className="flex items-center justify-center gap-0.5 py-1 rounded bg-[#040507] border border-[#141821] hover:border-[#b68d40]/60 text-[10px] text-[#ded8cc]"
+                          title="Shrink 10%"
+                        >
+                          <Minimize2 className="w-3 h-3" />
+                          <span>-10%</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => dispatchZoneTransform('scale', 1.1)}
+                          className="flex items-center justify-center gap-0.5 py-1 rounded bg-[#040507] border border-[#141821] hover:border-[#b68d40]/60 text-[10px] text-[#ded8cc]"
+                          title="Expand 10%"
+                        >
+                          <Maximize2 className="w-3 h-3" />
+                          <span>+10%</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => dispatchZoneTransform('snap')}
+                          className="flex items-center justify-center gap-0.5 py-1 rounded bg-[#040507] border border-[#141821] hover:border-[#b68d40]/60 text-[10px] text-[#c9a050]"
+                          title="Snap all boundary points to land/sea surface"
+                        >
+                          <Magnet className="w-3 h-3" />
+                          <span>Snap</span>
+                        </button>
+                      </div>
                     </div>
 
                     <div className="flex items-center justify-between gap-2">
@@ -959,7 +1047,10 @@ export const RightInspector: React.FC = () => {
                       Zones &amp; Realms ({zonesOnMap.length})
                     </span>
                     <button
-                      onClick={() => setMapToolMode('zone')}
+                      onClick={() => {
+                        setWorldsmithMode(false);
+                        setMapToolMode('zone');
+                      }}
                       className="text-[10.5px] text-[#c9a050] hover:underline"
                     >
                       + Draw Zone
@@ -984,7 +1075,11 @@ export const RightInspector: React.FC = () => {
                             }`}
                           >
                             <button
-                              onClick={() => setSelectedZoneId(zone.id)}
+                              onClick={() => {
+                                setWorldsmithMode(false);
+                                setMapToolMode('select');
+                                setSelectedZoneId(zone.id);
+                              }}
                               className="flex items-center gap-2 min-w-0 flex-1 text-left"
                             >
                               <span
