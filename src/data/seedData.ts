@@ -5,8 +5,19 @@ import {
   DEFAULT_DISPLACEMENT,
   TERRAIN_SIZE,
 } from '../lib/terrainGenerator';
+import { createDefaultWorldLayers } from '../lib/worldLayers';
 import { computeAllEntityLinks } from '../lib/wikilinks';
-import { Entity, EntityLink, MapPath, MapPin, TabItem, VaultMap, World } from '../types/vault';
+import {
+  Entity,
+  EntityLink,
+  MapPath,
+  MapPin,
+  TabItem,
+  VaultMap,
+  World,
+  WorldMapLabel,
+  WorldMapZone,
+} from '../types/vault';
 
 export const DEMO_WORLD_ID = '11111111-1111-4111-8111-111111111111';
 export const DEMO_MAP_ID = '22222222-2222-4222-8222-222222222222';
@@ -583,6 +594,150 @@ Chaired by [[Kaelen Voss]] under the [[Treaty of Emberfall]].`,
     },
   ];
 
+  const toPts = (coords: Array<[number, number]>) =>
+    coords.map(([x, z]) => ({ x, y: yAt(x, z), z }));
+
+  const seededZones: WorldMapZone[] = [
+    {
+      id: 'zone-oakhaven-freeholds',
+      layerId: 'layer-countries',
+      name: 'Oakhaven Freeholds',
+      points: toPts([
+        [-38, -12],
+        [-8, -10],
+        [-3, 8],
+        [-16, 18],
+        [-36, 12],
+      ]),
+      color: '#d4a853',
+      borderStyle: 'double',
+      borderWidth: 2.8,
+      showLabel: true,
+      labelScale: 1.0,
+      entityId: 'ent-oakhaven',
+      is_gm_only: false,
+    },
+    {
+      id: 'zone-cinder-marches',
+      layerId: 'layer-countries',
+      name: 'Cinder Crown Marches',
+      points: toPts([
+        [-4, -36],
+        [36, -36],
+        [38, -6],
+        [10, -4],
+        [-4, -14],
+      ]),
+      color: '#e07a5f',
+      borderStyle: 'double',
+      borderWidth: 2.8,
+      showLabel: true,
+      labelScale: 1.0,
+      entityId: 'ent-ashen-spire',
+      is_gm_only: false,
+    },
+    {
+      id: 'zone-glass-shoals',
+      layerId: 'layer-regions',
+      name: 'The Glass Shoals',
+      points: toPts([
+        [-32, 14],
+        [24, 12],
+        [28, 36],
+        [-30, 36],
+      ]),
+      color: '#38bdf8',
+      borderStyle: 'dashed',
+      borderWidth: 2.0,
+      showLabel: false,
+      labelScale: 0.95,
+      entityId: 'ent-sunken-reliquary',
+      is_gm_only: false,
+    },
+    {
+      id: 'zone-drowned-star-faith',
+      layerId: 'layer-religions',
+      name: 'Covenant of the Drowned Star',
+      points: toPts([
+        [-28, 4],
+        [22, 6],
+        [26, 34],
+        [-24, 32],
+      ]),
+      color: '#c084fc',
+      borderStyle: 'dashed',
+      borderWidth: 2.2,
+      showLabel: true,
+      labelScale: 0.9,
+      is_gm_only: false,
+    },
+    {
+      id: 'zone-ember-vigil-faith',
+      layerId: 'layer-religions',
+      name: 'Order of the Ember Vigil',
+      points: toPts([
+        [-10, -34],
+        [34, -34],
+        [34, 2],
+        [-6, -2],
+      ]),
+      color: '#f59e0b',
+      borderStyle: 'dashed',
+      borderWidth: 2.2,
+      showLabel: true,
+      labelScale: 0.9,
+      is_gm_only: false,
+    },
+  ];
+
+  const seededLabels: WorldMapLabel[] = [
+    {
+      id: 'lbl-shattered-reach',
+      text: 'THE SHATTERED REACH',
+      x: -6,
+      y: yAt(-6, -4),
+      z: -4,
+      yOffset: 1.8,
+      fontSize: 2.5,
+      color: '#e9dec7',
+      rotationY: -0.14,
+      style: 'title',
+      layerId: null,
+      opacity: 0.65,
+      is_gm_only: false,
+    },
+    {
+      id: 'lbl-glass-shoals',
+      text: 'THE GLASS SHOALS',
+      x: -22,
+      y: Math.max(0.23 * DEFAULT_DISPLACEMENT, yAt(-22, 22)),
+      z: 22,
+      yOffset: 0.65,
+      fontSize: 1.75,
+      color: '#93c5d4',
+      rotationY: -0.08,
+      style: 'sea',
+      layerId: null,
+      opacity: 0.62,
+      is_gm_only: false,
+    },
+    {
+      id: 'lbl-cinder-crown',
+      text: 'CINDER CROWN PEAKS',
+      x: 24,
+      y: yAt(24, -24),
+      z: -24,
+      yOffset: 1.5,
+      fontSize: 1.6,
+      color: '#cbd5e1',
+      rotationY: 0.08,
+      style: 'region',
+      layerId: null,
+      opacity: 0.55,
+      is_gm_only: false,
+    },
+  ];
+
   const maps: VaultMap[] = [
     {
       id: DEMO_MAP_ID,
@@ -598,6 +753,16 @@ Chaired by [[Kaelen Voss]] under the [[Treaty of Emberfall]].`,
         elevationSource: 'Heightmap (32-bit)',
         kmPerUnit: 1.6,
       },
+      layers: createDefaultWorldLayers(),
+      zones: seededZones,
+      labels: seededLabels,
+      props: [
+        { id: 'seed-prop-village-oakhaven', kind: 'village', name: 'Oakhaven Town', x: -16.8, y: yAt(-16.8, 3.2), z: 3.2, rotY: 0.4, scale: 1.2 },
+        { id: 'seed-prop-pier-oakhaven', kind: 'pier', name: 'Salt-Iron Docks', x: -18.5, y: yAt(-18.5, 6.2), z: 6.2, rotY: 0.55, scale: 1.2 },
+        { id: 'seed-prop-ship-bay', kind: 'ship', name: 'Caravel Duskrunner', x: -22.5, y: 0.23 * DEFAULT_DISPLACEMENT, z: 10.5, rotY: -0.6, scale: 1.15 },
+        { id: 'seed-prop-castle-spire', kind: 'castle', name: 'Ashen Spire Citadel', x: 18.2, y: yAt(18.2, -16.5), z: -16.5, rotY: -0.3, scale: 1.15 },
+        { id: 'seed-prop-temple-reliquary', kind: 'temple', name: 'Drowned Choir Temple', x: 11.2, y: yAt(11.2, 21.8), z: 21.8, rotY: 0.2, scale: 1.1 },
+      ],
     },
   ];
 

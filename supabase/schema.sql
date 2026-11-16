@@ -69,6 +69,9 @@ create table if not exists public.maps (
   atmosphere text,
   rivers jsonb not null default '[]'::jsonb,
   props jsonb not null default '[]'::jsonb,
+  layers jsonb not null default '[]'::jsonb,
+  zones jsonb not null default '[]'::jsonb,
+  labels jsonb not null default '[]'::jsonb,
   battlemap jsonb,
   created_at timestamptz not null default now()
 );

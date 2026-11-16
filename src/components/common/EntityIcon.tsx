@@ -76,7 +76,20 @@ export function EntityIcon({
     case 'port':
       return <Anchor className={className} />;
     case 'citadel':
+    case 'fortress':
       return <Castle className={className} />;
+    case 'capital':
+      return <Crown className={className} />;
+    case 'temple':
+      return <LandmarkIcon className={className} />;
+    case 'camp':
+      return <Flame className={className} />;
+    case 'danger':
+      return <Skull className={className} />;
+    case 'landmark':
+      return <Compass className={className} />;
+    case 'settlement':
+      return <MapPin className={className} />;
     case 'ruin':
       return <LandmarkIcon className={className} />;
     default:

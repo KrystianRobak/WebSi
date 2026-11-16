@@ -9,8 +9,10 @@ import {
   Image as ImageIcon,
   Layers,
   Plus,
+  Search,
   Settings2,
   Star,
+  X,
 } from 'lucide-react';
 import { uploadVaultAsset } from '../../lib/supabase';
 import { useVaultStore } from '../../store/useVaultStore';
@@ -80,6 +82,7 @@ export const LeftSidebar: React.FC = () => {
     e.target.value = '';
   };
 
+  const [filterQuery, setFilterQuery] = useState('');
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({
     vault: true,
     encyclopedia: true,
@@ -102,6 +105,21 @@ export const LeftSidebar: React.FC = () => {
     [entities]
   );
 
+  const filteredQuickResults = useMemo(() => {
+    const q = filterQuery.trim().toLowerCase();
+    if (!q) return null;
+    return {
+      entities: entities.filter(
+        (e) =>
+          e.title.toLowerCase().includes(q) ||
+          e.type.toLowerCase().includes(q) ||
+          e.tags.some((t) => t.toLowerCase().includes(q))
+      ),
+      maps: maps.filter((m) => m.name.toLowerCase().includes(q)),
+      assets: assets.filter((a) => a.name.toLowerCase().includes(q)),
+    };
+  }, [filterQuery, entities, maps, assets]);
+
   const toggleSection = (key: string) =>
     setOpenSections((prev) => ({ ...prev, [key]: !prev[key] }));
 
@@ -109,9 +127,9 @@ export const LeftSidebar: React.FC = () => {
     setExpandedGroup((prev) => (prev === key ? null : key));
 
   const renderEntityList = (list: Entity[]) => (
-    <div className="pl-5 pr-1 py-0.5 space-y-0.5">
+    <div className="pl-4 pr-1 py-0.5 space-y-0.5">
       {list.length === 0 ? (
-        <div className="text-[11px] text-[#5e6675] italic px-2 py-1">No entries yet</div>
+        <div className="text-[11px] text-[#5e6675] italic px-2 py-0.5">No entries yet</div>
       ) : (
         list.map((ent) => {
           const isCurrent = activeTab?.kind === 'entity' && activeTab.targetId === ent.id;
@@ -122,7 +140,7 @@ export const LeftSidebar: React.FC = () => {
               className={`w-full flex items-center gap-2 px-2 py-1 rounded text-left text-[11.5px] transition-colors ${
                 isCurrent
                   ? 'bg-[#d4a853]/15 text-[#f3d68a]'
-                  : 'text-[#9aa3b2] hover:text-[#e7e2d8] hover:bg-[#171b22]'
+                  : 'text-[#9aa3b2] hover:text-[#e7e2d8] hover:bg-[#151921]'
               }`}
             >
               <EntityIcon type={ent.type} className="w-3 h-3 shrink-0 text-[#d4a853]/80" />
@@ -135,20 +153,89 @@ export const LeftSidebar: React.FC = () => {
   );
 
   return (
-    <aside className="relative h-full bg-[#0e1116] border-r border-[#1d222b] flex flex-col select-none overflow-hidden">
-      {/* Primary CTA: + New Entry */}
-      <div className="p-2.5 border-b border-[#181c24] shrink-0">
+    <aside className="relative h-full bg-[#0c0f14] border-r border-[#1a202a] flex flex-col select-none overflow-hidden">
+      {/* Compact Filter + New Entry Action Row */}
+      <div className="p-2 border-b border-[#161b24] flex items-center gap-1.5 shrink-0">
+        <div className="flex-1 flex items-center gap-1.5 bg-[#090b0f] border border-[#1d232e] focus-within:border-[#d4a853]/50 rounded-md px-2 h-[28px]">
+          <Search className="w-3 h-3 text-[#6d7685] shrink-0" />
+          <input
+            value={filterQuery}
+            onChange={(e) => setFilterQuery(e.target.value)}
+            placeholder="Filter tree..."
+            className="w-full min-w-0 bg-transparent text-[11.5px] text-[#e7e2d8] placeholder:text-[#5d6574] focus:outline-none"
+          />
+          {filterQuery && (
+            <button
+              onClick={() => setFilterQuery('')}
+              className="text-[#6d7685] hover:text-white"
+            >
+              <X className="w-3 h-3" />
+            </button>
+          )}
+        </div>
         <button
           onClick={() => openNewEntryModal('Location', 'encyclopedia')}
-          className="w-full h-[34px] rounded-md btn-gold-metallic flex items-center justify-center gap-1.5 text-[12.5px] font-semibold tracking-wide"
+          title="New Entry"
+          className="h-[28px] px-2.5 rounded-md btn-gold-metallic flex items-center justify-center gap-1 text-[11px] font-semibold shrink-0"
         >
-          <Plus className="w-4 h-4 stroke-[2.5]" />
-          <span>New Entry</span>
+          <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
+          <span>New</span>
         </button>
       </div>
 
       {/* Scrollable Navigation Tree */}
-      <div className="flex-1 overflow-y-auto px-2 py-2.5 space-y-3 z-10">
+      <div className="flex-1 overflow-y-auto px-2 py-2 space-y-2.5 z-10">
+        {filteredQuickResults ? (
+          <div className="space-y-2">
+            <div className="px-1.5 text-[10px] font-mono uppercase tracking-wider text-[#7c8594]">
+              Matches ({filteredQuickResults.entities.length + filteredQuickResults.maps.length + filteredQuickResults.assets.length})
+            </div>
+            {filteredQuickResults.maps.map((m) => (
+              <button
+                key={m.id}
+                onClick={() => openMapTab(m.id)}
+                className="w-full flex items-center justify-between gap-2 px-2 py-1 rounded text-[11.5px] text-[#e5be58] hover:bg-[#151921]"
+              >
+                <span className="flex items-center gap-2 truncate">
+                  <EntityIcon type="Map" className="w-3.5 h-3.5 shrink-0" />
+                  <span className="truncate">{m.name}</span>
+                </span>
+                <span className="font-mono text-[9.5px] uppercase opacity-75">{m.kind || '3d'}</span>
+              </button>
+            ))}
+            {filteredQuickResults.entities.map((ent) => (
+              <button
+                key={ent.id}
+                onClick={() => openEntityTab(ent.id)}
+                className="w-full flex items-center justify-between gap-2 px-2 py-1 rounded text-[11.5px] text-[#d5d0c5] hover:bg-[#151921]"
+              >
+                <span className="flex items-center gap-2 truncate">
+                  <EntityIcon type={ent.type} className="w-3.5 h-3.5 text-[#d4a853] shrink-0" />
+                  <span className="truncate">{ent.title}</span>
+                </span>
+                <span className="font-mono text-[9.5px] text-[#6d7685]">{ent.type}</span>
+              </button>
+            ))}
+            {filteredQuickResults.assets.map((a) => (
+              <button
+                key={a.id}
+                onClick={() => openAssetTab(a.id)}
+                className="w-full flex items-center gap-2 px-2 py-1 rounded text-[11.5px] text-[#9aa3b2] hover:bg-[#151921]"
+              >
+                <img src={a.url} alt={a.name} className="w-4 h-4 rounded object-cover" />
+                <span className="truncate">{a.name}</span>
+              </button>
+            ))}
+            {filteredQuickResults.entities.length === 0 &&
+              filteredQuickResults.maps.length === 0 &&
+              filteredQuickResults.assets.length === 0 && (
+                <div className="text-[11px] text-[#5e6675] italic px-2 py-2">
+                  No matches found.
+                </div>
+              )}
+          </div>
+        ) : (
+        <>
         {/* VAULT */}
         <div>
           <button
@@ -376,20 +463,18 @@ export const LeftSidebar: React.FC = () => {
           </button>
 
           {openSections.campaign && (
-            <div className="mt-1 space-y-0.5">
-              <div className="flex items-center gap-1.5 px-2 py-1.5 rounded bg-[#161a22] border border-[#242a35] text-[12px] text-[#e7e2d8] font-medium">
-                <button
-                  onClick={() => toggleSection('campaignFolder')}
-                  className="flex items-center gap-1.5 flex-1 min-w-0 text-left"
-                >
-                  {openSections.campaignFolder ? (
-                    <FolderOpen className="w-3.5 h-3.5 text-[#d4a853] shrink-0" />
-                  ) : (
-                    <Folder className="w-3.5 h-3.5 text-[#d4a853] shrink-0" />
-                  )}
-                  <span className="truncate">Shattered Reach — West Marches</span>
-                </button>
-              </div>
+            <div className="mt-0.5 space-y-0.5">
+              <button
+                onClick={() => toggleSection('campaignFolder')}
+                className="w-full flex items-center gap-1.5 px-2 py-1 rounded text-[12px] text-[#d8d3c8] hover:bg-[#151921] text-left"
+              >
+                {openSections.campaignFolder ? (
+                  <FolderOpen className="w-3.5 h-3.5 text-[#d4a853] shrink-0" />
+                ) : (
+                  <Folder className="w-3.5 h-3.5 text-[#d4a853] shrink-0" />
+                )}
+                <span className="truncate font-medium">Shattered Reach</span>
+              </button>
 
               {openSections.campaignFolder && (
                 <div className="pl-3 space-y-0.5 pt-0.5">
@@ -399,7 +484,7 @@ export const LeftSidebar: React.FC = () => {
                     const isOpen = expandedGroup === key;
                     return (
                       <div key={key}>
-                        <div className="group flex items-center justify-between px-2 py-1 rounded text-[12px] text-[#b8b3a8] hover:bg-[#161a21] hover:text-[#f3ead8]">
+                        <div className="group flex items-center justify-between px-2 py-1 rounded text-[12px] text-[#b8b3a8] hover:bg-[#151921] hover:text-[#f3ead8]">
                           <button
                             onClick={() => toggleGroup(key)}
                             className="flex items-center gap-2 flex-1 text-left min-w-0"
@@ -446,10 +531,10 @@ export const LeftSidebar: React.FC = () => {
           </button>
 
           {openSections.world && (
-            <div className="mt-1 space-y-0.5">
+            <div className="mt-0.5 space-y-0.5">
               <button
                 onClick={() => toggleSection('worldFolder')}
-                className="w-full flex items-center gap-1.5 px-2 py-1.5 rounded text-[12px] text-[#d8d3c8] hover:bg-[#161a21]"
+                className="w-full flex items-center gap-1.5 px-2 py-1 rounded text-[12px] text-[#d8d3c8] hover:bg-[#151921]"
               >
                 {openSections.worldFolder ? (
                   <FolderOpen className="w-3.5 h-3.5 text-[#d4a853] shrink-0" />
@@ -472,7 +557,7 @@ export const LeftSidebar: React.FC = () => {
 
                     return (
                       <div key={key}>
-                        <div className="group flex items-center justify-between px-2 py-1 rounded text-[12px] text-[#b8b3a8] hover:bg-[#161a21] hover:text-[#f3ead8]">
+                        <div className="group flex items-center justify-between px-2 py-1 rounded text-[12px] text-[#b8b3a8] hover:bg-[#151921] hover:text-[#f3ead8]">
                           <button
                             onClick={() => toggleGroup(key)}
                             className="flex items-center gap-2 flex-1 text-left min-w-0"
@@ -500,7 +585,7 @@ export const LeftSidebar: React.FC = () => {
 
                         {isOpen &&
                           (isMapGroup ? (
-                            <div className="pl-5 pr-1 py-0.5 space-y-0.5">
+                            <div className="pl-4 pr-1 py-0.5 space-y-0.5">
                               {maps.map((m) => {
                                 const isActiveMap = activeTab?.kind === 'map' && activeTab.targetId === m.id;
                                 return (
@@ -509,8 +594,8 @@ export const LeftSidebar: React.FC = () => {
                                       onClick={() => openMapTab(m.id)}
                                       className={`flex-1 min-w-0 flex items-center justify-between gap-1.5 px-2 py-1 rounded text-left text-[11.5px] transition-colors ${
                                         isActiveMap
-                                          ? 'text-[#f3d185] bg-[#d4a853]/20 border border-[#d4a853]/35'
-                                          : 'text-[#d4cfc4] bg-[#171b22]/60 hover:bg-[#d4a853]/15 hover:text-[#e5be58]'
+                                          ? 'text-[#f3d185] bg-[#d4a853]/18 border border-[#d4a853]/35'
+                                          : 'text-[#d4cfc4] hover:bg-[#151921] hover:text-[#e5be58]'
                                       }`}
                                     >
                                       <span className="flex items-center gap-1.5 min-w-0">
@@ -518,7 +603,7 @@ export const LeftSidebar: React.FC = () => {
                                         <span className="truncate">{m.name}</span>
                                       </span>
                                       <span
-                                        className={`shrink-0 px-1 py-0.2 rounded text-[9px] font-mono uppercase border ${
+                                        className={`shrink-0 px-1 rounded text-[9px] font-mono uppercase border ${
                                           m.kind === '2d'
                                             ? 'text-sky-300 border-sky-500/30 bg-sky-500/10'
                                             : 'text-[#e5be58] border-[#d4a853]/30 bg-[#d4a853]/10'
@@ -541,13 +626,13 @@ export const LeftSidebar: React.FC = () => {
                               <div className="grid grid-cols-2 gap-1 pt-1">
                                 <button
                                   onClick={() => setMapGeneratorModalOpen(true, '3d')}
-                                  className="px-1.5 py-1 rounded text-[10px] font-medium text-[#e5be58] bg-[#1a1f28] hover:bg-[#232934] border border-[#2a313d] flex items-center justify-center gap-1"
+                                  className="px-1.5 py-1 rounded text-[10px] font-medium text-[#e5be58] bg-[#161a23] hover:bg-[#1f2532] border border-[#252c38] flex items-center justify-center gap-1"
                                 >
                                   <Plus className="w-2.5 h-2.5" /> 3D World
                                 </button>
                                 <button
                                   onClick={() => setMapGeneratorModalOpen(true, '2d')}
-                                  className="px-1.5 py-1 rounded text-[10px] font-medium text-sky-300 bg-[#1a1f28] hover:bg-[#232934] border border-[#2a313d] flex items-center justify-center gap-1"
+                                  className="px-1.5 py-1 rounded text-[10px] font-medium text-sky-300 bg-[#161a23] hover:bg-[#1f2532] border border-[#252c38] flex items-center justify-center gap-1"
                                 >
                                   <Plus className="w-2.5 h-2.5" /> 2D Combat
                                 </button>
@@ -564,20 +649,20 @@ export const LeftSidebar: React.FC = () => {
             </div>
           )}
         </div>
+        </>
+        )}
       </div>
 
-      {/* Subtle Architectural Seal Footer */}
-      <div className="shrink-0 h-11 px-3 border-t border-[#181d26] bg-[#0a0c10] flex items-center justify-between text-[10.5px]">
-        <div className="flex items-center gap-2 min-w-0">
-          <span className="w-5 h-5 rounded-full bg-[#151922] border border-[#d4a853]/35 flex items-center justify-center shrink-0">
-            <span className="w-1.5 h-1.5 rotate-45 bg-[#d4a853]/80" />
-          </span>
-          <span className="font-serif tracking-wide text-[#c8bea8] truncate">
+      {/* Subtle Compact Seal Footer */}
+      <div className="shrink-0 h-8 px-3 border-t border-[#161b24] bg-[#090b0f] flex items-center justify-between text-[10px]">
+        <div className="flex items-center gap-1.5 min-w-0">
+          <span className="w-1.5 h-1.5 rotate-45 bg-[#d4a853]/80 shrink-0" />
+          <span className="font-serif tracking-wide text-[#b8afa0] truncate">
             {world.name}
           </span>
         </div>
-        <span className="font-mono text-[10px] text-[#6d7685] shrink-0">
-          {entities.length} notes · {assets.length} art
+        <span className="font-mono text-[#687180] shrink-0">
+          {entities.length} · {assets.length} art
         </span>
       </div>
     </aside>

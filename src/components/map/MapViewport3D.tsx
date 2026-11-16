@@ -1,16 +1,18 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Canvas, ThreeEvent, useFrame, useThree } from '@react-three/fiber';
-import { Html, Line, OrbitControls, Text } from '@react-three/drei';
+import { Html, Line, OrbitControls } from '@react-three/drei';
 import * as THREE from 'three';
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib';
 import {
   ArrowDownToLine,
   ArrowUpFromLine,
   Castle,
+  Check,
   Compass,
   Eraser,
   Eye,
   EyeOff,
+  Globe,
   Hammer,
   Layers,
   Link2,
@@ -20,17 +22,18 @@ import {
   MousePointer,
   Mountain,
   Move,
+  Pentagon,
   Plus,
   Route,
   Settings2,
   Sparkles,
-  Square,
-  Check,
   Trees,
-  Waves,
+  Type,
+  Undo2,
   Wand2,
-  X,
+  Waves,
   Wrench,
+  X,
 } from 'lucide-react';
 import {
   DEFAULT_DISPLACEMENT,
@@ -46,19 +49,37 @@ import {
   buildTexturesFromHeightData,
   carveRiverIntoHeightData,
 } from '../../lib/terrainEditorEngine';
+import {
+  LABEL_COLOR_PALETTE,
+  LAYER_CATEGORY_META,
+  WORLD_ELEMENT_CATALOG,
+  ZONE_COLOR_PALETTE,
+  createDefaultWorldLayers,
+} from '../../lib/worldLayers';
 import { useVaultStore } from '../../store/useVaultStore';
 import {
   Entity,
+  MapLabelStyle,
   MapPath,
   MapPin as MapPinType,
   MapProp,
+  MapPropKind,
   VaultMap,
   WorldAtmospherePreset,
+  WorldLayerCategory,
+  WorldMapLabel,
   WorldsmithTool,
+  ZoneBorderStyle,
 } from '../../types/vault';
 import { EntityIcon } from '../common/EntityIcon';
 import { PinEntitySlideOver } from './PinEntitySlideOver';
-import { BrushCursorRing, TerrainProps3D, TerrainRivers3D } from './WorldsmithMeshes3D';
+import {
+  BrushCursorRing,
+  TerrainLabels3D,
+  TerrainProps3D,
+  TerrainRivers3D,
+  TerrainZones3D,
+} from './WorldsmithMeshes3D';
 
 const ATMOSPHERE_PRESETS: Record<
   WorldAtmospherePreset,
@@ -154,9 +175,25 @@ export interface TerrainActionsHandle {
   carveRiver: (name: string, width: number, depth: number) => void;
 }
 
+export interface LabelDraftConfig {
+  text: string;
+  style: MapLabelStyle;
+  fontSize: number;
+  color: string;
+  layerId: string;
+}
+
+export interface ElementDraftConfig {
+  kind: MapPropKind;
+  name: string;
+  scale: number;
+}
+
 interface TerrainSceneProps {
   mapData: VaultMap;
   terrainActionsRef: React.MutableRefObject<TerrainActionsHandle | null>;
+  labelDraftRef: React.MutableRefObject<LabelDraftConfig>;
+  elementDraftRef: React.MutableRefObject<ElementDraftConfig>;
 }
 
 function buildLiveHeightDataTexture(heightData: Float32Array, res: number): THREE.DataTexture {
@@ -193,6 +230,8 @@ function syncLiveHeightDataTexture(tex: THREE.DataTexture, heightData: Float32Ar
 
 const DEFAULT_CAMERA_POS = new THREE.Vector3(-4, 42, 56);
 const DEFAULT_TARGET = new THREE.Vector3(0, 3.2, 2);
+const TOP_CAMERA_POS = new THREE.Vector3(0, 148, 0.01);
+const TOP_TARGET = new THREE.Vector3(0, 0, 0);
 
 interface SeaLevelWaterProps {
   seaY: number;
@@ -200,6 +239,10 @@ interface SeaLevelWaterProps {
   displacementScale: number;
   wireframe?: boolean;
   atmosphereKey?: WorldAtmospherePreset;
+  disableRaycast?: boolean;
+  onClick?: (e: ThreeEvent<MouseEvent>) => void;
+  onPointerMove?: (e: ThreeEvent<PointerEvent>) => void;
+  onPointerUp?: () => void;
 }
 
 /**
@@ -216,6 +259,10 @@ const SeaLevelWater: React.FC<SeaLevelWaterProps> = ({
   displacementScale,
   wireframe = false,
   atmosphereKey = 'golden-hour',
+  disableRaycast = false,
+  onClick,
+  onPointerMove,
+  onPointerUp,
 }) => {
   const matRef = useRef<THREE.ShaderMaterial>(null);
 
@@ -264,14 +311,25 @@ const SeaLevelWater: React.FC<SeaLevelWaterProps> = ({
     matRef.current.uniforms.uFogColor.value.set(atmo.fog);
   }, [heightTex, displacementScale, seaY, wireframe, atmosphereKey]);
 
-  useFrame(({ clock }) => {
+  useFrame(({ clock, camera }) => {
     if (matRef.current) {
       matRef.current.uniforms.uTime.value = clock.getElapsedTime();
+      const camDist = camera.position.length();
+      const topBlend = THREE.MathUtils.smoothstep(camDist, 76, 118);
+      matRef.current.uniforms.uFogNear.value = THREE.MathUtils.lerp(68.0, 240.0, topBlend);
+      matRef.current.uniforms.uFogFar.value = THREE.MathUtils.lerp(138.0, 460.0, topBlend);
     }
   });
 
   return (
-    <mesh position={[0, seaY, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+    <mesh
+      position={[0, seaY, 0]}
+      rotation={[-Math.PI / 2, 0, 0]}
+      raycast={disableRaycast ? () => null : undefined}
+      onClick={onClick}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+    >
       <planeGeometry args={[TERRAIN_SIZE * 1.24, TERRAIN_SIZE * 1.24, 96, 96]} />
       <shaderMaterial
         ref={matRef}
@@ -1012,9 +1070,10 @@ const MapPin3D: React.FC<{
   entity?: Entity;
   isSelected: boolean;
   isHovered: boolean;
+  isTopView?: boolean;
   onSelect: () => void;
   onHover: (hover: boolean) => void;
-}> = ({ pin, entity, isSelected, isHovered, onSelect, onHover }) => {
+}> = ({ pin, entity, isSelected, isHovered, isTopView = false, onSelect, onHover }) => {
   const ringRef = useRef<THREE.Mesh>(null);
 
   useFrame(({ clock }) => {
@@ -1056,7 +1115,7 @@ const MapPin3D: React.FC<{
       <Html
         position={[0, 3.85, 0]}
         center
-        distanceFactor={48}
+        distanceFactor={isTopView ? 115 : 48}
         zIndexRange={[20, 0]}
         style={{ pointerEvents: 'auto' }}
       >
@@ -1132,22 +1191,34 @@ const MapPin3D: React.FC<{
 /**
  * Full 3D Scene inside R3F Canvas.
  */
-const TerrainScene: React.FC<TerrainSceneProps> = ({ mapData, terrainActionsRef }) => {
+const TerrainScene: React.FC<TerrainSceneProps> = ({
+  mapData,
+  terrainActionsRef,
+  labelDraftRef,
+  elementDraftRef,
+}) => {
   const {
     entities,
     mapPins,
     mapPaths,
     gmMode,
     mapRenderMode,
+    mapCameraView,
     mapToolMode,
     mapLayers,
     selectedPinId,
     hoveredPinId,
+    selectedZoneId,
+    selectedLabelId,
     drawingPoints,
     cameraResetSignal,
+    cameraTopViewSignal,
     cameraZoomSignal,
+    setMapToolMode,
     setSelectedPinId,
     setHoveredPinId,
+    setSelectedZoneId,
+    setSelectedLabelId,
     setPendingPinCoord,
     addDrawingPoint,
     setScaleBarKm,
@@ -1165,10 +1236,13 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({ mapData, terrainActionsRef 
     addMapProp,
     updateMapProp,
     deleteMapProp,
+    createMapLabel,
+    updateMapLabel,
     updateMapAssets,
   } = useVaultStore();
 
   const controlsRef = useRef<OrbitControlsImpl>(null);
+  const fogRef = useRef<THREE.Fog>(null);
   const { camera } = useThree();
 
   // Generate procedural terrain assets (memoized fallback for Shattered Reach)
@@ -1191,6 +1265,7 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({ mapData, terrainActionsRef 
   const lastSculptTsRef = useRef(0);
   const lastPaintPosRef = useRef<{ x: number; z: number } | null>(null);
   const draggingPropIdRef = useRef<string | null>(null);
+  const draggingLabelIdRef = useRef<string | null>(null);
 
   const activeSeaNorm = mapData.generation_config?.seaLevel ?? SEA_LEVEL_NORM;
   const displacementScale = mapData.displacement_scale || DEFAULT_DISPLACEMENT;
@@ -1297,13 +1372,25 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({ mapData, terrainActionsRef 
       }
       isSculptingRef.current = false;
       draggingPropIdRef.current = null;
+      draggingLabelIdRef.current = null;
       lastPaintPosRef.current = null;
+      if (controlsRef.current) {
+        controlsRef.current.enabled = true;
+      }
     };
     window.addEventListener('pointerup', handleGlobalUp);
     return () => window.removeEventListener('pointerup', handleGlobalUp);
   }, [commitBakedTextures]);
 
-  // Camera Reset handler
+  // Initialize OrbitControls target once on mount (prevents inline target prop from resetting Top View/pan on re-renders)
+  useEffect(() => {
+    if (controlsRef.current) {
+      controlsRef.current.target.copy(DEFAULT_TARGET);
+      controlsRef.current.update();
+    }
+  }, []);
+
+  // Camera Reset (3D Perspective) handler
   useEffect(() => {
     if (cameraResetSignal === 0) return;
     camera.position.copy(DEFAULT_CAMERA_POS);
@@ -1313,21 +1400,37 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({ mapData, terrainActionsRef 
     }
   }, [cameraResetSignal, camera]);
 
+  // Camera Top-Down Whole World View handler
+  useEffect(() => {
+    if (cameraTopViewSignal === 0) return;
+    camera.position.copy(TOP_CAMERA_POS);
+    if (controlsRef.current) {
+      controlsRef.current.target.copy(TOP_TARGET);
+      controlsRef.current.update();
+    }
+  }, [cameraTopViewSignal, camera]);
+
   // Camera Zoom +/- handler
   useEffect(() => {
     if (cameraZoomSignal.seq === 0 || !controlsRef.current) return;
     const target = controlsRef.current.target;
     const dir = camera.position.clone().sub(target);
     const factor = cameraZoomSignal.delta > 0 ? 0.8 : 1.25;
-    const nextLen = THREE.MathUtils.clamp(dir.length() * factor, 18, 115);
+    const nextLen = THREE.MathUtils.clamp(dir.length() * factor, 16, 220);
     dir.setLength(nextLen);
     camera.position.copy(target).add(dir);
     controlsRef.current.update();
   }, [cameraZoomSignal, camera]);
 
-  // Update dynamic scale bar km based on camera distance
+  // Update dynamic scale bar km + whole-world fog distance smoothly based on camera distance
   const lastKmRef = useRef(40);
   useFrame(() => {
+    if (fogRef.current) {
+      const camLen = camera.position.length();
+      const topBlend = THREE.MathUtils.smoothstep(camLen, 76, 118);
+      fogRef.current.near = THREE.MathUtils.lerp(68, 240, topBlend);
+      fogRef.current.far = THREE.MathUtils.lerp(138, 460, topBlend);
+    }
     if (!controlsRef.current) return;
     const dist = camera.position.distanceTo(controlsRef.current.target);
     const computed = Math.max(5, Math.round((dist * mapData.scale_config.kmPerUnit) / 2.8 / 5) * 5);
@@ -1416,19 +1519,56 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({ mapData, terrainActionsRef 
     [mapData.props, mapData.id, brushRadius, deleteMapProp]
   );
 
-  const handleTerrainClick = (e: ThreeEvent<MouseEvent>) => {
+  const handleSurfaceClick = (e: ThreeEvent<MouseEvent>) => {
     if (worldsmithMode) return;
-    // Ignore drag-orbit releases
+    // Ignore drag-orbit / drag-pan releases
     if (e.delta > 6) return;
     e.stopPropagation();
 
-    const pt = { x: e.point.x, y: e.point.y, z: e.point.z };
+    const pt = {
+      x: Number(e.point.x.toFixed(2)),
+      y: Number(e.point.y.toFixed(2)),
+      z: Number(e.point.z.toFixed(2)),
+    };
+
     if (mapToolMode === 'pin') {
       setPendingPinCoord(pt);
-    } else if (mapToolMode === 'path' || mapToolMode === 'region') {
+    } else if (mapToolMode === 'text') {
+      const draft = labelDraftRef.current;
+      createMapLabel(mapData.id, {
+        text: draft.text.trim() || 'New Label',
+        x: pt.x,
+        y: pt.y,
+        z: pt.z,
+        yOffset: 0.9,
+        fontSize: draft.fontSize,
+        color: draft.color,
+        rotationY: 0,
+        style: draft.style,
+        layerId: draft.layerId || null,
+        opacity: 0.92,
+        is_gm_only: false,
+      });
+      setMapToolMode('select');
+    } else if (mapToolMode === 'path' || mapToolMode === 'region' || mapToolMode === 'zone') {
       addDrawingPoint(pt);
+    } else if (mapToolMode === 'element') {
+      const draft = elementDraftRef.current;
+      const created = addMapProp(mapData.id, {
+        kind: draft.kind,
+        name: draft.name.trim() || undefined,
+        x: pt.x,
+        y: pt.y,
+        z: pt.z,
+        rotY: 0,
+        scale: draft.scale,
+      });
+      setSelectedPropId(created.id);
     } else if (mapToolMode === 'select') {
       setSelectedPinId(null);
+      setSelectedZoneId(null);
+      setSelectedLabelId(null);
+      setSelectedPropId(null);
     }
   };
 
@@ -1454,18 +1594,18 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({ mapData, terrainActionsRef 
       stampFloraAtPoint(pt.x, pt.z);
       lastPaintPosRef.current = { x: pt.x, z: pt.z };
     } else if (worldsmithTool === 'place-mesh') {
-      const isHero =
-        activePropKind === 'tower' ||
-        activePropKind === 'pier' ||
-        activePropKind === 'bridge' ||
-        activePropKind === 'ruin';
+      const isFlora =
+        activePropKind === 'pine' ||
+        activePropKind === 'oak' ||
+        activePropKind === 'deadwood' ||
+        activePropKind === 'boulder';
       const created = addMapProp(mapData.id, {
         kind: activePropKind,
         x: Number(pt.x.toFixed(2)),
         y: Number(pt.y.toFixed(2)),
         z: Number(pt.z.toFixed(2)),
         rotY: 0,
-        scale: isHero ? 1.15 : 0.85,
+        scale: isFlora ? 0.85 : 1.15,
       });
       setSelectedPropId(created.id);
     } else if (worldsmithTool === 'erase-mesh') {
@@ -1476,15 +1616,20 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({ mapData, terrainActionsRef 
     }
   };
 
-  const handleTerrainPointerMove = (e: ThreeEvent<PointerEvent>) => {
-    if (!worldsmithMode) {
-      if (brushCursor) setBrushCursor(null);
+  const handleSurfacePointerMove = (e: ThreeEvent<PointerEvent>) => {
+    const pt = { x: e.point.x, y: e.point.y, z: e.point.z };
+
+    if (draggingLabelIdRef.current) {
+      e.stopPropagation();
+      updateMapLabel(mapData.id, draggingLabelIdRef.current, {
+        x: Number(pt.x.toFixed(2)),
+        y: Number(pt.y.toFixed(2)),
+        z: Number(pt.z.toFixed(2)),
+      });
       return;
     }
-    const pt = { x: e.point.x, y: e.point.y, z: e.point.z };
-    setBrushCursor(pt);
 
-    if (draggingPropIdRef.current && worldsmithTool === 'edit-mesh') {
+    if (draggingPropIdRef.current && (!worldsmithMode || worldsmithTool === 'edit-mesh')) {
       e.stopPropagation();
       updateMapProp(mapData.id, draggingPropIdRef.current, {
         x: Number(pt.x.toFixed(2)),
@@ -1493,6 +1638,13 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({ mapData, terrainActionsRef 
       });
       return;
     }
+
+    if (!worldsmithMode) {
+      if (brushCursor) setBrushCursor(null);
+      return;
+    }
+
+    setBrushCursor(pt);
 
     if (!isSculptingRef.current) return;
     e.stopPropagation();
@@ -1521,22 +1673,48 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({ mapData, terrainActionsRef 
     }
     isSculptingRef.current = false;
     draggingPropIdRef.current = null;
+    draggingLabelIdRef.current = null;
     lastPaintPosRef.current = null;
+    if (controlsRef.current) {
+      controlsRef.current.enabled = true;
+    }
   };
 
   const handleSelectProp = useCallback(
     (prop: MapProp) => {
-      if (!worldsmithMode) return;
-      if (worldsmithTool === 'erase-mesh') {
-        deleteMapProp(mapData.id, prop.id);
+      if (worldsmithMode) {
+        if (worldsmithTool === 'erase-mesh') {
+          deleteMapProp(mapData.id, prop.id);
+          return;
+        }
+        setSelectedPropId(prop.id);
+        if (worldsmithTool === 'edit-mesh') {
+          draggingPropIdRef.current = prop.id;
+          if (controlsRef.current) controlsRef.current.enabled = false;
+        }
         return;
       }
-      setSelectedPropId(prop.id);
-      if (worldsmithTool === 'edit-mesh') {
-        draggingPropIdRef.current = prop.id;
+
+      if (mapToolMode === 'select' || mapToolMode === 'element') {
+        setSelectedPropId(prop.id);
+        if (mapToolMode === 'select') {
+          draggingPropIdRef.current = prop.id;
+          if (controlsRef.current) controlsRef.current.enabled = false;
+        }
       }
     },
-    [worldsmithMode, worldsmithTool, deleteMapProp, mapData.id, setSelectedPropId]
+    [worldsmithMode, worldsmithTool, mapToolMode, deleteMapProp, mapData.id, setSelectedPropId]
+  );
+
+  const handleSelectLabel = useCallback(
+    (label: WorldMapLabel) => {
+      setSelectedLabelId(label.id);
+      if (!worldsmithMode && mapToolMode === 'select') {
+        draggingLabelIdRef.current = label.id;
+        if (controlsRef.current) controlsRef.current.enabled = false;
+      }
+    },
+    [worldsmithMode, mapToolMode, setSelectedLabelId]
   );
 
   const visiblePins = useMemo(
@@ -1574,10 +1752,15 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({ mapData, terrainActionsRef 
   const atmosphere =
     ATMOSPHERE_PRESETS[mapData.atmosphere || 'golden-hour'] || ATMOSPHERE_PRESETS['golden-hour'];
 
+  const mapWorldLayers =
+    mapData.layers && mapData.layers.length > 0 ? mapData.layers : createDefaultWorldLayers();
+
+  const isZoneDrawing = mapToolMode === 'zone' || mapToolMode === 'region';
+
   return (
     <>
       <color attach="background" args={[atmosphere.bg]} />
-      <fog attach="fog" args={[atmosphere.fog, 68, 138]} />
+      <fog ref={fogRef} attach="fog" args={[atmosphere.fog, 68, 138]} />
 
       {/* Atmosphere-driven directional & twilight hemisphere lighting */}
       <hemisphereLight args={[atmosphere.hemiSky, atmosphere.hemiGround, atmosphere.hemiIntensity]} />
@@ -1600,17 +1783,22 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({ mapData, terrainActionsRef 
 
       <OrbitControls
         ref={controlsRef}
-        target={[DEFAULT_TARGET.x, DEFAULT_TARGET.y, DEFAULT_TARGET.z]}
         enableDamping
         dampingFactor={0.07}
-        minDistance={18}
-        maxDistance={115}
+        minDistance={16}
+        maxDistance={230}
         maxPolarAngle={Math.PI * 0.45}
-        minPolarAngle={0.2}
+        minPolarAngle={0.004}
         mouseButtons={
           worldsmithMode
             ? {
                 LEFT: undefined as unknown as THREE.MOUSE,
+                MIDDLE: THREE.MOUSE.DOLLY,
+                RIGHT: THREE.MOUSE.ROTATE,
+              }
+            : mapCameraView === 'top' && mapToolMode === 'select'
+            ? {
+                LEFT: THREE.MOUSE.PAN,
                 MIDDLE: THREE.MOUSE.DOLLY,
                 RIGHT: THREE.MOUSE.ROTATE,
               }
@@ -1632,9 +1820,9 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({ mapData, terrainActionsRef 
         albedoTex={albedoTex}
         showBiome={mapLayers.vegetation}
         wireframe={mapRenderMode === 'terrain'}
-        onClick={handleTerrainClick}
+        onClick={handleSurfaceClick}
         onPointerDown={handleTerrainPointerDown}
-        onPointerMove={handleTerrainPointerMove}
+        onPointerMove={handleSurfacePointerMove}
         onPointerUp={handleTerrainPointerUp}
       />
 
@@ -1648,16 +1836,17 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({ mapData, terrainActionsRef 
         visible={mapLayers.vegetation && mapRenderMode === 'map' && !mapData.generation_config}
       />
 
-      {/* User Editable & Custom Generated Props (Trees, Boulders, Watchtowers, Piers, Bridges, Ruins) */}
+      {/* User Editable & Custom Generated Props (Trees, Boulders, Castles, Villages, Temples, Ships, etc.) */}
       <TerrainProps3D
         propsList={mapData.props || []}
         heightData={activeHeightData}
         heightRes={activeHeightRes}
         displacementScale={effectiveDisplacementScale}
+        seaY={seaY}
         terrainVersion={terrainVersion}
         visible={mapLayers.vegetation && mapRenderMode === 'map'}
         selectedPropId={selectedPropId}
-        interactive={worldsmithMode}
+        interactive={worldsmithMode || mapToolMode === 'select' || mapToolMode === 'element'}
         onSelectProp={handleSelectProp}
       />
 
@@ -1669,8 +1858,40 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({ mapData, terrainActionsRef 
         displacementScale={effectiveDisplacementScale}
         seaY={seaY}
         terrainVersion={terrainVersion}
-        visible={mapRenderMode === 'map'}
+        visible={mapRenderMode === 'map' && mapLayers.rivers}
         previewPoints={riverDrawingPoints}
+      />
+
+      {/* Thematic Zones (Countries, Regions, Religions, Cultures, Custom Layers) */}
+      <TerrainZones3D
+        zones={mapData.zones || []}
+        layers={mapWorldLayers}
+        heightData={activeHeightData}
+        heightRes={activeHeightRes}
+        displacementScale={effectiveDisplacementScale}
+        seaY={seaY}
+        terrainVersion={terrainVersion}
+        gmMode={gmMode}
+        showRegionsLayer={mapLayers.regions}
+        showLabelsLayer={mapLayers.labels}
+        selectedZoneId={selectedZoneId}
+        interactive={!worldsmithMode && mapToolMode === 'select'}
+        onSelectZone={(id) => setSelectedZoneId(id)}
+      />
+
+      {/* 3D World Text Labels (Editable, Draggable & Layer-Filtered) */}
+      <TerrainLabels3D
+        labels={mapData.labels || []}
+        layers={mapWorldLayers}
+        heightData={activeHeightData}
+        heightRes={activeHeightRes}
+        displacementScale={effectiveDisplacementScale}
+        seaY={seaY}
+        gmMode={gmMode}
+        visible={mapLayers.labels}
+        selectedLabelId={selectedLabelId}
+        interactive={!worldsmithMode && mapToolMode === 'select'}
+        onSelectLabel={(label) => handleSelectLabel(label)}
       />
 
       {/* 3D Sculpt / Paint Brush Cursor Ring */}
@@ -1688,66 +1909,19 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({ mapData, terrainActionsRef 
         displacementScale={effectiveDisplacementScale}
         wireframe={mapRenderMode === 'terrain'}
         atmosphereKey={mapData.atmosphere || 'golden-hour'}
+        disableRaycast={
+          worldsmithMode &&
+          (isBrushTool(worldsmithTool) ||
+            worldsmithTool === 'paint-flora' ||
+            worldsmithTool === 'erase-mesh')
+        }
+        onClick={handleSurfaceClick}
+        onPointerMove={handleSurfacePointerMove}
+        onPointerUp={handleTerrainPointerUp}
       />
 
-      {/* Subtle Atmospheric Mist */}
-      <AtmosphericMist />
-
-      {/* 3D Projected World Region Watermark Typography */}
-      {mapLayers.regions &&
-        (mapData.generation_config ? (
-          <Text
-            position={[0, seaY + 6.5, -2]}
-            rotation={[-Math.PI / 2.25, 0, 0.08]}
-            fontSize={2.35}
-            letterSpacing={0.3}
-            color="#e9dec7"
-            fillOpacity={0.5}
-            anchorX="center"
-            anchorY="middle"
-          >
-            {mapData.name.toUpperCase()}
-          </Text>
-        ) : (
-          <group>
-            <Text
-              position={[-6, 7.6, -4]}
-              rotation={[-Math.PI / 2.25, 0, 0.14]}
-              fontSize={2.45}
-              letterSpacing={0.32}
-              color="#e9dec7"
-              fillOpacity={0.58}
-              anchorX="center"
-              anchorY="middle"
-            >
-              THE SHATTERED REACH
-            </Text>
-            <Text
-              position={[-26, seaY + 0.55, 19]}
-              rotation={[-Math.PI / 2.1, 0, 0.08]}
-              fontSize={1.7}
-              letterSpacing={0.28}
-              color="#93c5d4"
-              fillOpacity={0.55}
-              anchorX="center"
-              anchorY="middle"
-            >
-              THE GLASS SHOALS
-            </Text>
-            <Text
-              position={[24, 15.2, -24]}
-              rotation={[-Math.PI / 2.3, 0, -0.08]}
-              fontSize={1.55}
-              letterSpacing={0.24}
-              color="#cbd5e1"
-              fillOpacity={0.45}
-              anchorX="center"
-              anchorY="middle"
-            >
-              CINDER CROWN PEAKS
-            </Text>
-          </group>
-        ))}
+      {/* Subtle Atmospheric Mist (hidden in crisp whole-world top view) */}
+      {mapCameraView !== 'top' && <AtmosphericMist />}
 
       {/* Terrain-Hugging Dashed Trails & Region Polygons */}
       {visiblePaths.map((p) => (
@@ -1760,20 +1934,23 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({ mapData, terrainActionsRef 
         />
       ))}
 
-      {/* Live Drawing Preview Line */}
+      {/* Live Drawing Preview Line / Polygon */}
       {drawingPoints.length > 0 && (
         <group>
           {drawingPoints.map((pt, idx) => (
             <mesh key={idx} position={[pt.x, pt.y + 0.4, pt.z]}>
-              <sphereGeometry args={[0.35, 12, 12]} />
-              <meshBasicMaterial color="#eab308" />
+              <sphereGeometry args={[0.38, 12, 12]} />
+              <meshBasicMaterial color={idx === 0 && isZoneDrawing ? '#4ade80' : '#eab308'} />
             </mesh>
           ))}
           {drawingPoints.length >= 2 && (
             <Line
-              points={drawingPoints.map((p) => [p.x, p.y + 0.4, p.z] as [number, number, number])}
+              points={(isZoneDrawing && drawingPoints.length >= 3
+                ? [...drawingPoints, drawingPoints[0]]
+                : drawingPoints
+              ).map((p) => [p.x, p.y + 0.42, p.z] as [number, number, number])}
               color="#facc15"
-              lineWidth={2.5}
+              lineWidth={2.8}
               dashed={mapToolMode === 'path'}
               dashSize={1}
               gapSize={0.5}
@@ -1793,6 +1970,7 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({ mapData, terrainActionsRef 
               entity={linkedEntity}
               isSelected={selectedPinId === pin.id}
               isHovered={hoveredPinId === pin.id}
+              isTopView={mapCameraView === 'top'}
               onSelect={() => setSelectedPinId(selectedPinId === pin.id ? null : pin.id)}
               onHover={(hover) => setHoveredPinId(hover ? pin.id : null)}
             />
@@ -1807,14 +1985,19 @@ export const MapViewport3D: React.FC<{ mapId: string }> = ({ mapId }) => {
     maps,
     mapRenderMode,
     setMapRenderMode,
+    mapCameraView,
     mapToolMode,
     setMapToolMode,
     mapLayers,
     toggleMapLayer,
+    activeZoneLayerId,
+    setActiveZoneLayerId,
     drawingPoints,
+    popDrawingPoint,
     clearDrawingPoints,
     finishDrawingPath,
     triggerCameraReset,
+    triggerTopView,
     triggerCameraZoom,
     scaleBarKm,
     setSettingsModalOpen,
@@ -1826,6 +2009,10 @@ export const MapViewport3D: React.FC<{ mapId: string }> = ({ mapId }) => {
     riverDrawingPoints,
     clearRiverPoints,
     setMapGeneratorModalOpen,
+    toggleWorldLayer,
+    soloWorldLayer,
+    addWorldLayer,
+    createMapZone,
   } = useVaultStore();
 
   const [layersDropdownOpen, setLayersDropdownOpen] = useState(false);
@@ -1833,18 +2020,111 @@ export const MapViewport3D: React.FC<{ mapId: string }> = ({ mapId }) => {
   const [pathName, setPathName] = useState('');
   const [riverName, setRiverName] = useState('');
   const [riverWidth, setRiverWidth] = useState(1.6);
+
+  // Text label draft state
+  const [labelText, setLabelText] = useState('');
+  const [labelStyle, setLabelStyle] = useState<MapLabelStyle>('region');
+  const [labelFontSize, setLabelFontSize] = useState(1.85);
+  const [labelColor, setLabelColor] = useState(LABEL_COLOR_PALETTE[0]);
+  const [labelLayerId, setLabelLayerId] = useState<string>('');
+
+  // Zone (Country/Region/Religion/Custom) draft state
+  const [zoneName, setZoneName] = useState('');
+  const [zoneColor, setZoneColor] = useState(ZONE_COLOR_PALETTE[0]);
+  const [zoneBorderStyle, setZoneBorderStyle] = useState<ZoneBorderStyle>('solid');
+
+  // 3D Element draft state
+  const [elementKind, setElementKind] = useState<MapPropKind>('castle');
+  const [elementName, setElementName] = useState('');
+  const [elementScale, setElementScale] = useState(1.15);
+
+  // Quick inline custom layer creation in Layers dropdown
+  const [newLayerOpen, setNewLayerOpen] = useState(false);
+  const [newLayerName, setNewLayerName] = useState('');
+  const [newLayerCat, setNewLayerCat] = useState<WorldLayerCategory>('custom');
+
   const terrainActionsRef = useRef<TerrainActionsHandle | null>(null);
+  const labelDraftRef = useRef<LabelDraftConfig>({
+    text: '',
+    style: 'region',
+    fontSize: 1.85,
+    color: LABEL_COLOR_PALETTE[0],
+    layerId: '',
+  });
+  const elementDraftRef = useRef<ElementDraftConfig>({
+    kind: 'castle',
+    name: '',
+    scale: 1.15,
+  });
+
+  labelDraftRef.current = {
+    text: labelText,
+    style: labelStyle,
+    fontSize: labelFontSize,
+    color: labelColor,
+    layerId: labelLayerId,
+  };
+
+  elementDraftRef.current = {
+    kind: elementKind,
+    name: elementName,
+    scale: elementScale,
+  };
 
   const activeMap = maps.find((m) => m.id === mapId) || maps[0];
+  const worldLayers = useMemo(
+    () =>
+      activeMap?.layers && activeMap.layers.length > 0
+        ? activeMap.layers
+        : createDefaultWorldLayers(),
+    [activeMap?.layers]
+  );
+
+  // Keyboard shortcuts: T toggles Whole World Top View, Esc exits active Atlas tool
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement | null)?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      if ((e.key === 't' || e.key === 'T') && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        e.preventDefault();
+        if (mapCameraView === 'top') triggerCameraReset();
+        else triggerTopView();
+      } else if (e.key === 'Escape' && !worldsmithMode && mapToolMode !== 'select') {
+        setMapToolMode('select');
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [mapCameraView, triggerCameraReset, triggerTopView, worldsmithMode, mapToolMode, setMapToolMode]);
+
   if (!activeMap) return null;
 
   const cursorClass = worldsmithMode
     ? worldsmithTool === 'edit-mesh'
       ? 'cursor-pointer'
       : 'cursor-crosshair'
-    : mapToolMode === 'pin' || mapToolMode === 'path' || mapToolMode === 'region'
+    : mapToolMode === 'pin' ||
+      mapToolMode === 'text' ||
+      mapToolMode === 'path' ||
+      mapToolMode === 'region' ||
+      mapToolMode === 'zone' ||
+      mapToolMode === 'element'
     ? 'cursor-crosshair'
     : 'cursor-grab active:cursor-grabbing';
+
+  const handleZoneLayerChange = (layerId: string) => {
+    setActiveZoneLayerId(layerId);
+    const layer = worldLayers.find((l) => l.id === layerId);
+    if (layer) {
+      setZoneColor(layer.color);
+    }
+  };
+
+  const handleElementKindChange = (kind: MapPropKind) => {
+    setElementKind(kind);
+    const meta = WORLD_ELEMENT_CATALOG.find((item) => item.kind === kind);
+    if (meta) setElementScale(meta.defaultScale);
+  };
 
   return (
     <div className={`relative w-full h-full bg-[#090b0e] overflow-hidden select-none ${cursorClass}`}>
@@ -1852,295 +2132,474 @@ export const MapViewport3D: React.FC<{ mapId: string }> = ({ mapId }) => {
       <Canvas
         shadows
         dpr={[1, 2]}
-        camera={{ position: [DEFAULT_CAMERA_POS.x, DEFAULT_CAMERA_POS.y, DEFAULT_CAMERA_POS.z], fov: 44, near: 0.5, far: 300 }}
+        camera={{
+          position: [DEFAULT_CAMERA_POS.x, DEFAULT_CAMERA_POS.y, DEFAULT_CAMERA_POS.z],
+          fov: 44,
+          near: 0.5,
+          far: 450,
+        }}
       >
-        <TerrainScene mapData={activeMap} terrainActionsRef={terrainActionsRef} />
+        <TerrainScene
+          mapData={activeMap}
+          terrainActionsRef={terrainActionsRef}
+          labelDraftRef={labelDraftRef}
+          elementDraftRef={elementDraftRef}
+        />
       </Canvas>
 
       {/* Unified Top Map Overlay Bar (Left Mode/Layers + Right Tool Palette) */}
       <div className="absolute top-3 inset-x-3 z-20 flex flex-wrap items-start justify-between gap-2 pointer-events-none">
         {/* Top-Left Map Mode & Layer Bar */}
         <div className="flex items-center gap-2 flex-wrap pointer-events-auto">
-        <div className="flex items-center p-0.5 rounded-md dark-glass shadow-glass">
-          <button
-            onClick={() => setMapRenderMode('map')}
-            className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium transition-all ${
-              mapRenderMode === 'map'
-                ? 'btn-gold-metallic font-semibold'
-                : 'text-[#b5b0a5] hover:text-white'
-            }`}
-          >
-            <MapIcon className="w-3.5 h-3.5" />
-            <span>Map</span>
-          </button>
-          <button
-            onClick={() => setMapRenderMode('terrain')}
-            className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium transition-all ${
-              mapRenderMode === 'terrain'
-                ? 'btn-gold-metallic font-semibold'
-                : 'text-[#b5b0a5] hover:text-white'
-            }`}
-          >
-            <Mountain className="w-3.5 h-3.5" />
-            <span>Terrain</span>
-          </button>
-        </div>
-
-        {/* Atlas | Worldsmith Mode Switcher */}
-        <div className="flex items-center p-0.5 rounded-md dark-glass shadow-glass">
-          <button
-            onClick={() => setWorldsmithMode(false)}
-            className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium transition-all ${
-              !worldsmithMode
-                ? 'bg-[#232934] text-[#f5df9d] border border-[#d4a853]/45 font-semibold'
-                : 'text-[#b5b0a5] hover:text-white'
-            }`}
-          >
-            <Compass className="w-3.5 h-3.5" />
-            <span>Atlas</span>
-          </button>
-          <button
-            onClick={() => setWorldsmithMode(true)}
-            className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium transition-all ${
-              worldsmithMode
-                ? 'btn-gold-metallic font-semibold'
-                : 'text-[#b5b0a5] hover:text-white'
-            }`}
-          >
-            <Hammer className="w-3.5 h-3.5" />
-            <span>Worldsmith</span>
-          </button>
-        </div>
-
-        {/* Generate Custom 3D World Button */}
-        <button
-          onClick={() => setMapGeneratorModalOpen(true, '3d')}
-          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md dark-glass-subtle hover:border-[#d4a853]/60 text-xs text-[#e5be58] transition-colors"
-          title="Generate custom procedural terrain"
-        >
-          <Sparkles className="w-3.5 h-3.5 text-[#d4a853]" />
-          <span>Generate</span>
-        </button>
-
-        {/* Edit Current Map Properties & Atmosphere */}
-        <button
-          onClick={() => setMapGeneratorModalOpen(true, '3d', mapId)}
-          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md dark-glass-subtle hover:border-[#d4a853]/50 text-xs text-[#d8d3c8] transition-colors"
-          title="Edit 3D map name & scene atmosphere"
-        >
-          <Settings2 className="w-3.5 h-3.5 text-[#d4a853]" />
-          <span>Edit Map</span>
-        </button>
-
-        {/* Layers Dropdown */}
-        <div className="relative">
-          <button
-            onClick={() => {
-              setLayersDropdownOpen((v) => !v);
-              setToolsDropdownOpen(false);
-            }}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md dark-glass-subtle hover:border-[#d4a853]/45 text-xs text-[#d8d3c8] transition-colors"
-          >
-            <Layers className="w-3.5 h-3.5 text-[#d4a853]" />
-            <span>Layers</span>
-          </button>
-          {layersDropdownOpen && (
-            <div
-              onMouseLeave={() => setLayersDropdownOpen(false)}
-              className="absolute left-0 mt-1.5 w-48 rounded-md dark-glass shadow-glass p-1.5 space-y-0.5 z-40"
+          <div className="flex items-center p-0.5 rounded-md dark-glass shadow-glass">
+            <button
+              onClick={() => setMapRenderMode('map')}
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium transition-all ${
+                mapRenderMode === 'map'
+                  ? 'btn-gold-metallic font-semibold'
+                  : 'text-[#b5b0a5] hover:text-white'
+              }`}
             >
-              {(
-                [
-                  ['terrain', 'Terrain (Elevation)'],
-                  ['vegetation', 'Vegetation & Biome'],
-                  ['locations', 'Locations & Pins'],
-                  ['paths', 'Paths / Trails'],
-                  ['regions', 'Regions & Labels'],
-                ] as Array<[keyof typeof mapLayers, string]>
-              ).map(([key, label]) => (
-                <button
-                  key={key}
-                  onClick={() => toggleMapLayer(key)}
-                  className="w-full flex items-center justify-between px-2 py-1.5 rounded text-xs text-[#dcd7cc] hover:bg-[#d4a853]/15"
-                >
-                  <span>{label}</span>
-                  {mapLayers[key] ? (
-                    <Eye className="w-3.5 h-3.5 text-[#d4a853]" />
-                  ) : (
-                    <EyeOff className="w-3.5 h-3.5 text-[#626b7a]" />
-                  )}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Tools Dropdown */}
-        <div className="relative">
-          <button
-            onClick={() => {
-              setToolsDropdownOpen((v) => !v);
-              setLayersDropdownOpen(false);
-            }}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md dark-glass-subtle hover:border-[#d4a853]/45 text-xs text-[#d8d3c8] transition-colors"
-          >
-            <Wrench className="w-3.5 h-3.5 text-[#d4a853]" />
-            <span>Tools</span>
-          </button>
-          {toolsDropdownOpen && (
-            <div
-              onMouseLeave={() => setToolsDropdownOpen(false)}
-              className="absolute left-0 mt-1.5 w-52 rounded-md dark-glass shadow-glass p-1.5 space-y-0.5 z-40"
+              <MapIcon className="w-3.5 h-3.5" />
+              <span>Map</span>
+            </button>
+            <button
+              onClick={() => setMapRenderMode('terrain')}
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium transition-all ${
+                mapRenderMode === 'terrain'
+                  ? 'btn-gold-metallic font-semibold'
+                  : 'text-[#b5b0a5] hover:text-white'
+              }`}
             >
-              <button
-                onClick={() => {
-                  setWorldsmithMode(false);
-                  setMapToolMode('pin');
-                  setToolsDropdownOpen(false);
-                }}
-                className="w-full text-left px-2.5 py-1.5 rounded text-xs text-[#e7e2d8] hover:bg-[#d4a853]/15"
-              >
-                + Place Location Pin
-              </button>
-              <button
-                onClick={() => {
-                  setWorldsmithMode(false);
-                  setMapToolMode('path');
-                  setToolsDropdownOpen(false);
-                }}
-                className="w-full text-left px-2.5 py-1.5 rounded text-xs text-[#e7e2d8] hover:bg-[#d4a853]/15"
-              >
-                + Draw Terrain Route
-              </button>
-              <button
-                onClick={() => {
-                  setMapGeneratorModalOpen(true, '3d');
-                  setToolsDropdownOpen(false);
-                }}
-                className="w-full text-left px-2.5 py-1.5 rounded text-xs text-[#e5be58] hover:bg-[#d4a853]/15"
-              >
-                Custom Terrain Generator...
-              </button>
-              <button
-                onClick={() => {
-                  setSettingsModalOpen(true);
-                  setToolsDropdownOpen(false);
-                }}
-                className="w-full text-left px-2.5 py-1.5 rounded text-xs text-[#d4a853] hover:bg-[#d4a853]/15"
-              >
-                Upload Heightmap / Albedo...
-              </button>
-            </div>
-          )}
-        </div>
-
-        {/* Active Tool Prompt Banner */}
-        {worldsmithMode ? (
-          <div className="px-2.5 py-1 rounded-md bg-[#261f12]/90 border border-[#d4a853]/60 text-[11px] text-[#f5df9d] flex items-center gap-2 shadow-gold-sm">
-            <span>
-              {worldsmithTool === 'raise' && 'Left-drag: Raise Mountain (Shift: Lower) • Right-drag: Orbit'}
-              {worldsmithTool === 'valley' && 'Left-drag: Carve Valley • Right-drag: Orbit'}
-              {worldsmithTool === 'flatten' && 'Left-drag: Flatten Plateau to click height • Right-drag: Orbit'}
-              {worldsmithTool === 'smooth' && 'Left-drag: Smooth Ridges • Right-drag: Orbit'}
-              {worldsmithTool === 'coast' && 'Left-drag: Sink Coastline Below Sea Level • Right-drag: Orbit'}
-              {worldsmithTool === 'river' && 'Click river waypoints down-slope, then click Carve River'}
-              {worldsmithTool === 'paint-flora' && 'Left-drag: Paint Trees & Boulders • Right-drag: Orbit'}
-              {worldsmithTool === 'place-mesh' && 'Click terrain to place active hero mesh or tree'}
-              {worldsmithTool === 'edit-mesh' && 'Click & drag a 3D mesh to move it; tune scale/rot in Inspector'}
-              {worldsmithTool === 'erase-mesh' && 'Left-drag to erase meshes & trees inside brush'}
-            </span>
+              <Mountain className="w-3.5 h-3.5" />
+              <span>Terrain</span>
+            </button>
           </div>
-        ) : (
-          mapToolMode !== 'select' && (
-            <div className="px-3 py-1 rounded-md bg-[#261f12]/90 border border-[#d4a853]/60 text-[11.5px] text-[#f5df9d] flex items-center gap-2 shadow-gold-sm">
-              <span>
-                {mapToolMode === 'pin' && 'Click anywhere on the 3D terrain to drop a Location Pin'}
-                {mapToolMode === 'path' && 'Click terrain points to trace a route, then click Save'}
-                {mapToolMode === 'region' && 'Click boundary vertices on terrain to outline a Region'}
-                {mapToolMode === 'link' && 'Click a pin or create a new linked grimoire note'}
-              </span>
-              <button
-                onClick={() => setMapToolMode('select')}
-                className="text-[#d4a853] hover:text-white underline text-[11px]"
-              >
-                Esc
-              </button>
-            </div>
-          )
-        )}
-      </div>
 
-      {/* Top-Right Floating Dark Glass Tool Palette */}
-      <div className="flex items-center gap-0.5 p-1 rounded-lg dark-glass shadow-glass pointer-events-auto shrink-0">
-        {worldsmithMode ? (
-          (
-            [
-              { id: 'raise', icon: ArrowUpFromLine, label: 'Raise Mountain' },
-              { id: 'valley', icon: ArrowDownToLine, label: 'Carve Valley' },
-              { id: 'flatten', icon: Minus, label: 'Flatten Plateau' },
-              { id: 'smooth', icon: Wand2, label: 'Smooth Terrain' },
-              { id: 'coast', icon: Waves, label: 'Lower to Sea / Coast' },
-              { id: 'river', icon: Route, label: 'Carve River Spline' },
-              { id: 'paint-flora', icon: Trees, label: 'Paint Trees & Rocks Brush' },
-              { id: 'place-mesh', icon: Castle, label: 'Place Hero Mesh' },
-              { id: 'edit-mesh', icon: Move, label: 'Select / Move Mesh' },
-              { id: 'erase-mesh', icon: Eraser, label: 'Erase Meshes Brush' },
-            ] as const
-          ).map((tool) => {
-            const Icon = tool.icon;
-            const active = worldsmithTool === tool.id;
-            return (
-              <button
-                key={tool.id}
-                title={tool.label}
-                aria-label={tool.label}
-                onClick={() => setWorldsmithTool(tool.id)}
-                className={`p-2 rounded-md transition-all ${
-                  active
-                    ? 'bg-[#d4a853]/25 text-[#f7ecc9] border border-[#d4a853]/70 shadow-gold-sm'
-                    : 'text-[#9aa3b2] hover:text-[#f3ead8] hover:bg-[#1c212b]'
-                }`}
+          {/* Atlas | Worldsmith Mode Switcher */}
+          <div className="flex items-center p-0.5 rounded-md dark-glass shadow-glass">
+            <button
+              onClick={() => setWorldsmithMode(false)}
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium transition-all ${
+                !worldsmithMode
+                  ? 'bg-[#232934] text-[#f5df9d] border border-[#d4a853]/45 font-semibold'
+                  : 'text-[#b5b0a5] hover:text-white'
+              }`}
+            >
+              <Compass className="w-3.5 h-3.5" />
+              <span>Atlas</span>
+            </button>
+            <button
+              onClick={() => setWorldsmithMode(true)}
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium transition-all ${
+                worldsmithMode
+                  ? 'btn-gold-metallic font-semibold'
+                  : 'text-[#b5b0a5] hover:text-white'
+              }`}
+            >
+              <Hammer className="w-3.5 h-3.5" />
+              <span>Worldsmith</span>
+            </button>
+          </div>
+
+          {/* Camera Perspective | Top View (Whole World) Toggle */}
+          <div className="flex items-center p-0.5 rounded-md dark-glass shadow-glass">
+            <button
+              onClick={() => triggerCameraReset()}
+              title="3D Perspective Camera"
+              className={`flex items-center gap-1 px-2 py-1 rounded text-xs font-medium transition-all ${
+                mapCameraView === 'perspective'
+                  ? 'bg-[#232934] text-[#f5df9d] border border-[#d4a853]/45 font-semibold'
+                  : 'text-[#b5b0a5] hover:text-white'
+              }`}
+            >
+              <Compass className="w-3.5 h-3.5" />
+              <span>3D</span>
+            </button>
+            <button
+              onClick={() => triggerTopView()}
+              title="Top-Down Whole World View (Shortcut: T)"
+              className={`flex items-center gap-1 px-2 py-1 rounded text-xs font-medium transition-all ${
+                mapCameraView === 'top'
+                  ? 'btn-gold-metallic font-semibold'
+                  : 'text-[#b5b0a5] hover:text-white'
+              }`}
+            >
+              <Globe className="w-3.5 h-3.5" />
+              <span>Top View</span>
+            </button>
+          </div>
+
+          {/* Layers Dropdown (Base Layers + Countries/Regions/Religions/Custom Overlays) */}
+          <div className="relative">
+            <button
+              onClick={() => {
+                setLayersDropdownOpen((v) => !v);
+                setToolsDropdownOpen(false);
+              }}
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md dark-glass-subtle text-xs transition-colors ${
+                layersDropdownOpen
+                  ? 'border-[#d4a853]/70 text-[#f5df9d]'
+                  : 'hover:border-[#d4a853]/45 text-[#d8d3c8]'
+              }`}
+            >
+              <Layers className="w-3.5 h-3.5 text-[#d4a853]" />
+              <span>Layers</span>
+            </button>
+            {layersDropdownOpen && (
+              <div className="absolute left-0 mt-1.5 w-64 rounded-lg dark-glass shadow-glass p-2 space-y-2 z-40 border border-[#d4a853]/30">
+                <div className="flex items-center justify-between px-1">
+                  <span className="text-[10px] font-mono uppercase tracking-wider text-[#8e97a6]">
+                    Base Map Layers
+                  </span>
+                  <button
+                    onClick={() => setLayersDropdownOpen(false)}
+                    className="text-[#7c8594] hover:text-white"
+                    title="Close"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
+                <div className="space-y-0.5">
+                  {(
+                    [
+                      ['terrain', 'Terrain (Elevation)'],
+                      ['vegetation', 'Biome, Flora & Elements'],
+                      ['rivers', 'Rivers & Streams'],
+                      ['locations', 'Locations & Pins'],
+                      ['paths', 'Paths / Trails'],
+                      ['regions', 'Countries & Zones'],
+                      ['labels', 'Map Text Labels'],
+                    ] as Array<[keyof typeof mapLayers, string]>
+                  ).map(([key, label]) => (
+                    <button
+                      key={key}
+                      onClick={() => toggleMapLayer(key)}
+                      className="w-full flex items-center justify-between px-2 py-1 rounded text-xs text-[#dcd7cc] hover:bg-[#d4a853]/15"
+                    >
+                      <span>{label}</span>
+                      {mapLayers[key] ? (
+                        <Eye className="w-3.5 h-3.5 text-[#d4a853]" />
+                      ) : (
+                        <EyeOff className="w-3.5 h-3.5 text-[#626b7a]" />
+                      )}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="pt-1.5 border-t border-[#222834] space-y-1">
+                  <div className="flex items-center justify-between px-1">
+                    <span className="text-[10px] font-mono uppercase tracking-wider text-[#d4a853]">
+                      World Overlay Layers
+                    </span>
+                    <button
+                      onClick={() => soloWorldLayer(activeMap.id, null)}
+                      className="text-[10px] text-[#9aa3b2] hover:text-[#f3d18a]"
+                    >
+                      Show All
+                    </button>
+                  </div>
+                  <div className="max-h-40 overflow-y-auto space-y-0.5">
+                    {worldLayers.map((layer) => (
+                      <div
+                        key={layer.id}
+                        className="flex items-center justify-between px-2 py-1 rounded text-xs text-[#dcd7cc] hover:bg-[#d4a853]/12"
+                      >
+                        <button
+                          onClick={() => toggleWorldLayer(activeMap.id, layer.id)}
+                          className="flex items-center gap-2 min-w-0 flex-1 text-left"
+                        >
+                          <span
+                            className="w-2.5 h-2.5 rounded-full shrink-0 border border-white/30"
+                            style={{ backgroundColor: layer.color }}
+                          />
+                          <span className="truncate">{layer.name}</span>
+                        </button>
+                        <button
+                          onClick={() => toggleWorldLayer(activeMap.id, layer.id)}
+                          className="ml-2 shrink-0"
+                          title={layer.visible ? 'Hide layer' : 'Show layer'}
+                        >
+                          {layer.visible ? (
+                            <Eye className="w-3.5 h-3.5 text-[#d4a853]" />
+                          ) : (
+                            <EyeOff className="w-3.5 h-3.5 text-[#626b7a]" />
+                          )}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+
+                  {!newLayerOpen ? (
+                    <button
+                      onClick={() => setNewLayerOpen(true)}
+                      className="w-full py-1 px-2 rounded bg-[#141922] hover:bg-[#1c2330] border border-[#262d3b] text-[11px] text-[#e5be58] flex items-center justify-center gap-1"
+                    >
+                      <Plus className="w-3 h-3" />
+                      <span>Add Layer (Country / Religion...)</span>
+                    </button>
+                  ) : (
+                    <div className="p-1.5 rounded bg-[#0c0f14] border border-[#242b38] space-y-1.5">
+                      <input
+                        type="text"
+                        value={newLayerName}
+                        onChange={(e) => setNewLayerName(e.target.value)}
+                        placeholder="Layer name (e.g. Magic Leylines)"
+                        className="w-full bg-[#131720] border border-[#283040] rounded px-2 py-1 text-[11px] text-[#f3ead8] focus:outline-none focus:border-[#d4a853]"
+                      />
+                      <div className="flex items-center gap-1">
+                        <select
+                          value={newLayerCat}
+                          onChange={(e) => setNewLayerCat(e.target.value as WorldLayerCategory)}
+                          className="flex-1 bg-[#131720] border border-[#283040] rounded px-1.5 py-1 text-[11px] text-[#d8d3c8]"
+                        >
+                          {(Object.keys(LAYER_CATEGORY_META) as WorldLayerCategory[]).map((cat) => (
+                            <option key={cat} value={cat}>
+                              {LAYER_CATEGORY_META[cat].label}
+                            </option>
+                          ))}
+                        </select>
+                        <button
+                          onClick={() => {
+                            if (!newLayerName.trim()) return;
+                            addWorldLayer(activeMap.id, {
+                              name: newLayerName,
+                              category: newLayerCat,
+                              color: LAYER_CATEGORY_META[newLayerCat].defaultColor,
+                            });
+                            setNewLayerName('');
+                            setNewLayerOpen(false);
+                          }}
+                          className="px-2 py-1 rounded btn-gold-metallic text-[11px] font-semibold"
+                        >
+                          Add
+                        </button>
+                        <button
+                          onClick={() => setNewLayerOpen(false)}
+                          className="p-1 rounded bg-[#181d27] text-[#8d96a5] hover:text-white"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Tools & Map Actions Dropdown */}
+          <div className="relative">
+            <button
+              onClick={() => {
+                setToolsDropdownOpen((v) => !v);
+                setLayersDropdownOpen(false);
+              }}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md dark-glass-subtle hover:border-[#d4a853]/45 text-xs text-[#d8d3c8] transition-colors"
+            >
+              <Wrench className="w-3.5 h-3.5 text-[#d4a853]" />
+              <span>Map Tools</span>
+            </button>
+            {toolsDropdownOpen && (
+              <div
+                onMouseLeave={() => setToolsDropdownOpen(false)}
+                className="absolute left-0 mt-1.5 w-60 rounded-md dark-glass shadow-glass p-1.5 space-y-0.5 z-40"
               >
-                <Icon className="w-4 h-4" />
-              </button>
-            );
-          })
-        ) : (
-          (
-            [
-              { id: 'select', icon: MousePointer, label: 'Select / Inspect' },
-              { id: 'pin', icon: MapPin, label: 'Add Location Pin' },
-              { id: 'path', icon: Route, label: 'Draw Path / Route' },
-              { id: 'region', icon: Square, label: 'Draw Region Polygon' },
-              { id: 'link', icon: Link2, label: 'Link Note' },
-            ] as const
-          ).map((tool) => {
-            const Icon = tool.icon;
-            const active = mapToolMode === tool.id;
-            return (
-              <button
-                key={tool.id}
-                title={tool.label}
-                aria-label={tool.label}
-                onClick={() => {
-                  if (tool.id === 'link') {
-                    openNewEntryModal('Location', 'encyclopedia');
-                  } else {
-                    setMapToolMode(tool.id);
-                  }
-                }}
-                className={`p-2 rounded-md transition-all ${
-                  active
-                    ? 'bg-[#d4a853]/25 text-[#f7ecc9] border border-[#d4a853]/70 shadow-gold-sm'
-                    : 'text-[#9aa3b2] hover:text-[#f3ead8] hover:bg-[#1c212b]'
-                }`}
-              >
-                <Icon className="w-4 h-4" />
-              </button>
-            );
-          })
-        )}
-      </div>
+                <button
+                  onClick={() => {
+                    setWorldsmithMode(false);
+                    setMapToolMode('text');
+                    setToolsDropdownOpen(false);
+                  }}
+                  className="w-full text-left px-2.5 py-1.5 rounded text-xs text-[#e7e2d8] hover:bg-[#d4a853]/15"
+                >
+                  + Add Map Text Label
+                </button>
+                <button
+                  onClick={() => {
+                    setWorldsmithMode(false);
+                    setMapToolMode('zone');
+                    setToolsDropdownOpen(false);
+                  }}
+                  className="w-full text-left px-2.5 py-1.5 rounded text-xs text-[#e7e2d8] hover:bg-[#d4a853]/15"
+                >
+                  + Draw Country / Region / Layer
+                </button>
+                <button
+                  onClick={() => {
+                    setWorldsmithMode(false);
+                    setMapToolMode('element');
+                    setToolsDropdownOpen(false);
+                  }}
+                  className="w-full text-left px-2.5 py-1.5 rounded text-xs text-[#e7e2d8] hover:bg-[#d4a853]/15"
+                >
+                  + Place 3D Element (Castle, Ship...)
+                </button>
+                <button
+                  onClick={() => {
+                    setWorldsmithMode(false);
+                    setMapToolMode('pin');
+                    setToolsDropdownOpen(false);
+                  }}
+                  className="w-full text-left px-2.5 py-1.5 rounded text-xs text-[#e7e2d8] hover:bg-[#d4a853]/15"
+                >
+                  + Place Location Pin
+                </button>
+                <button
+                  onClick={() => {
+                    setWorldsmithMode(false);
+                    setMapToolMode('path');
+                    setToolsDropdownOpen(false);
+                  }}
+                  className="w-full text-left px-2.5 py-1.5 rounded text-xs text-[#e7e2d8] hover:bg-[#d4a853]/15"
+                >
+                  + Draw Terrain Route
+                </button>
+                <div className="my-1 border-t border-[#1e2430]" />
+                <button
+                  onClick={() => {
+                    setMapGeneratorModalOpen(true, '3d');
+                    setToolsDropdownOpen(false);
+                  }}
+                  className="w-full text-left px-2.5 py-1.5 rounded text-xs text-[#e5be58] hover:bg-[#d4a853]/15"
+                >
+                  Generate New 3D World...
+                </button>
+                <button
+                  onClick={() => {
+                    setMapGeneratorModalOpen(true, '3d', mapId);
+                    setToolsDropdownOpen(false);
+                  }}
+                  className="w-full text-left px-2.5 py-1.5 rounded text-xs text-[#dcd7cc] hover:bg-[#d4a853]/15"
+                >
+                  Edit Map &amp; Atmosphere...
+                </button>
+                <button
+                  onClick={() => {
+                    setSettingsModalOpen(true);
+                    setToolsDropdownOpen(false);
+                  }}
+                  className="w-full text-left px-2.5 py-1.5 rounded text-xs text-[#d4a853] hover:bg-[#d4a853]/15"
+                >
+                  Upload Heightmap / Albedo...
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Active Tool Prompt Banner */}
+          {worldsmithMode ? (
+            <div className="px-2.5 py-1 rounded-md bg-[#261f12]/90 border border-[#d4a853]/60 text-[11px] text-[#f5df9d] flex items-center gap-2 shadow-gold-sm">
+              <span>
+                {worldsmithTool === 'raise' && 'Left-drag: Raise Mountain (Shift: Lower) • Right-drag: Orbit'}
+                {worldsmithTool === 'valley' && 'Left-drag: Carve Valley • Right-drag: Orbit'}
+                {worldsmithTool === 'flatten' && 'Left-drag: Flatten Plateau to click height • Right-drag: Orbit'}
+                {worldsmithTool === 'smooth' && 'Left-drag: Smooth Ridges • Right-drag: Orbit'}
+                {worldsmithTool === 'coast' && 'Left-drag: Sink Coastline Below Sea Level • Right-drag: Orbit'}
+                {worldsmithTool === 'river' && 'Click river waypoints down-slope, then click Carve River'}
+                {worldsmithTool === 'paint-flora' && 'Left-drag: Paint Trees & Boulders • Right-drag: Orbit'}
+                {worldsmithTool === 'place-mesh' && 'Click terrain to place active hero mesh or tree'}
+                {worldsmithTool === 'edit-mesh' && 'Click & drag a 3D mesh to move it; tune scale/rot in Inspector'}
+                {worldsmithTool === 'erase-mesh' && 'Left-drag to erase meshes & trees inside brush'}
+              </span>
+            </div>
+          ) : (
+            mapToolMode !== 'select' && (
+              <div className="px-3 py-1 rounded-md bg-[#261f12]/90 border border-[#d4a853]/60 text-[11.5px] text-[#f5df9d] flex items-center gap-2 shadow-gold-sm">
+                <span>
+                  {mapToolMode === 'pin' && 'Click anywhere on terrain or sea to drop a Location Pin'}
+                  {mapToolMode === 'text' && 'Configure label below, then click the world to place text'}
+                  {(mapToolMode === 'zone' || mapToolMode === 'region') &&
+                    'Click boundary points (min 3), choose Layer & Save Zone'}
+                  {mapToolMode === 'path' && 'Click terrain points to trace a route, then click Save'}
+                  {mapToolMode === 'element' && 'Select a 3D element below and click land or sea to place it'}
+                  {mapToolMode === 'link' && 'Click a pin or create a new linked grimoire note'}
+                </span>
+                <button
+                  onClick={() => setMapToolMode('select')}
+                  className="text-[#d4a853] hover:text-white underline text-[11px]"
+                >
+                  Esc
+                </button>
+              </div>
+            )
+          )}
+        </div>
+
+        {/* Top-Right Floating Dark Glass Tool Palette */}
+        <div className="flex items-center gap-0.5 p-1 rounded-lg dark-glass shadow-glass pointer-events-auto shrink-0">
+          {worldsmithMode ? (
+            (
+              [
+                { id: 'raise', icon: ArrowUpFromLine, label: 'Raise Mountain' },
+                { id: 'valley', icon: ArrowDownToLine, label: 'Carve Valley' },
+                { id: 'flatten', icon: Minus, label: 'Flatten Plateau' },
+                { id: 'smooth', icon: Wand2, label: 'Smooth Terrain' },
+                { id: 'coast', icon: Waves, label: 'Lower to Sea / Coast' },
+                { id: 'river', icon: Route, label: 'Carve River Spline' },
+                { id: 'paint-flora', icon: Trees, label: 'Paint Trees & Rocks Brush' },
+                { id: 'place-mesh', icon: Castle, label: 'Place Hero Mesh' },
+                { id: 'edit-mesh', icon: Move, label: 'Select / Move Mesh' },
+                { id: 'erase-mesh', icon: Eraser, label: 'Erase Meshes Brush' },
+              ] as const
+            ).map((tool) => {
+              const Icon = tool.icon;
+              const active = worldsmithTool === tool.id;
+              return (
+                <button
+                  key={tool.id}
+                  title={tool.label}
+                  aria-label={tool.label}
+                  onClick={() => setWorldsmithTool(tool.id)}
+                  className={`p-2 rounded-md transition-all ${
+                    active
+                      ? 'bg-[#d4a853]/25 text-[#f7ecc9] border border-[#d4a853]/70 shadow-gold-sm'
+                      : 'text-[#9aa3b2] hover:text-[#f3ead8] hover:bg-[#1c212b]'
+                  }`}
+                >
+                  <Icon className="w-4 h-4" />
+                </button>
+              );
+            })
+          ) : (
+            (
+              [
+                { id: 'select', icon: MousePointer, label: 'Select / Move / Inspect' },
+                { id: 'pin', icon: MapPin, label: 'Add Location Pin' },
+                { id: 'text', icon: Type, label: 'Add Text Label' },
+                { id: 'zone', icon: Pentagon, label: 'Draw Country / Region / Layer Zone' },
+                { id: 'path', icon: Route, label: 'Draw Path / Route' },
+                { id: 'element', icon: Castle, label: 'Place 3D Element' },
+                { id: 'link', icon: Link2, label: 'Link Note' },
+              ] as const
+            ).map((tool) => {
+              const Icon = tool.icon;
+              const active =
+                mapToolMode === tool.id || (tool.id === 'zone' && mapToolMode === 'region');
+              return (
+                <button
+                  key={tool.id}
+                  title={tool.label}
+                  aria-label={tool.label}
+                  onClick={() => {
+                    if (tool.id === 'link') {
+                      openNewEntryModal('Location', 'encyclopedia');
+                    } else {
+                      setMapToolMode(tool.id);
+                    }
+                  }}
+                  className={`p-2 rounded-md transition-all ${
+                    active
+                      ? 'bg-[#d4a853]/25 text-[#f7ecc9] border border-[#d4a853]/70 shadow-gold-sm'
+                      : 'text-[#9aa3b2] hover:text-[#f3ead8] hover:bg-[#1c212b]'
+                  }`}
+                >
+                  <Icon className="w-4 h-4" />
+                </button>
+              );
+            })
+          )}
+        </div>
       </div>
 
       {/* Worldsmith River Spline Carving Bar */}
@@ -2186,29 +2645,154 @@ export const MapViewport3D: React.FC<{ mapId: string }> = ({ mapId }) => {
         </div>
       )}
 
-      {/* Interactive Path / Region Drawing Bar */}
-      {!worldsmithMode && (mapToolMode === 'path' || mapToolMode === 'region') && (
-        <div className="absolute bottom-5 left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 px-3 py-2 rounded-lg dark-glass shadow-glass">
-          <span className="font-mono text-[11px] text-[#d4a853]">
-            {drawingPoints.length} pts
-          </span>
+      {/* Interactive Text Label Placement Bar */}
+      {!worldsmithMode && mapToolMode === 'text' && (
+        <div className="absolute bottom-5 left-1/2 -translate-x-1/2 z-30 flex flex-wrap items-center gap-2 px-3 py-2 rounded-lg dark-glass shadow-glass border border-[#d4a853]/35 max-w-[92vw]">
+          <Type className="w-3.5 h-3.5 text-[#d4a853] shrink-0" />
           <input
             type="text"
-            value={pathName}
-            onChange={(e) => setPathName(e.target.value)}
-            placeholder={mapToolMode === 'region' ? 'Region name...' : 'Trail / route name...'}
+            value={labelText}
+            onChange={(e) => setLabelText(e.target.value)}
+            placeholder="Text label (then click map)..."
             className="bg-[#0b0d10] border border-[#272e3a] rounded px-2.5 py-1 text-xs text-[#f3ead8] w-44 focus:outline-none focus:border-[#d4a853]"
           />
+          <select
+            value={labelStyle}
+            onChange={(e) => setLabelStyle(e.target.value as MapLabelStyle)}
+            className="bg-[#0b0d10] border border-[#272e3a] rounded px-2 py-1 text-xs text-[#d4cfc4]"
+          >
+            <option value="title">World Title</option>
+            <option value="region">Region / Country</option>
+            <option value="sea">Sea / Ocean</option>
+            <option value="callout">Callout Badge</option>
+            <option value="note">Small Note</option>
+          </select>
+          <select
+            value={labelLayerId}
+            onChange={(e) => setLabelLayerId(e.target.value)}
+            className="bg-[#0b0d10] border border-[#272e3a] rounded px-2 py-1 text-xs text-[#d4cfc4]"
+            title="Tie label visibility to a world layer"
+          >
+            <option value="">Global (Always Visible)</option>
+            {worldLayers.map((l) => (
+              <option key={l.id} value={l.id}>
+                Layer: {l.name}
+              </option>
+            ))}
+          </select>
+          <label className="flex items-center gap-1.5 text-[11px] text-[#b5b0a5]">
+            <span>Size</span>
+            <input
+              type="range"
+              min={0.8}
+              max={4.2}
+              step={0.15}
+              value={labelFontSize}
+              onChange={(e) => setLabelFontSize(Number(e.target.value))}
+              className="w-16 accent-[#d4a853]"
+            />
+          </label>
+          <div className="flex items-center gap-1">
+            {LABEL_COLOR_PALETTE.map((col) => (
+              <button
+                key={col}
+                type="button"
+                onClick={() => setLabelColor(col)}
+                className={`w-4 h-4 rounded-full border ${
+                  labelColor === col ? 'border-white scale-110' : 'border-white/25'
+                }`}
+                style={{ backgroundColor: col }}
+                title={`Text color ${col}`}
+              />
+            ))}
+          </div>
           <button
-            disabled={drawingPoints.length < 2}
-            onClick={async () => {
-              await finishDrawingPath(pathName, mapToolMode === 'region');
-              setPathName('');
+            onClick={() => setMapToolMode('select')}
+            className="p-1.5 rounded bg-[#171b22] text-[#9aa3b2] hover:text-red-300"
+            title="Cancel (Esc)"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
+
+      {/* Interactive Country / Region / Layer Zone Polygon Drawing Bar */}
+      {!worldsmithMode && (mapToolMode === 'zone' || mapToolMode === 'region') && (
+        <div className="absolute bottom-5 left-1/2 -translate-x-1/2 z-30 flex flex-wrap items-center gap-2 px-3 py-2 rounded-lg dark-glass shadow-glass border border-[#d4a853]/35 max-w-[94vw]">
+          <span className="font-mono text-[11px] text-[#d4a853] shrink-0">
+            {drawingPoints.length} pts
+          </span>
+          <select
+            value={activeZoneLayerId}
+            onChange={(e) => handleZoneLayerChange(e.target.value)}
+            className="bg-[#0b0d10] border border-[#272e3a] rounded px-2 py-1 text-xs text-[#e5be58]"
+            title="Target World Layer"
+          >
+            {worldLayers.map((l) => (
+              <option key={l.id} value={l.id}>
+                {l.name}
+              </option>
+            ))}
+          </select>
+          <input
+            type="text"
+            value={zoneName}
+            onChange={(e) => setZoneName(e.target.value)}
+            placeholder="Country / region / faith name..."
+            className="bg-[#0b0d10] border border-[#272e3a] rounded px-2.5 py-1 text-xs text-[#f3ead8] w-44 focus:outline-none focus:border-[#d4a853]"
+          />
+          <select
+            value={zoneBorderStyle}
+            onChange={(e) => setZoneBorderStyle(e.target.value as ZoneBorderStyle)}
+            className="bg-[#0b0d10] border border-[#272e3a] rounded px-2 py-1 text-xs text-[#d4cfc4]"
+          >
+            <option value="solid">Solid Border</option>
+            <option value="dashed">Dashed Border</option>
+            <option value="double">Imperial Double</option>
+            <option value="none">Fill Only</option>
+          </select>
+          <div className="flex items-center gap-1">
+            {ZONE_COLOR_PALETTE.slice(0, 7).map((col) => (
+              <button
+                key={col}
+                type="button"
+                onClick={() => setZoneColor(col)}
+                className={`w-4 h-4 rounded-full border ${
+                  zoneColor === col ? 'border-white scale-110' : 'border-white/25'
+                }`}
+                style={{ backgroundColor: col }}
+              />
+            ))}
+          </div>
+          <button
+            disabled={drawingPoints.length === 0}
+            onClick={() => popDrawingPoint()}
+            className="p-1.5 rounded bg-[#171b22] text-[#9aa3b2] hover:text-white disabled:opacity-35"
+            title="Undo Last Vertex"
+          >
+            <Undo2 className="w-3.5 h-3.5" />
+          </button>
+          <button
+            disabled={drawingPoints.length < 3}
+            onClick={() => {
+              const targetLayerId =
+                worldLayers.find((l) => l.id === activeZoneLayerId)?.id ||
+                worldLayers[0]?.id ||
+                'layer-countries';
+              createMapZone(activeMap.id, {
+                layerId: targetLayerId,
+                name: zoneName.trim() || 'Unnamed Territory',
+                points: drawingPoints,
+                color: zoneColor,
+                borderStyle: zoneBorderStyle,
+                showLabel: true,
+              });
+              setZoneName('');
             }}
             className="px-2.5 py-1 rounded btn-gold-metallic text-xs font-semibold flex items-center gap-1 disabled:opacity-40"
           >
             <Check className="w-3.5 h-3.5" />
-            <span>Save</span>
+            <span>Save Zone</span>
           </button>
           <button
             onClick={() => {
@@ -2219,6 +2803,103 @@ export const MapViewport3D: React.FC<{ mapId: string }> = ({ mapId }) => {
             title="Cancel"
           >
             <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
+
+      {/* Interactive Path / Route Drawing Bar */}
+      {!worldsmithMode && mapToolMode === 'path' && (
+        <div className="absolute bottom-5 left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 px-3 py-2 rounded-lg dark-glass shadow-glass">
+          <span className="font-mono text-[11px] text-[#d4a853]">
+            {drawingPoints.length} pts
+          </span>
+          <input
+            type="text"
+            value={pathName}
+            onChange={(e) => setPathName(e.target.value)}
+            placeholder="Trail / route name..."
+            className="bg-[#0b0d10] border border-[#272e3a] rounded px-2.5 py-1 text-xs text-[#f3ead8] w-44 focus:outline-none focus:border-[#d4a853]"
+          />
+          <button
+            disabled={drawingPoints.length === 0}
+            onClick={() => popDrawingPoint()}
+            className="p-1.5 rounded bg-[#171b22] text-[#9aa3b2] hover:text-white disabled:opacity-35"
+            title="Undo Last Point"
+          >
+            <Undo2 className="w-3.5 h-3.5" />
+          </button>
+          <button
+            disabled={drawingPoints.length < 2}
+            onClick={async () => {
+              await finishDrawingPath(pathName, false);
+              setPathName('');
+            }}
+            className="px-2.5 py-1 rounded btn-gold-metallic text-xs font-semibold flex items-center gap-1 disabled:opacity-40"
+          >
+            <Check className="w-3.5 h-3.5" />
+            <span>Save Route</span>
+          </button>
+          <button
+            onClick={() => {
+              clearDrawingPoints();
+              setMapToolMode('select');
+            }}
+            className="p-1.5 rounded bg-[#171b22] text-[#9aa3b2] hover:text-red-300"
+            title="Cancel"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
+
+      {/* Interactive 3D Element Placement Bar */}
+      {!worldsmithMode && mapToolMode === 'element' && (
+        <div className="absolute bottom-5 left-1/2 -translate-x-1/2 z-30 flex flex-wrap items-center gap-2 px-3 py-2 rounded-lg dark-glass shadow-glass border border-[#d4a853]/35 max-w-[92vw]">
+          <Castle className="w-3.5 h-3.5 text-[#d4a853] shrink-0" />
+          <select
+            value={elementKind}
+            onChange={(e) => handleElementKindChange(e.target.value as MapPropKind)}
+            className="bg-[#0b0d10] border border-[#272e3a] rounded px-2 py-1 text-xs text-[#f3ead8]"
+          >
+            <optgroup label="Settlements & Structures">
+              {WORLD_ELEMENT_CATALOG.filter((i) => i.category === 'Settlement & Structure').map((i) => (
+                <option key={i.kind} value={i.kind}>
+                  {i.label}
+                </option>
+              ))}
+            </optgroup>
+            <optgroup label="Flora & Terrain">
+              {WORLD_ELEMENT_CATALOG.filter((i) => i.category === 'Flora & Terrain').map((i) => (
+                <option key={i.kind} value={i.kind}>
+                  {i.label}
+                </option>
+              ))}
+            </optgroup>
+          </select>
+          <input
+            type="text"
+            value={elementName}
+            onChange={(e) => setElementName(e.target.value)}
+            placeholder="Optional name..."
+            className="bg-[#0b0d10] border border-[#272e3a] rounded px-2.5 py-1 text-xs text-[#f3ead8] w-36 focus:outline-none focus:border-[#d4a853]"
+          />
+          <label className="flex items-center gap-1.5 text-[11px] text-[#b5b0a5]">
+            <span>Scale {elementScale.toFixed(1)}×</span>
+            <input
+              type="range"
+              min={0.6}
+              max={2.4}
+              step={0.1}
+              value={elementScale}
+              onChange={(e) => setElementScale(Number(e.target.value))}
+              className="w-16 accent-[#d4a853]"
+            />
+          </label>
+          <button
+            onClick={() => setMapToolMode('select')}
+            className="px-2.5 py-1 rounded bg-[#171b22] hover:bg-[#232934] text-xs text-[#e7e2d8]"
+          >
+            Done
           </button>
         </div>
       )}
@@ -2268,8 +2949,24 @@ export const MapViewport3D: React.FC<{ mapId: string }> = ({ mapId }) => {
       {/* Bottom-Right Camera Controls */}
       <div className="absolute bottom-3.5 right-3.5 z-20 flex flex-col gap-1.5">
         <button
+          onClick={() => (mapCameraView === 'top' ? triggerCameraReset() : triggerTopView())}
+          title={
+            mapCameraView === 'top'
+              ? 'Switch Back to 3D Perspective (T)'
+              : 'Top View — Whole World Overview (T)'
+          }
+          className={`w-9 h-9 rounded-lg dark-glass flex items-center justify-center transition-colors ${
+            mapCameraView === 'top'
+              ? 'border border-[#eab308] text-[#f9e7b2] bg-[#2a2214]/90 shadow-gold-sm'
+              : 'hover:border-[#d4a853] text-[#d4a853]'
+          }`}
+        >
+          <Globe className="w-4 h-4" />
+        </button>
+
+        <button
           onClick={triggerCameraReset}
-          title="Reset North & Tilt"
+          title="Reset North & Tilt (3D View)"
           className="w-9 h-9 rounded-lg dark-glass hover:border-[#d4a853] flex items-center justify-center text-[#d4a853] transition-colors"
         >
           <Compass className="w-4 h-4" />
@@ -2291,6 +2988,16 @@ export const MapViewport3D: React.FC<{ mapId: string }> = ({ mapId }) => {
             <Minus className="w-4 h-4" />
           </button>
         </div>
+
+        <button
+          onClick={() => toggleMapLayer('labels')}
+          title="Toggle Text Labels Visibility"
+          className={`w-9 h-9 rounded-lg dark-glass flex items-center justify-center transition-colors ${
+            mapLayers.labels ? 'text-[#eab308]' : 'text-[#646d7c]'
+          }`}
+        >
+          <Type className="w-4 h-4" />
+        </button>
 
         <button
           onClick={() => toggleMapLayer('locations')}

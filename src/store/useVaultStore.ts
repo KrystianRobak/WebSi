@@ -15,6 +15,7 @@ import {
 } from '../lib/supabase';
 import { generateCustomTerrain } from '../lib/terrainEditorEngine';
 import { generateEntityArtwork } from '../lib/terrainGenerator';
+import { createDefaultWorldLayers } from '../lib/worldLayers';
 import { computeEntityLinksForSource, slugify } from '../lib/wikilinks';
 import {
   AssetKind,
@@ -34,6 +35,7 @@ import {
   EntityTemplate,
   EntityType,
   InspectorSubTab,
+  MapCameraView,
   MapGenerationConfig,
   MapKind,
   MapLayerVisibility,
@@ -52,7 +54,12 @@ import {
   VaultMap,
   World,
   WorldAtmospherePreset,
+  WorldLayerCategory,
+  WorldMapLabel,
+  WorldMapLayer,
+  WorldMapZone,
   WorldsmithTool,
+  ZoneBorderStyle,
 } from '../types/vault';
 
 interface HistorySnapshot {
@@ -95,13 +102,18 @@ interface VaultState {
 
   // Map Viewport State
   mapRenderMode: MapRenderMode;
+  mapCameraView: MapCameraView;
   mapToolMode: MapToolMode;
   mapLayers: MapLayerVisibility;
   selectedPinId: string | null;
   hoveredPinId: string | null;
+  selectedZoneId: string | null;
+  selectedLabelId: string | null;
+  activeZoneLayerId: string;
   pendingPinCoord: PathPoint | null;
   drawingPoints: PathPoint[];
   cameraResetSignal: number;
+  cameraTopViewSignal: number;
   cameraZoomSignal: { delta: number; seq: number };
   scaleBarKm: number;
 
@@ -146,17 +158,55 @@ interface VaultState {
   setRightInspectorCollapsed: (collapsed: boolean) => void;
   toggleRightInspector: () => void;
   setMapRenderMode: (mode: MapRenderMode) => void;
+  setMapCameraView: (view: MapCameraView) => void;
   setMapToolMode: (mode: MapToolMode) => void;
   toggleMapLayer: (layer: keyof MapLayerVisibility) => void;
   setSelectedPinId: (id: string | null) => void;
   setHoveredPinId: (id: string | null) => void;
+  setSelectedZoneId: (id: string | null) => void;
+  setSelectedLabelId: (id: string | null) => void;
+  setActiveZoneLayerId: (layerId: string) => void;
   setPendingPinCoord: (pt: PathPoint | null) => void;
   addDrawingPoint: (pt: PathPoint) => void;
+  popDrawingPoint: () => void;
   clearDrawingPoints: () => void;
   finishDrawingPath: (name: string, isRegion: boolean, isGmOnly?: boolean) => Promise<void>;
   triggerCameraReset: () => void;
+  triggerTopView: () => void;
   triggerCameraZoom: (delta: number) => void;
   setScaleBarKm: (km: number) => void;
+
+  // World Layers, Zones (Countries/Regions/Religions) & Text Labels
+  addWorldLayer: (
+    mapId: string,
+    payload: { name: string; category: WorldLayerCategory; color: string; opacity?: number }
+  ) => WorldMapLayer;
+  updateWorldLayer: (mapId: string, layerId: string, patch: Partial<WorldMapLayer>) => void;
+  deleteWorldLayer: (mapId: string, layerId: string) => void;
+  toggleWorldLayer: (mapId: string, layerId: string) => void;
+  soloWorldLayer: (mapId: string, layerId: string | null) => void;
+  createMapZone: (
+    mapId: string,
+    payload: {
+      layerId: string;
+      name: string;
+      points: PathPoint[];
+      color: string;
+      borderStyle?: ZoneBorderStyle;
+      fillOpacity?: number;
+      showLabel?: boolean;
+      entityId?: string | null;
+      is_gm_only?: boolean;
+    }
+  ) => WorldMapZone;
+  updateMapZone: (mapId: string, zoneId: string, patch: Partial<WorldMapZone>) => void;
+  deleteMapZone: (mapId: string, zoneId: string) => void;
+  createMapLabel: (
+    mapId: string,
+    payload: Omit<WorldMapLabel, 'id'>
+  ) => WorldMapLabel;
+  updateMapLabel: (mapId: string, labelId: string, patch: Partial<WorldMapLabel>) => void;
+  deleteMapLabel: (mapId: string, labelId: string) => void;
 
   setCommandPaletteOpen: (open: boolean) => void;
   setAuthModalOpen: (open: boolean) => void;
@@ -316,8 +366,57 @@ function broadcastVaultChange(reason: string) {
   });
 }
 
-function serializeMapRow(m: VaultMap) {
+function normalizeMapOverlay(m: VaultMap, fallbackSeed?: VaultMap): VaultMap {
+  if (m.kind === '2d') return m;
+  const scaleCfg = (m.scale_config || {}) as VaultMap['scale_config'] & {
+    _overlay?: {
+      layers?: WorldMapLayer[];
+      zones?: WorldMapZone[];
+      labels?: WorldMapLabel[];
+    };
+  };
+  const packed = scaleCfg._overlay;
+  const layers =
+    m.layers && m.layers.length > 0
+      ? m.layers
+      : packed?.layers && packed.layers.length > 0
+      ? packed.layers
+      : fallbackSeed?.layers && fallbackSeed.layers.length > 0
+      ? fallbackSeed.layers
+      : createDefaultWorldLayers();
+  const zones = m.zones ?? packed?.zones ?? fallbackSeed?.zones ?? [];
+  const labels = m.labels ?? packed?.labels ?? fallbackSeed?.labels ?? [];
+  const props =
+    m.props && m.props.length > 0
+      ? m.props
+      : m.props !== undefined
+      ? m.props
+      : fallbackSeed?.props ?? [];
+
   return {
+    ...m,
+    kind: m.kind || '3d',
+    rivers: m.rivers || [],
+    props,
+    layers,
+    zones,
+    labels,
+  };
+}
+
+function serializeMapRow(m: VaultMap, packOverlayInScaleConfig = false) {
+  const cleanScale = { ...(m.scale_config || { ratio: '1 : 250 000', elevationSource: 'Heightmap', kmPerUnit: 1.6 }) } as Record<string, unknown>;
+  if (packOverlayInScaleConfig) {
+    cleanScale._overlay = {
+      layers: m.layers ?? [],
+      zones: m.zones ?? [],
+      labels: m.labels ?? [],
+    };
+  } else {
+    delete cleanScale._overlay;
+  }
+
+  const base = {
     id: m.id,
     world_id: m.world_id,
     name: m.name,
@@ -327,12 +426,23 @@ function serializeMapRow(m: VaultMap) {
     width: m.width,
     height: m.height,
     displacement_scale: m.displacement_scale,
-    scale_config: m.scale_config,
+    scale_config: cleanScale,
     generation_config: m.generation_config ?? null,
     atmosphere: m.atmosphere ?? null,
     rivers: m.rivers ?? [],
     props: m.props ?? [],
     battlemap: m.battlemap ?? null,
+  };
+
+  if (packOverlayInScaleConfig) {
+    return base;
+  }
+
+  return {
+    ...base,
+    layers: m.layers ?? [],
+    zones: m.zones ?? [],
+    labels: m.labels ?? [],
   };
 }
 
@@ -365,7 +475,11 @@ function scheduleMapSync(
   const timer = setTimeout(async () => {
     const latestMap = getState().maps.find((m) => m.id === mapId);
     if (!latestMap) return;
-    const { error } = await client.from('maps').upsert(serializeMapRow(latestMap));
+    let { error } = await client.from('maps').upsert(serializeMapRow(latestMap, false));
+    if (error && /layers|zones|labels|column/i.test(error.message)) {
+      const retry = await client.from('maps').upsert(serializeMapRow(latestMap, true));
+      error = retry.error;
+    }
     if (!error) broadcastVaultChange('maps');
     setState({
       syncStatus: error ? 'error' : 'synced',
@@ -433,12 +547,8 @@ function saveLocalVaultData(state: {
 }
 
 function buildInitialMaps(): VaultMap[] {
-  const base3D: VaultMap[] = seed.maps.map((m) => ({
-    ...m,
-    kind: '3d',
-    rivers: m.rivers || [],
-    props: m.props || [],
-  }));
+  const base3D: VaultMap[] = seed.maps.map((m) => normalizeMapOverlay(m, m));
+  const seedById = new Map(seed.maps.map((m) => [m.id, m]));
   const seeded2D: VaultMap = {
     id: 'map-smuggler-vaults',
     world_id: seed.world.id,
@@ -461,8 +571,13 @@ function buildInitialMaps(): VaultMap[] {
       const saved = JSON.parse(raw) as VaultMap[];
       if (Array.isArray(saved) && saved.length > 0) {
         const savedById = new Map(saved.map((m) => [m.id, m]));
-        const mergedDefaults = defaults.map((d) => savedById.get(d.id) || d);
-        const customMaps = saved.filter((m) => !defaults.some((d) => d.id === m.id));
+        const mergedDefaults = defaults.map((d) => {
+          const hit = savedById.get(d.id);
+          return hit ? normalizeMapOverlay(hit, seedById.get(d.id)) : d;
+        });
+        const customMaps = saved
+          .filter((m) => !defaults.some((d) => d.id === m.id))
+          .map((m) => normalizeMapOverlay(m));
         return [...mergedDefaults, ...customMaps];
       }
     }
@@ -618,19 +733,26 @@ export const useVaultStore = create<VaultState>((set, get) => ({
   selectedSidebarFilter: null,
 
   mapRenderMode: 'map',
+  mapCameraView: 'perspective',
   mapToolMode: 'select',
   mapLayers: {
     terrain: true,
     vegetation: true,
+    rivers: true,
     locations: true,
     paths: true,
     regions: true,
+    labels: true,
   },
   selectedPinId: null,
   hoveredPinId: null,
+  selectedZoneId: null,
+  selectedLabelId: null,
+  activeZoneLayerId: 'layer-countries',
   pendingPinCoord: null,
   drawingPoints: [],
   cameraResetSignal: 0,
+  cameraTopViewSignal: 0,
   cameraZoomSignal: { delta: 0, seq: 0 },
   scaleBarKm: 40,
 
@@ -639,7 +761,7 @@ export const useVaultStore = create<VaultState>((set, get) => ({
   brushRadius: 7,
   brushStrength: 0.45,
   brushFalloff: 'smooth',
-  activePropKind: 'pine',
+  activePropKind: 'village',
   selectedPropId: null,
   riverDrawingPoints: [],
   mapGeneratorModalOpen: false,
@@ -679,10 +801,16 @@ export const useVaultStore = create<VaultState>((set, get) => ({
   toggleRightInspector: () =>
     set((s) => ({ rightInspectorCollapsed: !s.rightInspectorCollapsed })),
   setMapRenderMode: (mode) => set({ mapRenderMode: mode }),
+  setMapCameraView: (view) =>
+    set((s) => ({
+      mapCameraView: view,
+      cameraTopViewSignal: view === 'top' ? s.cameraTopViewSignal + 1 : s.cameraTopViewSignal,
+      cameraResetSignal: view === 'perspective' ? s.cameraResetSignal + 1 : s.cameraResetSignal,
+    })),
   setMapToolMode: (mode) =>
     set({
       mapToolMode: mode,
-      drawingPoints: mode === 'path' || mode === 'region' ? get().drawingPoints : [],
+      drawingPoints: mode === 'path' || mode === 'region' || mode === 'zone' ? get().drawingPoints : [],
       pendingPinCoord: null,
     }),
 
@@ -691,11 +819,27 @@ export const useVaultStore = create<VaultState>((set, get) => ({
       mapLayers: { ...s.mapLayers, [layer]: !s.mapLayers[layer] },
     })),
 
-  setSelectedPinId: (id) => set({ selectedPinId: id }),
+  setSelectedPinId: (id) =>
+    set({
+      selectedPinId: id,
+      ...(id ? { selectedZoneId: null, selectedLabelId: null, selectedPropId: null } : {}),
+    }),
   setHoveredPinId: (id) => set({ hoveredPinId: id }),
+  setSelectedZoneId: (id) =>
+    set({
+      selectedZoneId: id,
+      ...(id ? { selectedPinId: null, selectedLabelId: null, selectedPropId: null } : {}),
+    }),
+  setSelectedLabelId: (id) =>
+    set({
+      selectedLabelId: id,
+      ...(id ? { selectedPinId: null, selectedZoneId: null, selectedPropId: null } : {}),
+    }),
+  setActiveZoneLayerId: (layerId) => set({ activeZoneLayerId: layerId }),
   setPendingPinCoord: (pt) => set({ pendingPinCoord: pt }),
 
   addDrawingPoint: (pt) => set((s) => ({ drawingPoints: [...s.drawingPoints, pt] })),
+  popDrawingPoint: () => set((s) => ({ drawingPoints: s.drawingPoints.slice(0, -1) })),
   clearDrawingPoints: () => set({ drawingPoints: [] }),
 
   finishDrawingPath: async (name, isRegion, isGmOnly = false) => {
@@ -740,10 +884,246 @@ export const useVaultStore = create<VaultState>((set, get) => ({
     }
   },
 
-  triggerCameraReset: () => set((s) => ({ cameraResetSignal: s.cameraResetSignal + 1 })),
+  triggerCameraReset: () =>
+    set((s) => ({ mapCameraView: 'perspective', cameraResetSignal: s.cameraResetSignal + 1 })),
+  triggerTopView: () =>
+    set((s) => ({ mapCameraView: 'top', cameraTopViewSignal: s.cameraTopViewSignal + 1 })),
   triggerCameraZoom: (delta) =>
     set((s) => ({ cameraZoomSignal: { delta, seq: s.cameraZoomSignal.seq + 1 } })),
   setScaleBarKm: (km) => set({ scaleBarKm: km }),
+
+  addWorldLayer: (mapId, { name, category, color, opacity = 0.32 }) => {
+    const existing = get().maps.find((m) => m.id === mapId)?.layers || createDefaultWorldLayers();
+    const newLayer: WorldMapLayer = {
+      id: `layer-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      name: name.trim() || 'Custom Layer',
+      category,
+      color,
+      visible: true,
+      opacity,
+      order: existing.length + 1,
+    };
+    set((s) => {
+      const nextMaps = s.maps.map((m) => {
+        if (m.id !== mapId) return m;
+        const baseLayers = m.layers && m.layers.length > 0 ? m.layers : createDefaultWorldLayers();
+        return { ...m, layers: [...baseLayers, newLayer] };
+      });
+      saveMapsToStorage(nextMaps);
+      return { ...pushSnapshot(s), maps: nextMaps, activeZoneLayerId: newLayer.id };
+    });
+    scheduleMapSync(mapId, get, set);
+    return newLayer;
+  },
+
+  updateWorldLayer: (mapId, layerId, patch) => {
+    set((s) => {
+      const nextMaps = s.maps.map((m) => {
+        if (m.id !== mapId) return m;
+        const baseLayers = m.layers && m.layers.length > 0 ? m.layers : createDefaultWorldLayers();
+        return {
+          ...m,
+          layers: baseLayers.map((l) => (l.id === layerId ? { ...l, ...patch } : l)),
+        };
+      });
+      saveMapsToStorage(nextMaps);
+      return { maps: nextMaps };
+    });
+    scheduleMapSync(mapId, get, set);
+  },
+
+  deleteWorldLayer: (mapId, layerId) => {
+    set((s) => {
+      const nextMaps = s.maps.map((m) => {
+        if (m.id !== mapId) return m;
+        const baseLayers = m.layers && m.layers.length > 0 ? m.layers : createDefaultWorldLayers();
+        const remaining = baseLayers.filter((l) => l.id !== layerId);
+        return {
+          ...m,
+          layers: remaining,
+          zones: (m.zones || []).filter((z) => z.layerId !== layerId),
+        };
+      });
+      saveMapsToStorage(nextMaps);
+      const updatedMap = nextMaps.find((m) => m.id === mapId);
+      const fallbackLayerId = updatedMap?.layers?.[0]?.id || 'layer-countries';
+      return {
+        ...pushSnapshot(s),
+        maps: nextMaps,
+        activeZoneLayerId: s.activeZoneLayerId === layerId ? fallbackLayerId : s.activeZoneLayerId,
+      };
+    });
+    scheduleMapSync(mapId, get, set);
+  },
+
+  toggleWorldLayer: (mapId, layerId) => {
+    set((s) => {
+      const nextMaps = s.maps.map((m) => {
+        if (m.id !== mapId) return m;
+        const baseLayers = m.layers && m.layers.length > 0 ? m.layers : createDefaultWorldLayers();
+        return {
+          ...m,
+          layers: baseLayers.map((l) => (l.id === layerId ? { ...l, visible: !l.visible } : l)),
+        };
+      });
+      saveMapsToStorage(nextMaps);
+      return { maps: nextMaps };
+    });
+    scheduleMapSync(mapId, get, set);
+  },
+
+  soloWorldLayer: (mapId, layerId) => {
+    set((s) => {
+      const nextMaps = s.maps.map((m) => {
+        if (m.id !== mapId) return m;
+        const baseLayers = m.layers && m.layers.length > 0 ? m.layers : createDefaultWorldLayers();
+        return {
+          ...m,
+          layers: baseLayers.map((l) => ({
+            ...l,
+            visible: layerId === null ? true : l.id === layerId,
+          })),
+        };
+      });
+      saveMapsToStorage(nextMaps);
+      return { maps: nextMaps };
+    });
+    scheduleMapSync(mapId, get, set);
+  },
+
+  createMapZone: (mapId, payload) => {
+    const newZone: WorldMapZone = {
+      id: `zone-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      layerId: payload.layerId,
+      name: payload.name.trim() || 'New Territory',
+      points: payload.points,
+      color: payload.color,
+      borderStyle: payload.borderStyle || 'solid',
+      borderWidth: payload.borderStyle === 'double' ? 2.8 : 2.1,
+      fillOpacity: payload.fillOpacity,
+      showLabel: payload.showLabel ?? true,
+      labelScale: 1.0,
+      entityId: payload.entityId ?? null,
+      is_gm_only: payload.is_gm_only ?? false,
+    };
+    set((s) => {
+      const nextMaps = s.maps.map((m) => {
+        if (m.id !== mapId) return m;
+        const baseLayers = m.layers && m.layers.length > 0 ? m.layers : createDefaultWorldLayers();
+        // Ensure target layer is visible when creating a zone on it
+        const layers = baseLayers.map((l) =>
+          l.id === payload.layerId ? { ...l, visible: true } : l
+        );
+        return {
+          ...m,
+          layers,
+          zones: [...(m.zones || []), newZone],
+        };
+      });
+      saveMapsToStorage(nextMaps);
+      return {
+        ...pushSnapshot(s),
+        maps: nextMaps,
+        drawingPoints: [],
+        mapToolMode: 'select',
+        selectedZoneId: newZone.id,
+        selectedPinId: null,
+        selectedLabelId: null,
+        selectedPropId: null,
+      };
+    });
+    scheduleMapSync(mapId, get, set);
+    return newZone;
+  },
+
+  updateMapZone: (mapId, zoneId, patch) => {
+    set((s) => {
+      const nextMaps = s.maps.map((m) =>
+        m.id === mapId
+          ? {
+              ...m,
+              zones: (m.zones || []).map((z) => (z.id === zoneId ? { ...z, ...patch } : z)),
+            }
+          : m
+      );
+      saveMapsToStorage(nextMaps);
+      return { maps: nextMaps };
+    });
+    scheduleMapSync(mapId, get, set);
+  },
+
+  deleteMapZone: (mapId, zoneId) => {
+    set((s) => {
+      const nextMaps = s.maps.map((m) =>
+        m.id === mapId
+          ? { ...m, zones: (m.zones || []).filter((z) => z.id !== zoneId) }
+          : m
+      );
+      saveMapsToStorage(nextMaps);
+      return {
+        ...pushSnapshot(s),
+        maps: nextMaps,
+        selectedZoneId: s.selectedZoneId === zoneId ? null : s.selectedZoneId,
+      };
+    });
+    scheduleMapSync(mapId, get, set);
+  },
+
+  createMapLabel: (mapId, payload) => {
+    const newLabel: WorldMapLabel = {
+      id: `lbl-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      ...payload,
+    };
+    set((s) => {
+      const nextMaps = s.maps.map((m) =>
+        m.id === mapId ? { ...m, labels: [...(m.labels || []), newLabel] } : m
+      );
+      saveMapsToStorage(nextMaps);
+      return {
+        ...pushSnapshot(s),
+        maps: nextMaps,
+        selectedLabelId: newLabel.id,
+        selectedPinId: null,
+        selectedZoneId: null,
+        selectedPropId: null,
+      };
+    });
+    scheduleMapSync(mapId, get, set);
+    return newLabel;
+  },
+
+  updateMapLabel: (mapId, labelId, patch) => {
+    set((s) => {
+      const nextMaps = s.maps.map((m) =>
+        m.id === mapId
+          ? {
+              ...m,
+              labels: (m.labels || []).map((l) => (l.id === labelId ? { ...l, ...patch } : l)),
+            }
+          : m
+      );
+      saveMapsToStorage(nextMaps);
+      return { maps: nextMaps };
+    });
+    scheduleMapSync(mapId, get, set);
+  },
+
+  deleteMapLabel: (mapId, labelId) => {
+    set((s) => {
+      const nextMaps = s.maps.map((m) =>
+        m.id === mapId
+          ? { ...m, labels: (m.labels || []).filter((l) => l.id !== labelId) }
+          : m
+      );
+      saveMapsToStorage(nextMaps);
+      return {
+        ...pushSnapshot(s),
+        maps: nextMaps,
+        selectedLabelId: s.selectedLabelId === labelId ? null : s.selectedLabelId,
+      };
+    });
+    scheduleMapSync(mapId, get, set);
+  },
 
   setCommandPaletteOpen: (open) => set({ commandPaletteOpen: open }),
   setAuthModalOpen: (open) => set({ authModalOpen: open }),
@@ -1491,10 +1871,11 @@ export const useVaultStore = create<VaultState>((set, get) => ({
     const state = get();
     const generated = generateCustomTerrain(config, 512, 16);
     const id = crypto.randomUUID();
+    const mapTitle = name.trim() || 'Custom World Map';
     const newMap: VaultMap = {
       id,
       world_id: state.world.id,
-      name: name.trim() || 'Custom World Map',
+      name: mapTitle,
       kind: '3d',
       heightmap_url: generated.heightmapDataUrl,
       albedo_url: generated.albedoDataUrl,
@@ -1509,6 +1890,25 @@ export const useVaultStore = create<VaultState>((set, get) => ({
       generation_config: config,
       rivers: generated.rivers,
       props: generated.props,
+      layers: createDefaultWorldLayers(),
+      zones: [],
+      labels: [
+        {
+          id: `lbl-title-${Date.now()}`,
+          text: mapTitle.toUpperCase(),
+          x: 0,
+          y: config.seaLevel * 16 + 4.5,
+          z: -2,
+          yOffset: 2.0,
+          fontSize: 2.4,
+          color: '#e9dec7',
+          rotationY: -0.08,
+          style: 'title',
+          layerId: null,
+          opacity: 0.6,
+          is_gm_only: false,
+        },
+      ],
     };
     const nextMaps = [...state.maps, newMap];
     saveMapsToStorage(nextMaps);
@@ -1531,12 +1931,17 @@ export const useVaultStore = create<VaultState>((set, get) => ({
       set({ syncStatus: 'syncing' });
       client
         .from('maps')
-        .insert(serializeMapRow(newMap))
-        .then(({ error }) => {
-          if (!error) broadcastVaultChange('maps');
+        .insert(serializeMapRow(newMap, false))
+        .then(async ({ error }) => {
+          let finalError = error;
+          if (finalError && /layers|zones|labels|column/i.test(finalError.message)) {
+            const retry = await client.from('maps').insert(serializeMapRow(newMap, true));
+            finalError = retry.error;
+          }
+          if (!finalError) broadcastVaultChange('maps');
           set({
-            syncStatus: error ? 'error' : 'synced',
-            lastSyncError: error ? error.message : null,
+            syncStatus: finalError ? 'error' : 'synced',
+            lastSyncError: finalError ? finalError.message : null,
           });
         });
     }
@@ -1921,11 +2326,7 @@ export const useVaultStore = create<VaultState>((set, get) => ({
 
       const loadedEntities = (entRes.data || []) as Entity[];
       const loadedLinks = (linkRes.data || []) as EntityLink[];
-      const loadedMaps = ((mapRes.data || []) as VaultMap[]).map((m) => ({
-        ...m,
-        rivers: m.rivers || [],
-        props: m.props || [],
-      }));
+      const loadedMaps = ((mapRes.data || []) as VaultMap[]).map((m) => normalizeMapOverlay(m));
       const mapIds = new Set(loadedMaps.map((m) => m.id));
       const loadedPins = ((pinRes.data || []) as MapPin[]).filter((p) => mapIds.has(p.map_id));
       const loadedPaths = ((pathRes.data || []) as MapPath[]).filter((p) => mapIds.has(p.map_id));
@@ -2088,15 +2489,22 @@ export const useVaultStore = create<VaultState>((set, get) => ({
       await client.from('entity_links').insert(linkRows);
     }
 
-    const mapRows = sourceMaps.map((m) =>
-      serializeMapRow({
-        ...m,
-        id: toUuid(m.id),
-        world_id: worldUuid,
-      })
-    );
+    const remappedMaps = sourceMaps.map((m) => ({
+      ...m,
+      id: toUuid(m.id),
+      world_id: worldUuid,
+      zones: (m.zones || []).map((z) => ({
+        ...z,
+        entityId: z.entityId ? toUuid(z.entityId) : null,
+      })),
+    }));
+    const mapRows = remappedMaps.map((m) => serializeMapRow(m, false));
     if (mapRows.length > 0) {
-      const { error } = await client.from('maps').insert(mapRows);
+      let { error } = await client.from('maps').insert(mapRows);
+      if (error && /layers|zones|labels|column/i.test(error.message)) {
+        const retry = await client.from('maps').insert(remappedMaps.map((m) => serializeMapRow(m, true)));
+        error = retry.error;
+      }
       if (error) {
         set({ syncStatus: 'error', lastSyncError: error.message });
         return;

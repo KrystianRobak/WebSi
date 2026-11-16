@@ -3,17 +3,23 @@ import {
   Anchor,
   Castle,
   Compass,
+  Flame,
+  Home,
   Landmark,
   Moon,
   Mountain,
   RotateCw,
   Settings2,
+  Shield,
+  Ship,
   Sparkles,
   Sun,
   Trash2,
   Trees,
   Waves,
+  Wind,
 } from 'lucide-react';
+import { WORLD_ELEMENT_CATALOG } from '../../lib/worldLayers';
 import { useVaultStore } from '../../store/useVaultStore';
 import { BrushFalloff, MapPropKind, VaultMap, WorldAtmospherePreset } from '../../types/vault';
 
@@ -21,16 +27,11 @@ const PROP_CATALOG: Array<{
   kind: MapPropKind;
   label: string;
   category: 'Flora' | 'Hero Mesh';
-}> = [
-  { kind: 'pine', label: 'Boreal Pine', category: 'Flora' },
-  { kind: 'oak', label: 'Broad Oak', category: 'Flora' },
-  { kind: 'deadwood', label: 'Deadwood', category: 'Flora' },
-  { kind: 'boulder', label: 'Boulder', category: 'Flora' },
-  { kind: 'tower', label: 'Watchtower', category: 'Hero Mesh' },
-  { kind: 'pier', label: 'Harbor Pier', category: 'Hero Mesh' },
-  { kind: 'bridge', label: 'Stone Bridge', category: 'Hero Mesh' },
-  { kind: 'ruin', label: 'Ancient Ruin', category: 'Hero Mesh' },
-];
+}> = WORLD_ELEMENT_CATALOG.map((item) => ({
+  kind: item.kind,
+  label: item.label,
+  category: item.category === 'Flora & Terrain' ? 'Flora' : 'Hero Mesh',
+}));
 
 export const WorldsmithInspectorSection: React.FC<{ activeMap: VaultMap }> = ({
   activeMap,
@@ -182,7 +183,19 @@ export const WorldsmithInspectorSection: React.FC<{ activeMap: VaultMap }> = ({
                   )
                 ) : item.kind === 'pier' ? (
                   <Anchor className="w-3 h-3 text-sky-300 shrink-0" />
-                ) : item.kind === 'ruin' ? (
+                ) : item.kind === 'ship' ? (
+                  <Ship className="w-3 h-3 text-sky-300 shrink-0" />
+                ) : item.kind === 'village' ? (
+                  <Home className="w-3 h-3 text-amber-300 shrink-0" />
+                ) : item.kind === 'campfire' ? (
+                  <Flame className="w-3 h-3 text-orange-400 shrink-0" />
+                ) : item.kind === 'windmill' ? (
+                  <Wind className="w-3 h-3 text-[#e5be58] shrink-0" />
+                ) : item.kind === 'gate' ? (
+                  <Shield className="w-3 h-3 text-[#d4a853] shrink-0" />
+                ) : item.kind === 'monolith' ? (
+                  <Sparkles className="w-3 h-3 text-sky-400 shrink-0" />
+                ) : item.kind === 'ruin' || item.kind === 'temple' ? (
                   <Landmark className="w-3 h-3 text-[#d4a853] shrink-0" />
                 ) : (
                   <Castle className="w-3 h-3 text-[#d4a853] shrink-0" />
@@ -199,7 +212,7 @@ export const WorldsmithInspectorSection: React.FC<{ activeMap: VaultMap }> = ({
         <div className="space-y-2 pt-2 border-t border-[#181d25]">
           <div className="flex items-center justify-between">
             <span className="text-[11px] font-semibold uppercase tracking-wider text-[#d4a853]">
-              Selected: {selectedProp.kind}
+              Selected: {selectedProp.name || selectedProp.kind}
             </span>
             <button
               onClick={() => {
@@ -213,6 +226,20 @@ export const WorldsmithInspectorSection: React.FC<{ activeMap: VaultMap }> = ({
             </button>
           </div>
           <div className="rounded-md bg-[#12161e] border border-[#d4a853]/35 p-2.5 space-y-2 text-[11px]">
+            <label className="block space-y-0.5 text-[#9aa3b2]">
+              <span>Element Name (Optional)</span>
+              <input
+                type="text"
+                value={selectedProp.name || ''}
+                placeholder={`e.g. ${selectedProp.kind}`}
+                onChange={(e) =>
+                  updateMapProp(activeMap.id, selectedProp.id, {
+                    name: e.target.value,
+                  })
+                }
+                className="w-full bg-[#0b0d10] border border-[#242a36] rounded px-2 py-1 text-[#f3ead8] focus:outline-none focus:border-[#d4a853]"
+              />
+            </label>
             <div className="grid grid-cols-2 gap-2 font-mono text-[#9aa3b2]">
               <label className="space-y-0.5">
                 <span>X</span>

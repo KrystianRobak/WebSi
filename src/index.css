@@ -200,31 +200,381 @@
 .tiptap table {
   width: 100%;
   border-collapse: collapse;
+  margin: 0;
+  font-size: 0.89em;
+}
+
+.vault-table-wrap {
   margin: 1rem 0;
-  font-size: 0.9em;
-  border-top: 1px solid #222937;
-  border-bottom: 1px solid #222937;
+  overflow-x: auto;
+  border-radius: 10px;
+  border: 1px solid #202734;
+  background: rgba(13, 16, 22, 0.72);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.025);
+}
+
+.tiptap thead th {
+  background: rgba(21, 26, 36, 0.88);
+  color: var(--note-heading-color, #e6c478);
+  font-weight: 600;
+  font-size: 0.84em;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 0.6rem 0.85rem;
+  border-bottom: 1px solid rgba(212, 168, 83, 0.25);
 }
 
 .tiptap th {
   color: var(--note-heading-color, #e6c478);
   font-weight: 600;
   text-align: left;
-  padding: 0.5rem 0.7rem;
+  padding: 0.55rem 0.8rem;
   border-bottom: 1px solid #262e3e;
 }
 
 .tiptap td {
-  padding: 0.45rem 0.7rem;
-  border-bottom: 1px solid #1a202b;
+  padding: 0.52rem 0.85rem;
+  border-bottom: 1px solid #181e28;
   color: var(--note-color, #d7d0c3);
+  vertical-align: top;
 }
 
-.tiptap hr {
+.tiptap tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.tiptap tbody tr:nth-child(even) {
+  background: rgba(255, 255, 255, 0.015);
+}
+
+.tiptap tbody tr:hover {
+  background: rgba(212, 168, 83, 0.05);
+}
+
+.tiptap hr,
+.tiptap hr.vault-hr {
   border: 0;
   height: 1px;
   background: linear-gradient(90deg, transparent, rgba(212, 168, 83, 0.35), transparent);
   margin: 1.4rem 0;
+}
+
+/* Page Split / Section Divider (=== or :::page-break Label) */
+.vault-page-split {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  margin: 1.9rem 0;
+  color: var(--note-accent, #d4a853);
+  user-select: none;
+}
+
+.vault-page-split::before,
+.vault-page-split::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(212, 168, 83, 0.45), transparent);
+}
+
+.vault-page-split-label {
+  font-family: 'Cinzel', Georgia, serif;
+  font-size: 0.72rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  padding: 0.22rem 0.8rem;
+  border-radius: 9999px;
+  background: rgba(20, 24, 32, 0.92);
+  border: 1px solid rgba(212, 168, 83, 0.3);
+  color: #f0d38a;
+}
+
+.vault-page-split-diamond {
+  font-size: 0.75rem;
+  opacity: 0.8;
+  letter-spacing: 0.3em;
+}
+
+@media print {
+  .vault-page-split {
+    page-break-before: always;
+    break-before: page;
+  }
+}
+
+/* Multi-Column Grid Layout (:::columns 2 / :::columns 1:2) */
+.vault-columns {
+  display: grid;
+  gap: 1.25rem;
+  margin: 1.15rem 0;
+  align-items: start;
+}
+
+.vault-column {
+  min-width: 0;
+  padding: 0.85rem 1rem;
+  border-radius: 10px;
+  background: rgba(15, 19, 27, 0.55);
+  border: 1px solid #1e2532;
+}
+
+.vault-column > :first-child {
+  margin-top: 0 !important;
+}
+
+.vault-column > :last-child {
+  margin-bottom: 0 !important;
+}
+
+@media (max-width: 720px) {
+  .vault-columns {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+/* Embedded Entity Transclusion Cards ![[Entity Title]] */
+.vault-embed-card {
+  display: flex;
+  gap: 0.9rem;
+  align-items: flex-start;
+  margin: 1rem 0;
+  padding: 0.85rem 1rem;
+  border-radius: 10px;
+  background: linear-gradient(180deg, rgba(20, 25, 35, 0.88) 0%, rgba(13, 17, 24, 0.92) 100%);
+  border: 1px solid rgba(212, 168, 83, 0.24);
+  cursor: pointer;
+  transition: border-color 0.16s ease, transform 0.16s ease, box-shadow 0.16s ease;
+}
+
+.vault-embed-card:hover {
+  border-color: rgba(212, 168, 83, 0.62);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  transform: translateY(-1px);
+}
+
+.vault-embed-thumb {
+  width: 68px;
+  height: 68px;
+  border-radius: 8px;
+  object-fit: cover;
+  border: 1px solid #2b3343;
+  flex-shrink: 0;
+}
+
+.vault-embed-body {
+  min-width: 0;
+  flex: 1;
+}
+
+.vault-embed-eyebrow {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.66rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--note-accent, #d4a853);
+  margin-bottom: 0.15rem;
+}
+
+.vault-embed-title {
+  font-family: 'Cinzel', Georgia, serif;
+  font-size: 1rem;
+  font-weight: 600;
+  color: #f4ece0;
+  margin-bottom: 0.25rem;
+}
+
+.vault-embed-summary {
+  font-size: 0.82rem;
+  line-height: 1.45;
+  color: #b4bccb;
+}
+
+.vault-embed-metas {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 0.5rem;
+}
+
+.vault-embed-meta {
+  font-size: 0.72rem;
+  padding: 0.12rem 0.5rem;
+  border-radius: 6px;
+  background: rgba(11, 13, 18, 0.75);
+  border: 1px solid #242b38;
+  color: #d6cfc2;
+}
+
+/* Obsidian Callouts (> [!lore] Title) */
+.vault-callout {
+  margin: 1rem 0;
+  border-radius: 10px;
+  border: 1px solid #232b39;
+  border-left-width: 3px;
+  background: rgba(16, 20, 29, 0.78);
+  padding: 0.75rem 1rem;
+}
+
+.vault-callout-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.4rem;
+}
+
+.vault-callout-badge {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding: 0.1rem 0.45rem;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.vault-callout-title {
+  font-weight: 600;
+  font-size: 0.92em;
+  color: #f4ece0;
+}
+
+.vault-callout-body > :last-child {
+  margin-bottom: 0;
+}
+
+.vault-callout-note,
+.vault-callout-info {
+  border-left-color: #60a5fa;
+  background: rgba(30, 58, 138, 0.12);
+}
+.vault-callout-note .vault-callout-badge,
+.vault-callout-info .vault-callout-badge {
+  color: #93c5fd;
+  background: rgba(59, 130, 246, 0.18);
+}
+
+.vault-callout-tip {
+  border-left-color: #34d399;
+  background: rgba(6, 78, 59, 0.14);
+}
+.vault-callout-tip .vault-callout-badge {
+  color: #6ee7b7;
+  background: rgba(16, 185, 129, 0.18);
+}
+
+.vault-callout-lore,
+.vault-callout-quote {
+  border-left-color: #d4a853;
+  background: rgba(120, 83, 24, 0.12);
+}
+.vault-callout-lore .vault-callout-badge,
+.vault-callout-quote .vault-callout-badge {
+  color: #f3d488;
+  background: rgba(212, 168, 83, 0.18);
+}
+
+.vault-callout-warning {
+  border-left-color: #f59e0b;
+  background: rgba(120, 53, 15, 0.15);
+}
+.vault-callout-warning .vault-callout-badge {
+  color: #fcd34d;
+  background: rgba(245, 158, 11, 0.2);
+}
+
+.vault-callout-danger,
+.vault-callout-secret {
+  border-left-color: #f87171;
+  background: rgba(127, 29, 29, 0.18);
+}
+.vault-callout-danger .vault-callout-badge,
+.vault-callout-secret .vault-callout-badge {
+  color: #fca5a5;
+  background: rgba(239, 68, 68, 0.22);
+}
+
+.vault-callout-statblock,
+.vault-statblock {
+  margin: 1rem 0;
+  border-radius: 10px;
+  border: 1px solid rgba(212, 168, 83, 0.32);
+  border-top: 3px solid #d4a853;
+  border-bottom: 3px solid #d4a853;
+  background: linear-gradient(180deg, rgba(24, 21, 18, 0.9) 0%, rgba(15, 17, 23, 0.94) 100%);
+  padding: 0.9rem 1.1rem;
+}
+
+.vault-statblock-title,
+.vault-card-title {
+  font-family: 'Cinzel', Georgia, serif;
+  font-weight: 700;
+  font-size: 1.02rem;
+  color: #f3d488;
+  padding-bottom: 0.45rem;
+  margin-bottom: 0.6rem;
+  border-bottom: 1px solid rgba(212, 168, 83, 0.24);
+}
+
+.vault-card {
+  margin: 1rem 0;
+  border-radius: 10px;
+  border: 1px solid #242b38;
+  background: rgba(16, 20, 28, 0.78);
+  padding: 0.9rem 1.1rem;
+}
+
+.vault-card > :last-child,
+.vault-statblock > :last-child {
+  margin-bottom: 0;
+}
+
+.vault-details {
+  margin: 0.9rem 0;
+  border-radius: 8px;
+  border: 1px solid #232a36;
+  background: rgba(15, 18, 25, 0.7);
+  padding: 0.55rem 0.9rem;
+}
+
+.vault-task-list {
+  list-style: none !important;
+  padding-left: 0.15rem !important;
+}
+
+.vault-task-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.55rem;
+  margin-bottom: 0.35rem;
+}
+
+.vault-checkbox {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 15px;
+  height: 15px;
+  margin-top: 0.25rem;
+  border-radius: 4px;
+  border: 1px solid #3a4354;
+  background: #0e1117;
+  font-size: 10px;
+  font-weight: 700;
+  color: #14110b;
+  flex-shrink: 0;
+}
+
+.vault-checkbox.checked {
+  background: #d4a853;
+  border-color: #eab308;
+}
+
+.vault-mark {
+  background: rgba(212, 168, 83, 0.24);
+  color: #f9ebc2;
+  padding: 0.05em 0.32em;
+  border-radius: 4px;
 }
 
 .tiptap code {
@@ -245,6 +595,14 @@
   padding: 0.8rem 1rem;
   margin: 0.85rem 0;
   overflow-x: auto;
+}
+
+.tiptap pre code {
+  background: transparent;
+  border: none;
+  padding: 0;
+  color: #d6dde9;
+  font-size: 0.86em;
 }
 
 .tiptap p.is-editor-empty:first-child::before {

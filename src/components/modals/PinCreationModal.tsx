@@ -178,10 +178,14 @@ export const PinCreationModal: React.FC = () => {
                     className="w-full bg-[#0b0d10] border border-[#242a35] rounded-md px-2.5 py-2 text-xs text-[#e7e2d8]"
                   >
                     <option value="settlement">Settlement</option>
+                    <option value="capital">Capital City</option>
                     <option value="port">Harbor / Port</option>
                     <option value="citadel">Citadel / Spire</option>
+                    <option value="fortress">Fortress / Bastion</option>
+                    <option value="temple">Temple / Shrine</option>
                     <option value="ruin">Sunken Ruin</option>
                     <option value="landmark">Landmark</option>
+                    <option value="camp">Camp / Outpost</option>
                     <option value="danger">Danger / Lair</option>
                   </select>
                 </div>
@@ -234,10 +238,14 @@ export const PinCreationModal: React.FC = () => {
                   className="w-full bg-[#0b0d10] border border-[#242a35] rounded-md px-2.5 py-2 text-xs text-[#e7e2d8]"
                 >
                   <option value="settlement">Settlement</option>
+                  <option value="capital">Capital City</option>
                   <option value="port">Harbor / Port</option>
                   <option value="citadel">Citadel / Spire</option>
+                  <option value="fortress">Fortress / Bastion</option>
+                  <option value="temple">Temple / Shrine</option>
                   <option value="ruin">Sunken Ruin</option>
                   <option value="landmark">Landmark</option>
+                  <option value="camp">Camp / Outpost</option>
                   <option value="danger">Danger / Lair</option>
                 </select>
               </div>

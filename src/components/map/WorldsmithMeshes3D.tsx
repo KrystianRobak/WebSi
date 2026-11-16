@@ -1,10 +1,21 @@
 import React, { useEffect, useMemo, useRef } from 'react';
 import { ThreeEvent, useFrame } from '@react-three/fiber';
-import { Line } from '@react-three/drei';
+import { Html, Line, Text } from '@react-three/drei';
 import * as THREE from 'three';
 import { TERRAIN_SIZE, sampleTerrainElevation } from '../../lib/terrainGenerator';
 import { evalSplinePoint } from '../../lib/terrainEditorEngine';
-import { MapProp, MapRiver } from '../../types/vault';
+import {
+  buildTerrainConformingPolygonGeometry,
+  computePolygonCentroid,
+  sampleClosedBorderPoints,
+} from '../../lib/worldLayers';
+import {
+  MapProp,
+  MapRiver,
+  WorldMapLabel,
+  WorldMapLayer,
+  WorldMapZone,
+} from '../../types/vault';
 
 interface BrushCursorRingProps {
   position: { x: number; y: number; z: number } | null;
@@ -261,6 +272,7 @@ interface TerrainProps3DProps {
   heightData: Float32Array;
   heightRes: number;
   displacementScale: number;
+  seaY?: number;
   terrainVersion: number;
   visible: boolean;
   selectedPropId: string | null;
@@ -289,10 +301,18 @@ const HeroPropMesh: React.FC<{
       onPointerDown={handleDown}
     >
       {isSelected && (
-        <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.14, 0]}>
-          <ringGeometry args={[0.9, 1.15, 28]} />
+        <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.16, 0]}>
+          <ringGeometry args={[1.05, 1.32, 32]} />
           <meshBasicMaterial color="#facc15" side={THREE.DoubleSide} />
         </mesh>
+      )}
+
+      {isSelected && prop.name && (
+        <Html position={[0, 2.5, 0]} center zIndexRange={[15, 0]}>
+          <div className="px-2 py-0.5 rounded bg-[#101319]/90 border border-[#d4a853]/70 text-[10.5px] font-serif text-[#f7ecc9] whitespace-nowrap pointer-events-none shadow-md">
+            {prop.name}
+          </div>
+        </Html>
       )}
 
       {prop.kind === 'tower' && (
@@ -308,6 +328,228 @@ const HeroPropMesh: React.FC<{
           <mesh position={[0, 1.32, 0.34]}>
             <boxGeometry args={[0.14, 0.18, 0.08]} />
             <meshStandardMaterial color="#f59e0b" emissive="#f59e0b" emissiveIntensity={1.6} />
+          </mesh>
+        </group>
+      )}
+
+      {prop.kind === 'castle' && (
+        <group>
+          {/* Curtain keep base */}
+          <mesh position={[0, 0.45, 0]} castShadow receiveShadow>
+            <boxGeometry args={[1.35, 0.9, 1.25]} />
+            <meshStandardMaterial color="#696e77" roughness={0.88} />
+          </mesh>
+          {/* Central high keep */}
+          <mesh position={[0, 1.12, -0.05]} castShadow receiveShadow>
+            <boxGeometry args={[0.68, 0.9, 0.65]} />
+            <meshStandardMaterial color="#7d838e" roughness={0.85} />
+          </mesh>
+          <mesh position={[0, 1.72, -0.05]} castShadow>
+            <coneGeometry args={[0.52, 0.55, 4]} />
+            <meshStandardMaterial color="#7b2d26" roughness={0.75} />
+          </mesh>
+          {/* 4 Corner turrets */}
+          {[
+            [-0.64, -0.58],
+            [0.64, -0.58],
+            [-0.64, 0.58],
+            [0.64, 0.58],
+          ].map(([tx, tz], i) => (
+            <group key={i} position={[tx, 0, tz]}>
+              <mesh position={[0, 0.65, 0]} castShadow receiveShadow>
+                <cylinderGeometry args={[0.18, 0.22, 1.3, 8]} />
+                <meshStandardMaterial color="#767c86" roughness={0.86} />
+              </mesh>
+              <mesh position={[0, 1.42, 0]} castShadow>
+                <coneGeometry args={[0.25, 0.36, 8]} />
+                <meshStandardMaterial color="#3b2c2a" roughness={0.78} />
+              </mesh>
+            </group>
+          ))}
+          {/* Warm gate torch */}
+          <mesh position={[0, 0.34, 0.64]}>
+            <boxGeometry args={[0.2, 0.32, 0.06]} />
+            <meshStandardMaterial color="#f59e0b" emissive="#d97706" emissiveIntensity={1.1} />
+          </mesh>
+        </group>
+      )}
+
+      {prop.kind === 'village' && (
+        <group>
+          {[
+            { x: -0.45, z: -0.3, r: 0.25, w: 0.48, d: 0.38, h: 0.34, roof: '#7c4a32' },
+            { x: 0.42, z: -0.25, r: -0.4, w: 0.44, d: 0.36, h: 0.3, roof: '#5e4332' },
+            { x: -0.15, z: 0.44, r: 0.7, w: 0.5, d: 0.38, h: 0.36, roof: '#85533a' },
+            { x: 0.48, z: 0.4, r: 0.1, w: 0.38, d: 0.32, h: 0.28, roof: '#6b4735' },
+          ].map((c, idx) => (
+            <group key={idx} position={[c.x, 0, c.z]} rotation={[0, c.r, 0]}>
+              <mesh position={[0, c.h * 0.5, 0]} castShadow receiveShadow>
+                <boxGeometry args={[c.w, c.h, c.d]} />
+                <meshStandardMaterial color="#cfc4ad" roughness={0.9} />
+              </mesh>
+              <mesh position={[0, c.h + 0.14, 0]} rotation={[0, Math.PI / 4, 0]} castShadow>
+                <coneGeometry args={[Math.max(c.w, c.d) * 0.78, 0.34, 4]} />
+                <meshStandardMaterial color={c.roof} roughness={0.82} />
+              </mesh>
+            </group>
+          ))}
+          {/* Town square brazier/lantern */}
+          <mesh position={[0.05, 0.16, 0.05]}>
+            <sphereGeometry args={[0.09, 8, 8]} />
+            <meshStandardMaterial color="#fbbf24" emissive="#f59e0b" emissiveIntensity={1.8} />
+          </mesh>
+        </group>
+      )}
+
+      {prop.kind === 'temple' && (
+        <group>
+          {/* Stepped marble dais */}
+          <mesh position={[0, 0.08, 0]} receiveShadow castShadow>
+            <boxGeometry args={[1.45, 0.16, 1.45]} />
+            <meshStandardMaterial color="#8f959f" roughness={0.82} />
+          </mesh>
+          <mesh position={[0, 0.22, 0]} receiveShadow castShadow>
+            <boxGeometry args={[1.15, 0.14, 1.15]} />
+            <meshStandardMaterial color="#a6acb6" roughness={0.78} />
+          </mesh>
+          {/* Columns */}
+          {[
+            [-0.42, -0.42],
+            [0.42, -0.42],
+            [-0.42, 0.42],
+            [0.42, 0.42],
+          ].map(([cx, cz], i) => (
+            <mesh key={i} position={[cx, 0.65, cz]} castShadow>
+              <cylinderGeometry args={[0.075, 0.09, 0.76, 8]} />
+              <meshStandardMaterial color="#cbd1db" roughness={0.72} />
+            </mesh>
+          ))}
+          {/* Sanctum dome */}
+          <mesh position={[0, 1.08, 0]} castShadow>
+            <sphereGeometry args={[0.46, 14, 10, 0, Math.PI * 2, 0, Math.PI * 0.55]} />
+            <meshStandardMaterial color="#d4a853" roughness={0.42} metalness={0.55} />
+          </mesh>
+          <mesh position={[0, 0.5, 0]}>
+            <octahedronGeometry args={[0.16, 0]} />
+            <meshStandardMaterial color="#c084fc" emissive="#a855f7" emissiveIntensity={1.8} />
+          </mesh>
+        </group>
+      )}
+
+      {prop.kind === 'monolith' && (
+        <group>
+          <mesh position={[0, 0.1, 0]} receiveShadow>
+            <cylinderGeometry args={[0.55, 0.68, 0.2, 6]} />
+            <meshStandardMaterial color="#313641" roughness={0.88} />
+          </mesh>
+          <mesh position={[0, 1.1, 0]} castShadow>
+            <cylinderGeometry args={[0.08, 0.28, 1.9, 5]} />
+            <meshStandardMaterial color="#181c24" roughness={0.45} metalness={0.35} />
+          </mesh>
+          <mesh position={[0, 1.15, 0]} rotation={[Math.PI / 2, 0, 0]}>
+            <torusGeometry args={[0.36, 0.025, 8, 24]} />
+            <meshStandardMaterial color="#38bdf8" emissive="#38bdf8" emissiveIntensity={2.0} />
+          </mesh>
+        </group>
+      )}
+
+      {prop.kind === 'windmill' && (
+        <group>
+          <mesh position={[0, 0.62, 0]} castShadow receiveShadow>
+            <cylinderGeometry args={[0.26, 0.38, 1.24, 8]} />
+            <meshStandardMaterial color="#d4cbb8" roughness={0.88} />
+          </mesh>
+          <mesh position={[0, 1.38, 0]} castShadow>
+            <coneGeometry args={[0.34, 0.4, 8]} />
+            <meshStandardMaterial color="#6e3e2c" roughness={0.8} />
+          </mesh>
+          {/* Sails */}
+          <group position={[0, 1.05, 0.3]} rotation={[0, 0, 0.35]}>
+            <mesh>
+              <boxGeometry args={[1.35, 0.12, 0.04]} />
+              <meshStandardMaterial color="#ece5d5" roughness={0.75} />
+            </mesh>
+            <mesh>
+              <boxGeometry args={[0.12, 1.35, 0.04]} />
+              <meshStandardMaterial color="#ece5d5" roughness={0.75} />
+            </mesh>
+          </group>
+        </group>
+      )}
+
+      {prop.kind === 'ship' && (
+        <group>
+          {/* Wooden hull */}
+          <mesh position={[0, 0.14, 0]} castShadow receiveShadow>
+            <boxGeometry args={[0.52, 0.24, 1.55]} />
+            <meshStandardMaterial color="#5c3d28" roughness={0.86} />
+          </mesh>
+          <mesh position={[0, 0.16, 0.88]} rotation={[Math.PI / 2, 0, 0]} castShadow>
+            <coneGeometry args={[0.26, 0.38, 4]} />
+            <meshStandardMaterial color="#4e3320" roughness={0.88} />
+          </mesh>
+          {/* Mainmast & foremast */}
+          <mesh position={[0, 0.72, -0.05]} castShadow>
+            <cylinderGeometry args={[0.03, 0.04, 1.1, 6]} />
+            <meshStandardMaterial color="#3c2617" roughness={0.9} />
+          </mesh>
+          <mesh position={[0, 0.82, 0.02]} castShadow>
+            <boxGeometry args={[0.72, 0.56, 0.04]} />
+            <meshStandardMaterial color="#efe6d0" roughness={0.72} />
+          </mesh>
+          <mesh position={[0, 0.55, 0.42]} castShadow>
+            <cylinderGeometry args={[0.025, 0.035, 0.75, 6]} />
+            <meshStandardMaterial color="#3c2617" roughness={0.9} />
+          </mesh>
+          <mesh position={[0, 0.62, 0.48]} castShadow>
+            <boxGeometry args={[0.5, 0.38, 0.035]} />
+            <meshStandardMaterial color="#e8dec4" roughness={0.74} />
+          </mesh>
+        </group>
+      )}
+
+      {prop.kind === 'campfire' && (
+        <group>
+          <mesh position={[0, 0.05, 0]} receiveShadow>
+            <cylinderGeometry args={[0.42, 0.48, 0.1, 8]} />
+            <meshStandardMaterial color="#4b5059" roughness={0.92} />
+          </mesh>
+          <mesh position={[0, 0.14, 0]} rotation={[0, 0.4, Math.PI / 2]}>
+            <cylinderGeometry args={[0.05, 0.05, 0.55, 5]} />
+            <meshStandardMaterial color="#4a3121" roughness={0.94} />
+          </mesh>
+          <mesh position={[0, 0.14, 0]} rotation={[0, -0.5, Math.PI / 2]}>
+            <cylinderGeometry args={[0.05, 0.05, 0.55, 5]} />
+            <meshStandardMaterial color="#4a3121" roughness={0.94} />
+          </mesh>
+          <mesh position={[0, 0.32, 0]}>
+            <coneGeometry args={[0.16, 0.42, 6]} />
+            <meshStandardMaterial color="#fb923c" emissive="#f97316" emissiveIntensity={2.2} />
+          </mesh>
+        </group>
+      )}
+
+      {prop.kind === 'gate' && (
+        <group>
+          <mesh position={[-0.58, 0.62, 0]} castShadow receiveShadow>
+            <boxGeometry args={[0.38, 1.24, 0.44]} />
+            <meshStandardMaterial color="#6c727c" roughness={0.88} />
+          </mesh>
+          <mesh position={[0.58, 0.62, 0]} castShadow receiveShadow>
+            <boxGeometry args={[0.38, 1.24, 0.44]} />
+            <meshStandardMaterial color="#6c727c" roughness={0.88} />
+          </mesh>
+          <mesh position={[0, 1.02, 0]} castShadow receiveShadow>
+            <boxGeometry args={[1.16, 0.36, 0.36]} />
+            <meshStandardMaterial color="#7d8490" roughness={0.86} />
+          </mesh>
+          <mesh position={[-0.58, 1.38, 0]} castShadow>
+            <coneGeometry args={[0.28, 0.36, 4]} />
+            <meshStandardMaterial color="#422c26" roughness={0.8} />
+          </mesh>
+          <mesh position={[0.58, 1.38, 0]} castShadow>
+            <coneGeometry args={[0.28, 0.36, 4]} />
+            <meshStandardMaterial color="#422c26" roughness={0.8} />
           </mesh>
         </group>
       )}
@@ -378,6 +620,7 @@ export const TerrainProps3D: React.FC<TerrainProps3DProps> = ({
   heightData,
   heightRes,
   displacementScale,
+  seaY = 0,
   terrainVersion,
   visible,
   selectedPropId,
@@ -614,7 +857,7 @@ export const TerrainProps3D: React.FC<TerrainProps3DProps> = ({
 
       {/* Hero architectural meshes */}
       {heroProps.map((prop) => {
-        const y = sampleTerrainElevation(
+        const rawY = sampleTerrainElevation(
           heightData,
           heightRes,
           prop.x,
@@ -622,6 +865,12 @@ export const TerrainProps3D: React.FC<TerrainProps3DProps> = ({
           TERRAIN_SIZE,
           displacementScale
         );
+        const y =
+          prop.kind === 'ship'
+            ? Math.max(seaY, rawY)
+            : prop.kind === 'pier'
+            ? Math.max(seaY - 0.12, rawY)
+            : rawY;
         return (
           <HeroPropMesh
             key={prop.id}
@@ -662,3 +911,354 @@ export const TerrainProps3D: React.FC<TerrainProps3DProps> = ({
     </group>
   );
 };
+
+interface SingleZoneMeshProps {
+  zone: WorldMapZone;
+  layer?: WorldMapLayer;
+  heightData: Float32Array;
+  heightRes: number;
+  displacementScale: number;
+  seaY: number;
+  terrainVersion: number;
+  showLabel: boolean;
+  isSelected: boolean;
+  interactive: boolean;
+  onSelect: () => void;
+}
+
+const noopRaycast = () => null;
+
+const SingleZoneMesh: React.FC<SingleZoneMeshProps> = ({
+  zone,
+  layer,
+  heightData,
+  heightRes,
+  displacementScale,
+  seaY,
+  terrainVersion,
+  showLabel,
+  isSelected,
+  interactive,
+  onSelect,
+}) => {
+  const layerOffset = (layer?.order ?? 1) * 0.035;
+
+  const fillGeom = useMemo(() => {
+    return buildTerrainConformingPolygonGeometry(
+      zone.points,
+      heightData,
+      heightRes,
+      displacementScale,
+      seaY,
+      0.18 + layerOffset
+    );
+  }, [zone.points, heightData, heightRes, displacementScale, seaY, terrainVersion, layerOffset]);
+
+  useEffect(() => {
+    return () => {
+      fillGeom?.dispose();
+    };
+  }, [fillGeom]);
+
+  const borderPts = useMemo(() => {
+    if (zone.borderStyle === 'none' && !isSelected) return [];
+    return sampleClosedBorderPoints(
+      zone.points,
+      heightData,
+      heightRes,
+      displacementScale,
+      seaY,
+      0.34 + layerOffset
+    );
+  }, [zone.points, zone.borderStyle, isSelected, heightData, heightRes, displacementScale, seaY, terrainVersion, layerOffset]);
+
+  const doubleBorderPts = useMemo(() => {
+    if (zone.borderStyle !== 'double' || borderPts.length < 2) return [];
+    return borderPts.map(([x, y, z]) => [x, y + 0.18, z] as [number, number, number]);
+  }, [zone.borderStyle, borderPts]);
+
+  const centroid = useMemo(() => {
+    const c = computePolygonCentroid(zone.points);
+    const ty = sampleTerrainElevation(
+      heightData,
+      heightRes,
+      c.x,
+      c.z,
+      TERRAIN_SIZE,
+      displacementScale
+    );
+    return {
+      x: c.x,
+      y: Math.max(seaY + 0.45, ty + 0.72) + layerOffset,
+      z: c.z,
+    };
+  }, [zone.points, heightData, heightRes, displacementScale, seaY, terrainVersion, layerOffset]);
+
+  const fillOpacity = Math.min(
+    0.85,
+    (zone.fillOpacity ?? layer?.opacity ?? 0.3) * (isSelected ? 1.45 : 1)
+  );
+  const borderColor = isSelected ? '#facc15' : zone.color;
+  const lineWidth = isSelected ? (zone.borderWidth ?? 2.6) + 1.4 : zone.borderWidth ?? 2.6;
+
+  return (
+    <group>
+      {fillGeom && (
+        <mesh
+          geometry={fillGeom}
+          renderOrder={3}
+          raycast={interactive ? undefined : noopRaycast}
+          onClick={(e) => {
+            if (!interactive || e.delta > 6) return;
+            e.stopPropagation();
+            onSelect();
+          }}
+        >
+          <meshBasicMaterial
+            color={zone.color}
+            transparent
+            opacity={fillOpacity}
+            side={THREE.DoubleSide}
+            depthWrite={false}
+            polygonOffset
+            polygonOffsetFactor={-1}
+          />
+        </mesh>
+      )}
+
+      {borderPts.length >= 2 && (
+        <Line
+          points={borderPts}
+          color={borderColor}
+          lineWidth={lineWidth}
+          dashed={zone.borderStyle === 'dashed'}
+          dashSize={1.35}
+          gapSize={0.65}
+          transparent
+          opacity={isSelected ? 1 : 0.92}
+        />
+      )}
+
+      {doubleBorderPts.length >= 2 && (
+        <Line
+          points={doubleBorderPts}
+          color="#f7ecc9"
+          lineWidth={Math.max(1.2, lineWidth * 0.55)}
+          transparent
+          opacity={0.78}
+        />
+      )}
+
+      {showLabel && zone.showLabel && (
+        <Text
+          position={[centroid.x, centroid.y, centroid.z]}
+          rotation={[-Math.PI / 2, 0, 0]}
+          fontSize={1.25 * (zone.labelScale ?? 1)}
+          letterSpacing={0.18}
+          color={isSelected ? '#fef08a' : '#f5eedc'}
+          outlineWidth={0.08}
+          outlineColor="#090b0e"
+          fillOpacity={0.92}
+          anchorX="center"
+          anchorY="middle"
+        >
+          {zone.name.toUpperCase()}
+        </Text>
+      )}
+    </group>
+  );
+};
+
+interface TerrainZones3DProps {
+  zones: WorldMapZone[];
+  layers: WorldMapLayer[];
+  heightData: Float32Array;
+  heightRes: number;
+  displacementScale: number;
+  seaY: number;
+  terrainVersion: number;
+  gmMode: boolean;
+  showRegionsLayer: boolean;
+  showLabelsLayer: boolean;
+  selectedZoneId: string | null;
+  interactive: boolean;
+  onSelectZone: (zoneId: string) => void;
+}
+
+export const TerrainZones3D: React.FC<TerrainZones3DProps> = ({
+  zones,
+  layers,
+  heightData,
+  heightRes,
+  displacementScale,
+  seaY,
+  terrainVersion,
+  gmMode,
+  showRegionsLayer,
+  showLabelsLayer,
+  selectedZoneId,
+  interactive,
+  onSelectZone,
+}) => {
+  if (!showRegionsLayer || zones.length === 0) return null;
+
+  const layerMap = new Map(layers.map((l) => [l.id, l]));
+
+  return (
+    <group>
+      {zones.map((zone) => {
+        if (!gmMode && zone.is_gm_only) return null;
+        const layer = layerMap.get(zone.layerId);
+        if (layer && !layer.visible) return null;
+        return (
+          <SingleZoneMesh
+            key={zone.id}
+            zone={zone}
+            layer={layer}
+            heightData={heightData}
+            heightRes={heightRes}
+            displacementScale={displacementScale}
+            seaY={seaY}
+            terrainVersion={terrainVersion}
+            showLabel={showLabelsLayer}
+            isSelected={selectedZoneId === zone.id}
+            interactive={interactive}
+            onSelect={() => onSelectZone(zone.id)}
+          />
+        );
+      })}
+    </group>
+  );
+};
+
+interface TerrainLabels3DProps {
+  labels: WorldMapLabel[];
+  layers: WorldMapLayer[];
+  heightData: Float32Array;
+  heightRes: number;
+  displacementScale: number;
+  seaY: number;
+  gmMode: boolean;
+  visible: boolean;
+  selectedLabelId: string | null;
+  interactive: boolean;
+  onSelectLabel: (label: WorldMapLabel, e: ThreeEvent<PointerEvent>) => void;
+}
+
+export const TerrainLabels3D: React.FC<TerrainLabels3DProps> = ({
+  labels,
+  layers,
+  heightData,
+  heightRes,
+  displacementScale,
+  seaY,
+  gmMode,
+  visible,
+  selectedLabelId,
+  interactive,
+  onSelectLabel,
+}) => {
+  if (!visible || labels.length === 0) return null;
+
+  const layerMap = new Map(layers.map((l) => [l.id, l]));
+
+  return (
+    <group>
+      {labels.map((label) => {
+        if (!gmMode && label.is_gm_only) return null;
+        if (label.layerId) {
+          const layer = layerMap.get(label.layerId);
+          if (layer && !layer.visible) return null;
+        }
+
+        const surfaceY = Math.max(
+          seaY,
+          sampleTerrainElevation(
+            heightData,
+            heightRes,
+            label.x,
+            label.z,
+            TERRAIN_SIZE,
+            displacementScale
+          )
+        );
+        const y = surfaceY + (label.yOffset ?? 0.9);
+        const isSelected = selectedLabelId === label.id;
+
+        const displayText =
+          label.style === 'title' || label.style === 'region'
+            ? label.text.toUpperCase()
+            : label.text;
+
+        const letterSpacing =
+          label.style === 'title'
+            ? 0.28
+            : label.style === 'region' || label.style === 'sea'
+            ? 0.22
+            : 0.05;
+
+        const approxWidth = Math.max(2.2, displayText.length * label.fontSize * 0.62);
+        const approxHeight = Math.max(1.0, label.fontSize * 1.45);
+
+        return (
+          <group
+            key={label.id}
+            position={[label.x, y, label.z]}
+            rotation={[-Math.PI / 2, 0, label.rotationY || 0]}
+            onPointerDown={(e) => {
+              if (!interactive || e.button !== 0) return;
+              e.stopPropagation();
+              onSelectLabel(label, e);
+            }}
+          >
+            {/* Transparent hit plane so dragging/clicking text is reliable */}
+            <mesh position={[0, 0, -0.02]} raycast={interactive ? undefined : noopRaycast}>
+              <planeGeometry args={[approxWidth, approxHeight]} />
+              <meshBasicMaterial transparent opacity={0} depthWrite={false} side={THREE.DoubleSide} />
+            </mesh>
+
+            {label.style === 'callout' && (
+              <mesh position={[0, 0, -0.015]}>
+                <planeGeometry args={[approxWidth + 0.8, approxHeight + 0.35]} />
+                <meshBasicMaterial
+                  color="#101319"
+                  transparent
+                  opacity={0.78}
+                  side={THREE.DoubleSide}
+                />
+              </mesh>
+            )}
+
+            {isSelected && (
+              <mesh position={[0, 0, -0.01]}>
+                <ringGeometry
+                  args={[
+                    Math.max(approxWidth, approxHeight) * 0.45,
+                    Math.max(approxWidth, approxHeight) * 0.45 + 0.16,
+                    32,
+                  ]}
+                />
+                <meshBasicMaterial color="#facc15" side={THREE.DoubleSide} />
+              </mesh>
+            )}
+
+            <Text
+              fontSize={label.fontSize}
+              letterSpacing={letterSpacing}
+              fontStyle={label.style === 'sea' ? 'italic' : 'normal'}
+              color={isSelected ? '#fef08a' : label.color}
+              fillOpacity={label.opacity ?? 0.9}
+              outlineWidth={label.style === 'title' ? 0.11 : 0.075}
+              outlineColor="#080a0d"
+              anchorX="center"
+              anchorY="middle"
+            >
+              {displayText}
+            </Text>
+          </group>
+        );
+      })}
+    </group>
+  );
+};
+

@@ -94,16 +94,80 @@ export type MapPropKind =
   | 'tower'
   | 'pier'
   | 'bridge'
-  | 'ruin';
+  | 'ruin'
+  | 'castle'
+  | 'village'
+  | 'temple'
+  | 'monolith'
+  | 'windmill'
+  | 'ship'
+  | 'campfire'
+  | 'gate';
 
 export interface MapProp {
   id: string;
   kind: MapPropKind;
+  name?: string;
   x: number;
   y: number;
   z: number;
   rotY: number;
   scale: number;
+}
+
+export type WorldLayerCategory =
+  | 'country'
+  | 'region'
+  | 'religion'
+  | 'culture'
+  | 'faction'
+  | 'climate'
+  | 'custom';
+
+export interface WorldMapLayer {
+  id: string;
+  name: string;
+  category: WorldLayerCategory;
+  color: string;
+  visible: boolean;
+  opacity: number;
+  order: number;
+}
+
+export type ZoneBorderStyle = 'solid' | 'dashed' | 'double' | 'none';
+
+export interface WorldMapZone {
+  id: string;
+  layerId: string;
+  name: string;
+  points: PathPoint[];
+  color: string;
+  fillOpacity?: number;
+  borderStyle: ZoneBorderStyle;
+  borderWidth?: number;
+  showLabel: boolean;
+  labelScale?: number;
+  entityId?: string | null;
+  description?: string;
+  is_gm_only: boolean;
+}
+
+export type MapLabelStyle = 'title' | 'region' | 'sea' | 'callout' | 'note';
+
+export interface WorldMapLabel {
+  id: string;
+  text: string;
+  x: number;
+  y: number;
+  z: number;
+  yOffset: number;
+  fontSize: number;
+  color: string;
+  rotationY: number;
+  style: MapLabelStyle;
+  layerId?: string | null;
+  opacity: number;
+  is_gm_only: boolean;
 }
 
 export type TokenDisposition = 'party' | 'ally' | 'enemy' | 'neutral';
@@ -228,6 +292,9 @@ export interface VaultMap {
   atmosphere?: WorldAtmospherePreset;
   rivers?: MapRiver[];
   props?: MapProp[];
+  layers?: WorldMapLayer[];
+  zones?: WorldMapZone[];
+  labels?: WorldMapLabel[];
   battlemap?: BattlemapData;
 }
 
@@ -238,7 +305,10 @@ export type PinIconType =
   | 'port'
   | 'landmark'
   | 'camp'
-  | 'danger';
+  | 'danger'
+  | 'capital'
+  | 'temple'
+  | 'fortress';
 
 export interface MapPin {
   id: string;
@@ -301,7 +371,8 @@ export interface TabItem {
 
 export type EditorMode = 'code' | 'preview';
 export type MapRenderMode = 'map' | 'terrain';
-export type MapToolMode = 'select' | 'pin' | 'path' | 'region' | 'link';
+export type MapCameraView = 'perspective' | 'top';
+export type MapToolMode = 'select' | 'pin' | 'text' | 'zone' | 'path' | 'region' | 'element' | 'link';
 export type WorldsmithTool =
   | 'raise'
   | 'valley'
@@ -329,7 +400,9 @@ export type InspectorSubTab = 'details' | 'connections' | 'references';
 export interface MapLayerVisibility {
   terrain: boolean;
   vegetation: boolean;
+  rivers: boolean;
   locations: boolean;
   paths: boolean;
   regions: boolean;
+  labels: boolean;
 }

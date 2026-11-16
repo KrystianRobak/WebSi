@@ -1,23 +1,41 @@
-import React from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   ArrowUpRight,
+  Castle,
   ChevronRight,
+  Compass,
   Eye,
   EyeOff,
   FileCode2,
   FilePlus2,
+  Globe,
   Image as ImageIcon,
+  Layers,
   Link2,
   MapPin,
   Network,
   PanelRightClose,
+  Pentagon,
+  Plus,
   Route,
-  Square,
   Trash2,
+  Type,
+  X,
 } from 'lucide-react';
+import {
+  LABEL_COLOR_PALETTE,
+  LAYER_CATEGORY_META,
+  ZONE_COLOR_PALETTE,
+  createDefaultWorldLayers,
+} from '../../lib/worldLayers';
 import { getVisibleMetadataEntries } from '../../lib/wikilinks';
 import { useVaultStore } from '../../store/useVaultStore';
-import { EntityType } from '../../types/vault';
+import {
+  EntityType,
+  MapLabelStyle,
+  WorldLayerCategory,
+  ZoneBorderStyle,
+} from '../../types/vault';
 import { EntityIcon } from '../common/EntityIcon';
 import { BattlemapInspectorSection } from '../inspector/BattlemapInspectorSection';
 import { ConnectionsGraph } from '../inspector/ConnectionsGraph';
@@ -39,10 +57,30 @@ export const RightInspector: React.FC = () => {
     gmMode,
     mapLayers,
     toggleMapLayer,
+    mapCameraView,
+    triggerCameraReset,
+    triggerTopView,
     setMapToolMode,
     mapToolMode,
     selectedPinId,
     setSelectedPinId,
+    selectedZoneId,
+    setSelectedZoneId,
+    selectedLabelId,
+    setSelectedLabelId,
+    selectedPropId,
+    setSelectedPropId,
+    addWorldLayer,
+    updateWorldLayer,
+    deleteWorldLayer,
+    toggleWorldLayer,
+    soloWorldLayer,
+    updateMapZone,
+    deleteMapZone,
+    updateMapLabel,
+    deleteMapLabel,
+    updateMapProp,
+    deleteMapProp,
     openEntityTab,
     openMapTab,
     openNewEntryModal,
@@ -50,6 +88,12 @@ export const RightInspector: React.FC = () => {
     worldsmithMode,
     setRightInspectorCollapsed,
   } = useVaultStore();
+
+  const [mapInspectorTab, setMapInspectorTab] = useState<'layers' | 'elements'>('layers');
+  const [newLayerOpen, setNewLayerOpen] = useState(false);
+  const [newLayerName, setNewLayerName] = useState('');
+  const [newLayerCat, setNewLayerCat] = useState<WorldLayerCategory>('custom');
+  const [newLayerColor, setNewLayerColor] = useState(LAYER_CATEGORY_META.custom.defaultColor);
 
   const activeTab = tabs.find((t) => t.id === activeTabId);
   const isMapFocused = activeTab?.kind === 'map';
@@ -60,9 +104,43 @@ export const RightInspector: React.FC = () => {
     ? maps.find((m) => m.id === activeTab.targetId) || maps[0]
     : maps[0];
 
+  const worldLayers = useMemo(
+    () =>
+      activeMap?.layers && activeMap.layers.length > 0
+        ? activeMap.layers
+        : createDefaultWorldLayers(),
+    [activeMap?.layers]
+  );
+
+  const zonesOnMap = activeMap
+    ? (activeMap.zones || []).filter((z) => gmMode || !z.is_gm_only)
+    : [];
+  const labelsOnMap = activeMap
+    ? (activeMap.labels || []).filter((l) => gmMode || !l.is_gm_only)
+    : [];
+  const heroPropsOnMap = activeMap
+    ? (activeMap.props || []).filter(
+        (p) =>
+          p.kind !== 'pine' &&
+          p.kind !== 'oak' &&
+          p.kind !== 'deadwood' &&
+          p.kind !== 'boulder'
+      )
+    : [];
+
+  const selectedZone = selectedZoneId
+    ? (activeMap?.zones || []).find((z) => z.id === selectedZoneId) || null
+    : null;
+  const selectedLabel = selectedLabelId
+    ? (activeMap?.labels || []).find((l) => l.id === selectedLabelId) || null
+    : null;
+  const selectedProp = selectedPropId
+    ? (activeMap?.props || []).find((p) => p.id === selectedPropId) || null
+    : null;
+
   const focusedPin = selectedPinId ? mapPins.find((p) => p.id === selectedPinId) : null;
   const focusedEntityId = isMapFocused
-    ? focusedPin?.entity_id || null
+    ? focusedPin?.entity_id || selectedZone?.entityId || null
     : activeTab?.kind === 'entity'
     ? activeTab.targetId
     : null;
@@ -98,7 +176,7 @@ export const RightInspector: React.FC = () => {
   const outgoingLinks = focusedEntityId
     ? entityLinks
         .filter((l) => l.source_id === focusedEntityId)
-        .map((l) => entities.find((e) => e.id === l.target_id))
+        .map((e) => entities.find((ent) => ent.id === e.target_id))
         .filter((e): e is NonNullable<typeof e> => Boolean(e))
     : [];
 
@@ -151,52 +229,658 @@ export const RightInspector: React.FC = () => {
               <WorldsmithInspectorSection activeMap={activeMap} />
             ) : isMapFocused && activeMap ? (
               <>
-                {/* Map Header & Metadata Table */}
-                <div className="space-y-3">
-                  <div className="flex items-center gap-2">
-                    <span className="p-1.5 rounded bg-[#181d26] border border-[#d4a853]/30 text-[#d4a853]">
-                      <EntityIcon type="Map" className="w-4 h-4" />
-                    </span>
-                    <h2 className="font-serif text-[14.5px] font-semibold text-[#f3ead8] truncate">
-                      {activeMap.name}
-                    </h2>
+                {/* Compact Map Header & Camera View Switcher */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="p-1.5 rounded bg-[#161b24] border border-[#d4a853]/30 text-[#d4a853] shrink-0">
+                        <EntityIcon type="Map" className="w-3.5 h-3.5" />
+                      </span>
+                      <div className="min-w-0">
+                        <h2 className="font-serif text-[13.5px] font-semibold text-[#f3ead8] truncate">
+                          {activeMap.name}
+                        </h2>
+                        <div className="text-[10px] font-mono text-[#7c8594]">
+                          {activeMap.scale_config.ratio} · {activeMap.width}×{activeMap.height}
+                        </div>
+                      </div>
+                    </div>
                   </div>
 
-                  <div className="rounded-md bg-[#12161e] border border-[#1d222b] divide-y divide-[#1a1f28] text-[12px]">
-                    <div className="flex items-center justify-between px-2.5 py-2">
-                      <span className="text-[#858d9b]">Scale</span>
-                      <span className="font-mono text-[#e7e2d8]">
-                        {activeMap.scale_config.ratio}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between px-2.5 py-2">
-                      <span className="text-[#858d9b]">Size</span>
-                      <span className="font-mono text-[#e7e2d8]">
-                        {activeMap.width} × {activeMap.height}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between px-2.5 py-2">
-                      <span className="text-[#858d9b]">Elevation Source</span>
-                      <span className="font-mono text-[11px] text-[#e7e2d8]">
-                        {activeMap.scale_config.elevationSource}
-                      </span>
-                    </div>
+                  {/* Quick 3D vs Whole World Top View Toggle */}
+                  <div className="grid grid-cols-2 gap-1 p-0.5 rounded-md bg-[#11151d] border border-[#1d222b]">
+                    <button
+                      onClick={() => triggerCameraReset()}
+                      className={`py-1 rounded text-[11px] font-medium flex items-center justify-center gap-1.5 transition-colors ${
+                        mapCameraView === 'perspective'
+                          ? 'bg-[#252c38] text-[#f5df9d] border border-[#d4a853]/45'
+                          : 'text-[#8e97a6] hover:text-white'
+                      }`}
+                    >
+                      <Compass className="w-3 h-3" />
+                      <span>3D Camera</span>
+                    </button>
+                    <button
+                      onClick={() => triggerTopView()}
+                      className={`py-1 rounded text-[11px] font-medium flex items-center justify-center gap-1.5 transition-colors ${
+                        mapCameraView === 'top'
+                          ? 'btn-gold-metallic font-semibold'
+                          : 'text-[#8e97a6] hover:text-white'
+                      }`}
+                    >
+                      <Globe className="w-3 h-3" />
+                      <span>Whole World</span>
+                    </button>
                   </div>
                 </div>
 
-                {/* Layers Toggle List (5) */}
-                <div className="space-y-2 pt-1 border-t border-[#181d25]">
-                  <div className="text-[11.5px] font-semibold text-[#b8b3a8] tracking-wide">
-                    Layers (5)
+                {/* Contextual Selected Zone Editor */}
+                {selectedZone && (
+                  <div className="rounded-lg bg-[#141821] border border-[#d4a853]/50 p-2.5 space-y-2.5 text-[11.5px]">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10.5px] font-mono uppercase tracking-wider text-[#d4a853] flex items-center gap-1.5">
+                        <span
+                          className="w-2.5 h-2.5 rounded-full"
+                          style={{ backgroundColor: selectedZone.color }}
+                        />
+                        Selected Zone
+                      </span>
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => deleteMapZone(activeMap.id, selectedZone.id)}
+                          className="p-1 rounded hover:bg-red-950/50 text-red-400"
+                          title="Delete Zone"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={() => setSelectedZoneId(null)}
+                          className="p-1 rounded hover:bg-[#1e2430] text-[#858d9b]"
+                          title="Close"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+
+                    <input
+                      type="text"
+                      value={selectedZone.name}
+                      onChange={(e) =>
+                        updateMapZone(activeMap.id, selectedZone.id, { name: e.target.value })
+                      }
+                      className="w-full bg-[#0b0d10] border border-[#242a36] rounded px-2 py-1 text-xs text-[#f3ead8] focus:outline-none focus:border-[#d4a853]"
+                    />
+
+                    <div className="grid grid-cols-2 gap-1.5">
+                      <label className="space-y-0.5">
+                        <span className="text-[10px] text-[#858d9b]">World Layer</span>
+                        <select
+                          value={selectedZone.layerId}
+                          onChange={(e) =>
+                            updateMapZone(activeMap.id, selectedZone.id, {
+                              layerId: e.target.value,
+                            })
+                          }
+                          className="w-full bg-[#0b0d10] border border-[#242a36] rounded px-1.5 py-1 text-[11px] text-[#e7e2d8]"
+                        >
+                          {worldLayers.map((l) => (
+                            <option key={l.id} value={l.id}>
+                              {l.name}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="space-y-0.5">
+                        <span className="text-[10px] text-[#858d9b]">Border Style</span>
+                        <select
+                          value={selectedZone.borderStyle}
+                          onChange={(e) =>
+                            updateMapZone(activeMap.id, selectedZone.id, {
+                              borderStyle: e.target.value as ZoneBorderStyle,
+                            })
+                          }
+                          className="w-full bg-[#0b0d10] border border-[#242a36] rounded px-1.5 py-1 text-[11px] text-[#e7e2d8]"
+                        >
+                          <option value="solid">Solid</option>
+                          <option value="dashed">Dashed</option>
+                          <option value="double">Imperial Double</option>
+                          <option value="none">Fill Only</option>
+                        </select>
+                      </label>
+                    </div>
+
+                    <div className="flex flex-wrap gap-1">
+                      {ZONE_COLOR_PALETTE.map((col) => (
+                        <button
+                          key={col}
+                          type="button"
+                          onClick={() =>
+                            updateMapZone(activeMap.id, selectedZone.id, { color: col })
+                          }
+                          className={`w-4 h-4 rounded-full border ${
+                            selectedZone.color === col ? 'border-white scale-110' : 'border-white/20'
+                          }`}
+                          style={{ backgroundColor: col }}
+                        />
+                      ))}
+                    </div>
+
+                    <div className="space-y-1">
+                      <div className="flex justify-between text-[10.5px] text-[#9aa3b2]">
+                        <span>Fill Opacity</span>
+                        <span className="font-mono">
+                          {Math.round((selectedZone.fillOpacity ?? 0.34) * 100)}%
+                        </span>
+                      </div>
+                      <input
+                        type="range"
+                        min={0.05}
+                        max={0.75}
+                        step={0.03}
+                        value={selectedZone.fillOpacity ?? 0.34}
+                        onChange={(e) =>
+                          updateMapZone(activeMap.id, selectedZone.id, {
+                            fillOpacity: Number(e.target.value),
+                          })
+                        }
+                        className="w-full accent-[#d4a853]"
+                      />
+                    </div>
+
+                    <div className="flex items-center justify-between gap-2">
+                      <label className="flex items-center gap-1.5 text-[11px] text-[#cfc8ba] cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={selectedZone.showLabel}
+                          onChange={(e) =>
+                            updateMapZone(activeMap.id, selectedZone.id, {
+                              showLabel: e.target.checked,
+                            })
+                          }
+                          className="accent-[#d4a853]"
+                        />
+                        <span>Show Label</span>
+                      </label>
+                      <label className="flex items-center gap-1.5 text-[11px] text-red-300 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={selectedZone.is_gm_only}
+                          onChange={(e) =>
+                            updateMapZone(activeMap.id, selectedZone.id, {
+                              is_gm_only: e.target.checked,
+                            })
+                          }
+                          className="accent-red-500"
+                        />
+                        <span>GM Only</span>
+                      </label>
+                    </div>
+
+                    <div className="flex items-center gap-1.5">
+                      <select
+                        value={selectedZone.entityId || ''}
+                        onChange={(e) =>
+                          updateMapZone(activeMap.id, selectedZone.id, {
+                            entityId: e.target.value || null,
+                          })
+                        }
+                        className="flex-1 bg-[#0b0d10] border border-[#242a36] rounded px-1.5 py-1 text-[11px] text-[#dcd7cc]"
+                      >
+                        <option value="">No linked Vault note</option>
+                        {entities.map((ent) => (
+                          <option key={ent.id} value={ent.id}>
+                            [{ent.type}] {ent.title}
+                          </option>
+                        ))}
+                      </select>
+                      {selectedZone.entityId && (
+                        <button
+                          onClick={() => openEntityTab(selectedZone.entityId!)}
+                          className="p-1.5 rounded bg-[#1d2330] hover:bg-[#2a3244] text-[#d4a853]"
+                          title="Open linked entry"
+                        >
+                          <ArrowUpRight className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
                   </div>
+                )}
+
+                {/* Contextual Selected Text Label Editor */}
+                {selectedLabel && (
+                  <div className="rounded-lg bg-[#141821] border border-[#d4a853]/50 p-2.5 space-y-2.5 text-[11.5px]">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10.5px] font-mono uppercase tracking-wider text-[#d4a853] flex items-center gap-1.5">
+                        <Type className="w-3.5 h-3.5" />
+                        Selected Text Label
+                      </span>
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => deleteMapLabel(activeMap.id, selectedLabel.id)}
+                          className="p-1 rounded hover:bg-red-950/50 text-red-400"
+                          title="Delete Label"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={() => setSelectedLabelId(null)}
+                          className="p-1 rounded hover:bg-[#1e2430] text-[#858d9b]"
+                          title="Close"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+
+                    <input
+                      type="text"
+                      value={selectedLabel.text}
+                      onChange={(e) =>
+                        updateMapLabel(activeMap.id, selectedLabel.id, { text: e.target.value })
+                      }
+                      className="w-full bg-[#0b0d10] border border-[#242a36] rounded px-2 py-1 text-xs text-[#f3ead8] focus:outline-none focus:border-[#d4a853]"
+                    />
+
+                    <div className="grid grid-cols-2 gap-1.5">
+                      <label className="space-y-0.5">
+                        <span className="text-[10px] text-[#858d9b]">Style</span>
+                        <select
+                          value={selectedLabel.style}
+                          onChange={(e) =>
+                            updateMapLabel(activeMap.id, selectedLabel.id, {
+                              style: e.target.value as MapLabelStyle,
+                            })
+                          }
+                          className="w-full bg-[#0b0d10] border border-[#242a36] rounded px-1.5 py-1 text-[11px] text-[#e7e2d8]"
+                        >
+                          <option value="title">World Title</option>
+                          <option value="region">Region / Country</option>
+                          <option value="sea">Sea / Ocean</option>
+                          <option value="callout">Callout Pill</option>
+                          <option value="note">Small Note</option>
+                        </select>
+                      </label>
+                      <label className="space-y-0.5">
+                        <span className="text-[10px] text-[#858d9b]">Layer Visibility</span>
+                        <select
+                          value={selectedLabel.layerId || ''}
+                          onChange={(e) =>
+                            updateMapLabel(activeMap.id, selectedLabel.id, {
+                              layerId: e.target.value || null,
+                            })
+                          }
+                          className="w-full bg-[#0b0d10] border border-[#242a36] rounded px-1.5 py-1 text-[11px] text-[#e7e2d8]"
+                        >
+                          <option value="">Global (Always On)</option>
+                          {worldLayers.map((l) => (
+                            <option key={l.id} value={l.id}>
+                              {l.name}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    </div>
+
+                    <div className="flex flex-wrap gap-1">
+                      {LABEL_COLOR_PALETTE.map((col) => (
+                        <button
+                          key={col}
+                          type="button"
+                          onClick={() =>
+                            updateMapLabel(activeMap.id, selectedLabel.id, { color: col })
+                          }
+                          className={`w-4 h-4 rounded-full border ${
+                            selectedLabel.color === col ? 'border-white scale-110' : 'border-white/20'
+                          }`}
+                          style={{ backgroundColor: col }}
+                        />
+                      ))}
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2 text-[10.5px] text-[#9aa3b2]">
+                      <label className="space-y-0.5">
+                        <div className="flex justify-between">
+                          <span>Size</span>
+                          <span className="font-mono">{selectedLabel.fontSize.toFixed(1)}</span>
+                        </div>
+                        <input
+                          type="range"
+                          min={0.7}
+                          max={4.5}
+                          step={0.1}
+                          value={selectedLabel.fontSize}
+                          onChange={(e) =>
+                            updateMapLabel(activeMap.id, selectedLabel.id, {
+                              fontSize: Number(e.target.value),
+                            })
+                          }
+                          className="w-full accent-[#d4a853]"
+                        />
+                      </label>
+                      <label className="space-y-0.5">
+                        <div className="flex justify-between">
+                          <span>Rotation</span>
+                          <span className="font-mono">
+                            {Math.round(((selectedLabel.rotationY || 0) * 180) / Math.PI)}°
+                          </span>
+                        </div>
+                        <input
+                          type="range"
+                          min={-3.14}
+                          max={3.14}
+                          step={0.05}
+                          value={selectedLabel.rotationY || 0}
+                          onChange={(e) =>
+                            updateMapLabel(activeMap.id, selectedLabel.id, {
+                              rotationY: Number(e.target.value),
+                            })
+                          }
+                          className="w-full accent-[#d4a853]"
+                        />
+                      </label>
+                    </div>
+
+                    <div className="flex items-center justify-between text-[10.5px] text-[#9aa3b2]">
+                      <span>Tip: Drag label on map to reposition</span>
+                      <label className="flex items-center gap-1 text-red-300 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={selectedLabel.is_gm_only}
+                          onChange={(e) =>
+                            updateMapLabel(activeMap.id, selectedLabel.id, {
+                              is_gm_only: e.target.checked,
+                            })
+                          }
+                          className="accent-red-500"
+                        />
+                        <span>GM Only</span>
+                      </label>
+                    </div>
+                  </div>
+                )}
+
+                {/* Contextual Selected 3D Element Editor */}
+                {selectedProp && (
+                  <div className="rounded-lg bg-[#141821] border border-[#d4a853]/50 p-2.5 space-y-2 text-[11.5px]">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10.5px] font-mono uppercase tracking-wider text-[#d4a853] flex items-center gap-1.5">
+                        <Castle className="w-3.5 h-3.5" />
+                        Element: {selectedProp.kind}
+                      </span>
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => deleteMapProp(activeMap.id, selectedProp.id)}
+                          className="p-1 rounded hover:bg-red-950/50 text-red-400"
+                          title="Delete Element"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={() => setSelectedPropId(null)}
+                          className="p-1 rounded hover:bg-[#1e2430] text-[#858d9b]"
+                          title="Close"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+
+                    <input
+                      type="text"
+                      value={selectedProp.name || ''}
+                      placeholder={`Optional name (e.g. ${selectedProp.kind})`}
+                      onChange={(e) =>
+                        updateMapProp(activeMap.id, selectedProp.id, { name: e.target.value })
+                      }
+                      className="w-full bg-[#0b0d10] border border-[#242a36] rounded px-2 py-1 text-xs text-[#f3ead8] focus:outline-none focus:border-[#d4a853]"
+                    />
+
+                    <div className="grid grid-cols-2 gap-2 text-[10.5px] text-[#9aa3b2]">
+                      <label className="space-y-0.5">
+                        <div className="flex justify-between">
+                          <span>Rotation</span>
+                          <span className="font-mono">
+                            {Math.round((selectedProp.rotY * 180) / Math.PI)}°
+                          </span>
+                        </div>
+                        <input
+                          type="range"
+                          min={0}
+                          max={6.28}
+                          step={0.1}
+                          value={selectedProp.rotY}
+                          onChange={(e) =>
+                            updateMapProp(activeMap.id, selectedProp.id, {
+                              rotY: Number(e.target.value),
+                            })
+                          }
+                          className="w-full accent-[#d4a853]"
+                        />
+                      </label>
+                      <label className="space-y-0.5">
+                        <div className="flex justify-between">
+                          <span>Scale</span>
+                          <span className="font-mono">{selectedProp.scale.toFixed(1)}×</span>
+                        </div>
+                        <input
+                          type="range"
+                          min={0.4}
+                          max={3}
+                          step={0.05}
+                          value={selectedProp.scale}
+                          onChange={(e) =>
+                            updateMapProp(activeMap.id, selectedProp.id, {
+                              scale: Number(e.target.value),
+                            })
+                          }
+                          className="w-full accent-[#d4a853]"
+                        />
+                      </label>
+                    </div>
+                  </div>
+                )}
+
+                {/* Segmented Map Inspector Tabs: Layers vs Tools & Items */}
+                <div className="grid grid-cols-2 gap-1 p-0.5 rounded-md bg-[#0a0d12] border border-[#1a202b]">
+                  <button
+                    onClick={() => setMapInspectorTab('layers')}
+                    className={`py-1 rounded text-[11px] font-medium transition-colors ${
+                      mapInspectorTab === 'layers'
+                        ? 'bg-[#1a202b] text-[#f3d488] border border-[#d4a853]/35'
+                        : 'text-[#848d9c] hover:text-[#e7e2d8]'
+                    }`}
+                  >
+                    Layers ({worldLayers.length})
+                  </button>
+                  <button
+                    onClick={() => setMapInspectorTab('elements')}
+                    className={`py-1 rounded text-[11px] font-medium transition-colors ${
+                      mapInspectorTab === 'elements'
+                        ? 'bg-[#1a202b] text-[#f3d488] border border-[#d4a853]/35'
+                        : 'text-[#848d9c] hover:text-[#e7e2d8]'
+                    }`}
+                  >
+                    Tools &amp; Items ({zonesOnMap.length + labelsOnMap.length + pinsOnMap.length})
+                  </button>
+                </div>
+
+                {mapInspectorTab === 'layers' ? (
+                  <>
+                {/* World Overlay Layers (Countries, Regions, Religions, Custom) */}
+                <div className="space-y-2 pt-1">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-semibold text-[#d4a853] tracking-wide flex items-center gap-1.5">
+                      <Layers className="w-3.5 h-3.5" />
+                      World Layers ({worldLayers.length})
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => soloWorldLayer(activeMap.id, null)}
+                        className="text-[10.5px] text-[#8e97a6] hover:text-[#f5df9d]"
+                      >
+                        All On
+                      </button>
+                      <button
+                        onClick={() => setNewLayerOpen((v) => !v)}
+                        className="text-[10.5px] text-[#e5be58] hover:underline flex items-center gap-0.5"
+                      >
+                        <Plus className="w-3 h-3" />
+                        Layer
+                      </button>
+                    </div>
+                  </div>
+
+                  {newLayerOpen && (
+                    <div className="p-2 rounded-md bg-[#12161e] border border-[#d4a853]/35 space-y-2 text-[11px]">
+                      <input
+                        type="text"
+                        value={newLayerName}
+                        onChange={(e) => setNewLayerName(e.target.value)}
+                        placeholder="Layer name (e.g. Trade Guilds)"
+                        className="w-full bg-[#0b0d10] border border-[#242a36] rounded px-2 py-1 text-xs text-[#f3ead8] focus:outline-none focus:border-[#d4a853]"
+                      />
+                      <select
+                        value={newLayerCat}
+                        onChange={(e) => {
+                          const cat = e.target.value as WorldLayerCategory;
+                          setNewLayerCat(cat);
+                          setNewLayerColor(LAYER_CATEGORY_META[cat].defaultColor);
+                        }}
+                        className="w-full bg-[#0b0d10] border border-[#242a36] rounded px-2 py-1 text-xs text-[#dcd7cc]"
+                      >
+                        {(Object.keys(LAYER_CATEGORY_META) as WorldLayerCategory[]).map((cat) => (
+                          <option key={cat} value={cat}>
+                            {LAYER_CATEGORY_META[cat].label}
+                          </option>
+                        ))}
+                      </select>
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-1">
+                          {ZONE_COLOR_PALETTE.slice(0, 6).map((col) => (
+                            <button
+                              key={col}
+                              type="button"
+                              onClick={() => setNewLayerColor(col)}
+                              className={`w-4 h-4 rounded-full border ${
+                                newLayerColor === col ? 'border-white scale-110' : 'border-white/20'
+                              }`}
+                              style={{ backgroundColor: col }}
+                            />
+                          ))}
+                        </div>
+                        <button
+                          onClick={() => {
+                            if (!newLayerName.trim()) return;
+                            addWorldLayer(activeMap.id, {
+                              name: newLayerName,
+                              category: newLayerCat,
+                              color: newLayerColor,
+                            });
+                            setNewLayerName('');
+                            setNewLayerOpen(false);
+                          }}
+                          className="px-2.5 py-1 rounded btn-gold-metallic text-[11px] font-semibold"
+                        >
+                          Create
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
                   <div className="space-y-1">
+                    {worldLayers.map((layer) => {
+                      const zoneCount = (activeMap.zones || []).filter(
+                        (z) => z.layerId === layer.id
+                      ).length;
+                      return (
+                        <div
+                          key={layer.id}
+                          className={`p-1.5 rounded border transition-colors ${
+                            layer.visible
+                              ? 'bg-[#141820] border-[#252c38]'
+                              : 'bg-transparent border-[#181d25] opacity-65'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between gap-1.5">
+                            <button
+                              onClick={() => toggleWorldLayer(activeMap.id, layer.id)}
+                              className="flex items-center gap-2 min-w-0 flex-1 text-left"
+                            >
+                              {layer.visible ? (
+                                <Eye className="w-3.5 h-3.5 text-[#d4a853] shrink-0" />
+                              ) : (
+                                <EyeOff className="w-3.5 h-3.5 text-[#5b6370] shrink-0" />
+                              )}
+                              <span
+                                className="w-2.5 h-2.5 rounded-full shrink-0 border border-white/30"
+                                style={{ backgroundColor: layer.color }}
+                              />
+                              <span className="text-[11.5px] text-[#e7e2d8] truncate">
+                                {layer.name}
+                              </span>
+                            </button>
+                            <div className="flex items-center gap-1 shrink-0">
+                              <span className="font-mono text-[10px] text-[#7c8594]">
+                                {zoneCount}
+                              </span>
+                              <button
+                                onClick={() => soloWorldLayer(activeMap.id, layer.id)}
+                                className="px-1.5 py-0.5 rounded bg-[#1b212d] hover:bg-[#d4a853]/25 text-[9.5px] text-[#9aa3b2] hover:text-[#f5df9d]"
+                                title="Solo this layer"
+                              >
+                                Solo
+                              </button>
+                              {worldLayers.length > 1 && (
+                                <button
+                                  onClick={() => deleteWorldLayer(activeMap.id, layer.id)}
+                                  className="p-0.5 text-[#5d6574] hover:text-red-400"
+                                  title="Delete layer"
+                                >
+                                  <Trash2 className="w-3 h-3" />
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                          {layer.visible && (
+                            <div className="mt-1 flex items-center gap-2 pl-6 pr-1">
+                              <span className="text-[9.5px] text-[#7c8594]">Opacity</span>
+                              <input
+                                type="range"
+                                min={0.08}
+                                max={0.75}
+                                step={0.03}
+                                value={layer.opacity}
+                                onChange={(e) =>
+                                  updateWorldLayer(activeMap.id, layer.id, {
+                                    opacity: Number(e.target.value),
+                                  })
+                                }
+                                className="flex-1 accent-[#d4a853] h-1"
+                              />
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Base Map Layers (7) */}
+                <div className="space-y-1.5 pt-2 border-t border-[#181d25]">
+                  <div className="text-[11px] font-semibold text-[#b8b3a8] tracking-wide">
+                    Base Layers (7)
+                  </div>
+                  <div className="space-y-0.5">
                     {(
                       [
                         ['terrain', 'Terrain (Elevation)'],
-                        ['vegetation', 'Vegetation'],
-                        ['locations', 'Locations'],
+                        ['vegetation', 'Biome, Flora & Elements'],
+                        ['rivers', 'Rivers & Streams'],
+                        ['locations', 'Locations & Pins'],
                         ['paths', 'Paths / Trails'],
-                        ['regions', 'Regions'],
+                        ['regions', 'All Overlay Zones'],
+                        ['labels', 'Map Text Labels'],
                       ] as Array<[keyof typeof mapLayers, string]>
                     ).map(([key, label]) => {
                       const visible = mapLayers[key];
@@ -204,7 +888,7 @@ export const RightInspector: React.FC = () => {
                         <button
                           key={key}
                           onClick={() => toggleMapLayer(key)}
-                          className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded text-[12px] transition-colors ${
+                          className={`w-full flex items-center gap-2.5 px-2.5 py-1 rounded text-[11.5px] transition-colors ${
                             visible
                               ? 'bg-[#141820] text-[#e7e2d8] hover:bg-[#1a1f29]'
                               : 'bg-transparent text-[#646d7c] hover:bg-[#141820]/60'
@@ -221,29 +905,34 @@ export const RightInspector: React.FC = () => {
                     })}
                   </div>
                 </div>
-
+                  </>
+                ) : (
+                  <>
                 {/* Map Tools Grid */}
-                <div className="space-y-2 pt-2 border-t border-[#181d25]">
-                  <div className="text-[11.5px] font-semibold text-[#b8b3a8] tracking-wide">
+                <div className="space-y-2 pt-1">
+                  <div className="text-[11px] font-semibold text-[#b8b3a8] tracking-wide">
                     Map Tools
                   </div>
-                  <div className="grid grid-cols-5 gap-1.5">
+                  <div className="grid grid-cols-3 gap-1.5">
                     {(
                       [
-                        { id: 'pin', label: 'Add Location', icon: MapPin },
-                        { id: 'path', label: 'Add Path', icon: Route },
-                        { id: 'region', label: 'Region', icon: Square },
-                        { id: 'note', label: 'Map Note', icon: FilePlus2 },
+                        { id: 'pin', label: 'Add Pin', icon: MapPin },
+                        { id: 'text', label: 'Add Text', icon: Type },
+                        { id: 'zone', label: 'Add Zone', icon: Pentagon },
+                        { id: 'element', label: '3D Element', icon: Castle },
+                        { id: 'path', label: 'Add Route', icon: Route },
                         { id: 'link', label: 'Link Entry', icon: Link2 },
                       ] as const
                     ).map((tool) => {
                       const Icon = tool.icon;
-                      const isActive = mapToolMode === tool.id;
+                      const isActive =
+                        mapToolMode === tool.id ||
+                        (tool.id === 'zone' && mapToolMode === 'region');
                       return (
                         <button
                           key={tool.id}
                           onClick={() => {
-                            if (tool.id === 'note' || tool.id === 'link') {
+                            if (tool.id === 'link') {
                               openNewEntryModal('Location', 'encyclopedia');
                             } else {
                               setMapToolMode(isActive ? 'select' : tool.id);
@@ -256,12 +945,165 @@ export const RightInspector: React.FC = () => {
                           }`}
                         >
                           <Icon className="w-3.5 h-3.5 text-[#d4a853]" />
-                          <span className="line-clamp-2">{tool.label}</span>
+                          <span>{tool.label}</span>
                         </button>
                       );
                     })}
                   </div>
                 </div>
+
+                {/* Zones / Territories List */}
+                <div className="space-y-1.5 pt-2 border-t border-[#181d25]">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11.5px] font-semibold text-[#b8b3a8]">
+                      Zones &amp; Realms ({zonesOnMap.length})
+                    </span>
+                    <button
+                      onClick={() => setMapToolMode('zone')}
+                      className="text-[10.5px] text-[#d4a853] hover:underline"
+                    >
+                      + Draw Zone
+                    </button>
+                  </div>
+                  {zonesOnMap.length === 0 ? (
+                    <div className="text-[11px] text-[#646d7c] italic">
+                      No countries, regions or faiths drawn yet.
+                    </div>
+                  ) : (
+                    <div className="space-y-1">
+                      {zonesOnMap.map((zone) => {
+                        const layer = worldLayers.find((l) => l.id === zone.layerId);
+                        const active = selectedZoneId === zone.id;
+                        return (
+                          <div
+                            key={zone.id}
+                            className={`flex items-center justify-between px-2 py-1.5 rounded border text-[11px] ${
+                              active
+                                ? 'bg-[#1f1a12] border-[#d4a853]/70 text-[#f7ecc9]'
+                                : 'bg-[#12161e] border-[#1d222b] text-[#c9c3b8] hover:border-[#303744]'
+                            }`}
+                          >
+                            <button
+                              onClick={() => setSelectedZoneId(zone.id)}
+                              className="flex items-center gap-2 min-w-0 flex-1 text-left"
+                            >
+                              <span
+                                className="w-2.5 h-2.5 rounded-full shrink-0"
+                                style={{ backgroundColor: zone.color }}
+                              />
+                              <span className="truncate font-medium">{zone.name}</span>
+                              {layer && (
+                                <span className="text-[9.5px] text-[#7c8594] truncate">
+                                  ({layer.name.split(' ')[0]})
+                                </span>
+                              )}
+                            </button>
+                            <button
+                              onClick={() => deleteMapZone(activeMap.id, zone.id)}
+                              className="text-[#646d7c] hover:text-red-400 ml-1.5 shrink-0"
+                              title="Delete Zone"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                {/* Text Labels List */}
+                <div className="space-y-1.5 pt-2 border-t border-[#181d25]">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11.5px] font-semibold text-[#b8b3a8]">
+                      Text Labels ({labelsOnMap.length})
+                    </span>
+                    <button
+                      onClick={() => setMapToolMode('text')}
+                      className="text-[10.5px] text-[#d4a853] hover:underline"
+                    >
+                      + Add Text
+                    </button>
+                  </div>
+                  {labelsOnMap.length > 0 && (
+                    <div className="space-y-1">
+                      {labelsOnMap.map((lbl) => (
+                        <div
+                          key={lbl.id}
+                          className={`flex items-center justify-between px-2 py-1.5 rounded border text-[11px] ${
+                            selectedLabelId === lbl.id
+                              ? 'bg-[#1f1a12] border-[#d4a853]/70 text-[#f7ecc9]'
+                              : 'bg-[#12161e] border-[#1d222b] text-[#c9c3b8] hover:border-[#303744]'
+                          }`}
+                        >
+                          <button
+                            onClick={() => setSelectedLabelId(lbl.id)}
+                            className="flex items-center gap-2 min-w-0 flex-1 text-left"
+                          >
+                            <Type className="w-3 h-3 text-[#d4a853] shrink-0" />
+                            <span className="truncate">{lbl.text}</span>
+                            <span className="text-[9.5px] font-mono text-[#7c8594] uppercase">
+                              {lbl.style}
+                            </span>
+                          </button>
+                          <button
+                            onClick={() => deleteMapLabel(activeMap.id, lbl.id)}
+                            className="text-[#646d7c] hover:text-red-400 ml-1.5 shrink-0"
+                            title="Delete Label"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Placed 3D Elements List */}
+                {heroPropsOnMap.length > 0 && (
+                  <div className="space-y-1.5 pt-2 border-t border-[#181d25]">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11.5px] font-semibold text-[#b8b3a8]">
+                        3D Elements ({heroPropsOnMap.length})
+                      </span>
+                      <button
+                        onClick={() => setMapToolMode('element')}
+                        className="text-[10.5px] text-[#d4a853] hover:underline"
+                      >
+                        + Place
+                      </button>
+                    </div>
+                    <div className="space-y-1">
+                      {heroPropsOnMap.map((prop) => (
+                        <div
+                          key={prop.id}
+                          className={`flex items-center justify-between px-2 py-1.5 rounded border text-[11px] ${
+                            selectedPropId === prop.id
+                              ? 'bg-[#1f1a12] border-[#d4a853]/70 text-[#f7ecc9]'
+                              : 'bg-[#12161e] border-[#1d222b] text-[#c9c3b8] hover:border-[#303744]'
+                          }`}
+                        >
+                          <button
+                            onClick={() => setSelectedPropId(prop.id)}
+                            className="flex items-center gap-2 min-w-0 flex-1 text-left"
+                          >
+                            <Castle className="w-3 h-3 text-[#d4a853] shrink-0" />
+                            <span className="truncate capitalize">
+                              {prop.name || prop.kind}
+                            </span>
+                          </button>
+                          <button
+                            onClick={() => deleteMapProp(activeMap.id, prop.id)}
+                            className="text-[#646d7c] hover:text-red-400 ml-1.5 shrink-0"
+                            title="Delete Element"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 {/* Linked Entries List */}
                 <div className="space-y-2 pt-2 border-t border-[#181d25]">
@@ -314,11 +1156,11 @@ export const RightInspector: React.FC = () => {
                   </div>
                 </div>
 
-                {/* Paths & Regions List */}
+                {/* Paths & Routes List */}
                 {pathsOnMap.length > 0 && (
                   <div className="space-y-1.5 pt-2 border-t border-[#181d25]">
                     <div className="text-[11px] font-semibold text-[#858d9b]">
-                      Routes &amp; Regions ({pathsOnMap.length})
+                      Routes &amp; Legacy Polygons ({pathsOnMap.length})
                     </div>
                     {pathsOnMap.map((path) => (
                       <div
@@ -336,6 +1178,8 @@ export const RightInspector: React.FC = () => {
                       </div>
                     ))}
                   </div>
+                )}
+                  </>
                 )}
               </>
             ) : focusedEntity ? (

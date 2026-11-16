@@ -1,28 +1,32 @@
 import React, { useMemo, useState } from 'react';
-import { Code2, Eye, Plus, RotateCcw, Sparkles, X } from 'lucide-react';
+import { Code2, Columns2, Eye, Plus, RotateCcw, Sparkles, X } from 'lucide-react';
 import { DEFAULT_TEMPLATES } from '../../data/templates';
-import { markdownToHtml, scopeCustomCss } from '../../lib/wikilinks';
+import { markdownToHtml, parseNoteMarkdownStyleBlock, scopeCustomCss } from '../../lib/wikilinks';
 import { useVaultStore } from '../../store/useVaultStore';
 import { EntityType } from '../../types/vault';
 import { EntityIcon } from '../common/EntityIcon';
 
 export const TemplateEditorPane: React.FC<{ entityType: EntityType }> = ({ entityType }) => {
-  const { templates, assets, updateTemplate, resetTemplate } = useVaultStore();
+  const { templates, assets, entities, updateTemplate, resetTemplate } = useVaultStore();
   const tpl = templates[entityType] || DEFAULT_TEMPLATES[entityType];
 
-  const [viewMode, setViewMode] = useState<'edit' | 'preview'>('edit');
+  const [viewMode, setViewMode] = useState<'split' | 'edit' | 'preview'>('split');
   const [newKey, setNewKey] = useState('');
   const [newVal, setNewVal] = useState('');
 
   const scopeClass = `tpl-preview-${entityType.toLowerCase()}`;
   const scopedCss = useMemo(() => scopeCustomCss(tpl.customCss || '', scopeClass), [tpl.customCss, scopeClass]);
-  const previewHtml = useMemo(() => markdownToHtml(tpl.content, assets), [tpl.content, assets]);
+  const previewHtml = useMemo(
+    () => markdownToHtml(tpl.content, assets, entities),
+    [tpl.content, assets, entities]
+  );
+  const { noteVars } = useMemo(() => parseNoteMarkdownStyleBlock(tpl.content), [tpl.content]);
 
   return (
-    <div className="h-full bg-[#101318] flex flex-col overflow-y-auto p-6">
-      <div className="max-w-4xl w-full mx-auto space-y-5">
+    <div className="h-full bg-[#101318] flex flex-col overflow-y-auto p-5">
+      <div className="max-w-6xl w-full mx-auto space-y-4">
         {/* Header */}
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#1d222b] pb-4">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#1d222b] pb-3.5">
           <div className="flex items-center gap-3">
             <span className="p-2 rounded-lg bg-[#171b22] border border-[#d4a853]/40 text-[#d4a853]">
               <EntityIcon type={entityType} className="w-5 h-5" />
@@ -34,13 +38,24 @@ export const TemplateEditorPane: React.FC<{ entityType: EntityType }> = ({ entit
               <input
                 value={tpl.label}
                 onChange={(e) => updateTemplate(entityType, { label: e.target.value })}
-                className="bg-transparent font-serif text-2xl font-bold text-[#f5efe2] focus:outline-none"
+                className="bg-transparent font-serif text-xl font-bold text-[#f5efe2] focus:outline-none"
               />
             </div>
           </div>
 
           <div className="flex items-center gap-2">
             <div className="flex items-center bg-[#0f1218] p-0.5 rounded-lg border border-[#1d232e]">
+              <button
+                onClick={() => setViewMode('split')}
+                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-all ${
+                  viewMode === 'split'
+                    ? 'bg-[#1c212b] text-[#f3d488] border border-[#d4a853]/35'
+                    : 'text-[#7e8796] hover:text-[#e7e2d8] border border-transparent'
+                }`}
+              >
+                <Columns2 className="w-3.5 h-3.5" />
+                <span>Live Split</span>
+              </button>
               <button
                 onClick={() => setViewMode('edit')}
                 className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-all ${
@@ -50,7 +65,7 @@ export const TemplateEditorPane: React.FC<{ entityType: EntityType }> = ({ entit
                 }`}
               >
                 <Code2 className="w-3.5 h-3.5" />
-                <span>Edit Template</span>
+                <span>Properties</span>
               </button>
               <button
                 onClick={() => setViewMode('preview')}
@@ -61,7 +76,7 @@ export const TemplateEditorPane: React.FC<{ entityType: EntityType }> = ({ entit
                 }`}
               >
                 <Eye className="w-3.5 h-3.5" />
-                <span>Live Preview</span>
+                <span>Preview</span>
               </button>
             </div>
 
@@ -82,7 +97,32 @@ export const TemplateEditorPane: React.FC<{ entityType: EntityType }> = ({ entit
           with these frontmatter attributes, Markdown/HTML layout, and scoped CSS styles.
         </p>
 
-        {viewMode === 'preview' ? (
+        {viewMode === 'split' ? (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
+            {scopedCss && <style>{scopedCss}</style>}
+            <div className="rounded-lg bg-[#0b0d10] border border-[#1d222b] p-4 space-y-2">
+              <div className="text-[10.5px] font-mono uppercase tracking-wider text-[#d4a853]">
+                Template Markdown Source
+              </div>
+              <textarea
+                rows={18}
+                value={tpl.content}
+                onChange={(e) => updateTemplate(entityType, { content: e.target.value })}
+                className="w-full bg-transparent font-mono text-[12.5px] leading-relaxed text-[#e0dacd] focus:outline-none resize-y"
+              />
+            </div>
+            <div className="surface-card rounded-xl overflow-hidden min-h-[380px]">
+              <div className="px-4 py-2 border-b border-[#1d222b] text-[10px] font-mono uppercase tracking-wider text-[#d4a853]">
+                Live Preview
+              </div>
+              <div
+                style={noteVars as React.CSSProperties}
+                className={`tiptap ${scopeClass} p-5`}
+                dangerouslySetInnerHTML={{ __html: previewHtml }}
+              />
+            </div>
+          </div>
+        ) : viewMode === 'preview' ? (
           <div className="space-y-4">
             {scopedCss && <style>{scopedCss}</style>}
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-px bg-[#1f2533] border border-[#242b3a] rounded-xl overflow-hidden">
@@ -98,6 +138,7 @@ export const TemplateEditorPane: React.FC<{ entityType: EntityType }> = ({ entit
             <div className="surface-card rounded-xl overflow-hidden">
               <div className="gold-hairline opacity-75" />
               <div
+                style={noteVars as React.CSSProperties}
                 className={`tiptap ${scopeClass} p-6 sm:p-7`}
                 dangerouslySetInnerHTML={{ __html: previewHtml }}
               />
