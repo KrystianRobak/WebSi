@@ -1430,7 +1430,7 @@ const FOG_VOLUME_FRAG = `
       // Terrain occlusion & ground-hugging boost
       float groundMask = 1.0;
       if (uHasHeightMap > 0.5) {
-        vec2 tUv = vec2(wp.x / uTerrainSize + 0.5, 0.5 - wp.z / uTerrainSize);
+        vec2 tUv = vec2(wp.x / uTerrainSize + 0.5, wp.z / uTerrainSize + 0.5);
         float terrH = texture2D(uHeightMap, clamp(tUv, 0.002, 0.998)).r * uDisplacementScale;
         float surfH = max(terrH, uSeaY - 0.25);
         float aboveGround = wp.y - surfH;

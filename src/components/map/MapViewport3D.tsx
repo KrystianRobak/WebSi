@@ -451,7 +451,7 @@ const SeaLevelWater: React.FC<SeaLevelWaterProps> = ({
 
             float shoreDamp = 1.0;
             if (uHasHeightMap > 0.5) {
-              vec2 tUv = vec2(wp.x / uTerrainSize + 0.5, 0.5 - wp.z / uTerrainSize);
+              vec2 tUv = vec2(wp.x / uTerrainSize + 0.5, wp.z / uTerrainSize + 0.5);
               float inBox = step(0.0, tUv.x) * step(tUv.x, 1.0) * step(0.0, tUv.y) * step(tUv.y, 1.0);
               float terrainH = texture2D(uHeightMap, clamp(tUv, 0.002, 0.998)).r * uDisplacementScale;
               float depth = mix(5.0, max(0.0, uSeaY - terrainH), inBox);
@@ -627,19 +627,24 @@ const SeaLevelWater: React.FC<SeaLevelWaterProps> = ({
               return;
             }
 
-            vec2 tUv = vec2(vWorldPos.x / uTerrainSize + 0.5, 0.5 - vWorldPos.z / uTerrainSize);
+            vec2 tUv = vec2(vWorldPos.x / uTerrainSize + 0.5, vWorldPos.z / uTerrainSize + 0.5);
             vec2 clampedUv = clamp(tUv, 0.002, 0.998);
-            float outsideDist = length(tUv - clampedUv);
+            float outsideEdge = max(
+              max(-tUv.x, tUv.x - 1.0),
+              max(-tUv.y, tUv.y - 1.0)
+            );
 
             float terrainH = uSeaY - 4.0;
             if (uHasHeightMap > 0.5) {
               terrainH = texture2D(uHeightMap, clampedUv).r * uDisplacementScale;
             }
 
-            float waterDepth = (uSeaY - terrainH) + outsideDist * 16.0;
-            if (uHasHeightMap > 0.5 && outsideDist < 0.0001 && waterDepth < -0.06) {
+            float rawDepth = uSeaY - terrainH;
+            if (uHasHeightMap > 0.5 && outsideEdge <= 0.0 && rawDepth < -0.06) {
               discard;
             }
+            float outsideBlend = smoothstep(0.0, 0.018, outsideEdge);
+            float waterDepth = mix(rawDepth, max(rawDepth, 4.5), outsideBlend);
             float depthPos = max(0.0, waterDepth);
 
             vec3 toCam = cameraPosition - vWorldPos;
@@ -810,7 +815,7 @@ const TERRAIN_MAP_CHUNK = `
   float tSlope = clamp(1.0 - tWNorm.y, 0.0, 1.0);
   float tAboveSea = tWPos.y - uSeaY;
   float tHNorm = clamp(tWPos.y / max(uDispScale, 0.001), 0.0, 1.0);
-  vec2 tWorldUv = clamp(vec2(tWPos.x / max(uTerrainSize, 1.0) + 0.5, 0.5 - tWPos.z / max(uTerrainSize, 1.0)), 0.001, 0.999);
+  vec2 tWorldUv = clamp(vec2(tWPos.x / max(uTerrainSize, 1.0) + 0.5, tWPos.z / max(uTerrainSize, 1.0) + 0.5), 0.001, 0.999);
 
   float fMacro = tFbm(tWPos.xz * 0.045 + vec2(4.2, -3.1));
   float fMoisture = tFbm(tWPos.xz * 0.075 + vec2(-11.4, 8.7));
@@ -1639,7 +1644,8 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({
         heightDataRef.current,
         res,
         activeSeaNorm,
-        hasAnyPaint ? pBuf : null
+        hasAnyPaint ? pBuf : null,
+        res
       );
       skipReloadHeightUrlRef.current = baked.heightmapDataUrl;
       if (baked.paintDataUrl) {
