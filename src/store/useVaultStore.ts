@@ -16,6 +16,14 @@ import {
 import { generateCustomTerrain } from '../lib/terrainEditorEngine';
 import { generateEntityArtwork } from '../lib/terrainGenerator';
 import { createDefaultWorldLayers } from '../lib/worldLayers';
+import {
+  DEFAULT_NEW_WORLD_SIZE,
+  DEFAULT_TERRAIN_SHADING,
+  DEFAULT_WATER_SETTINGS,
+  FogPresetId,
+  createFogVolume,
+  heightResForWorldSize,
+} from '../lib/worldEnvironment';
 import { computeEntityLinksForSource, slugify } from '../lib/wikilinks';
 import {
   AssetKind,
@@ -27,6 +35,7 @@ import {
   BattlemapToken,
   BattlemapToolMode,
   BattlemapWall,
+  BiomePaintKind,
   BrushFalloff,
   EditorMode,
   Entity,
@@ -34,6 +43,7 @@ import {
   EntityLink,
   EntityTemplate,
   EntityType,
+  FogVolume,
   InspectorSubTab,
   MapCameraView,
   MapGenerationConfig,
@@ -50,8 +60,12 @@ import {
   PathPoint,
   PinIconType,
   TabItem,
+  TerrainCommand,
+  TerrainShadingSettings,
+  TerrainStampKind,
   VaultAsset,
   VaultMap,
+  WaterSettings,
   World,
   WorldAtmospherePreset,
   WorldLayerCategory,
@@ -125,8 +139,14 @@ interface VaultState {
   brushRadius: number;
   brushStrength: number;
   brushFalloff: BrushFalloff;
+  terraceSteps: number;
+  activeStampKind: TerrainStampKind;
+  activeBiomePaint: BiomePaintKind;
   activePropKind: MapPropKind;
   selectedPropId: string | null;
+  selectedFogId: string | null;
+  activeFogPreset: FogPresetId;
+  terrainCommandSignal: { seq: number; cmd: TerrainCommand | null };
   riverDrawingPoints: PathPoint[];
   mapGeneratorModalOpen: boolean;
   mapGeneratorDefaultKind: MapKind;
@@ -281,8 +301,33 @@ interface VaultState {
   setBrushRadius: (r: number) => void;
   setBrushStrength: (s: number) => void;
   setBrushFalloff: (f: BrushFalloff) => void;
+  setTerraceSteps: (steps: number) => void;
+  setActiveStampKind: (kind: TerrainStampKind) => void;
+  setActiveBiomePaint: (kind: BiomePaintKind) => void;
   setActivePropKind: (k: MapPropKind) => void;
   setSelectedPropId: (id: string | null) => void;
+  setSelectedFogId: (id: string | null) => void;
+  setActiveFogPreset: (preset: FogPresetId) => void;
+  dispatchTerrainCommand: (cmd: TerrainCommand) => void;
+  addFogVolume: (
+    mapId: string,
+    at: { x: number; y: number; z: number },
+    preset?: FogPresetId,
+    overrides?: Partial<FogVolume>
+  ) => FogVolume;
+  updateFogVolume: (mapId: string, fogId: string, patch: Partial<FogVolume>) => void;
+  deleteFogVolume: (mapId: string, fogId: string) => void;
+  updateMapEnvironment: (
+    mapId: string,
+    patch: {
+      world_size?: number;
+      sea_level?: number;
+      displacement_scale?: number;
+      water?: Partial<WaterSettings>;
+      terrain_shading?: Partial<TerrainShadingSettings>;
+      paint_url?: string | null;
+    }
+  ) => void;
   addRiverPoint: (pt: PathPoint) => void;
   clearRiverPoints: () => void;
   finishRiver: (mapId: string, name: string, width: number, depth: number) => void;
@@ -378,6 +423,12 @@ function normalizeMapOverlay(m: VaultMap, fallbackSeed?: VaultMap): VaultMap {
       layers?: WorldMapLayer[];
       zones?: WorldMapZone[];
       labels?: WorldMapLabel[];
+      world_size?: number;
+      sea_level?: number;
+      paint_url?: string | null;
+      water?: WaterSettings;
+      terrain_shading?: TerrainShadingSettings;
+      fog_volumes?: FogVolume[];
     };
   };
   const packed = scaleCfg._overlay;
@@ -398,9 +449,36 @@ function normalizeMapOverlay(m: VaultMap, fallbackSeed?: VaultMap): VaultMap {
       ? m.props
       : fallbackSeed?.props ?? [];
 
+  // Upgrade legacy cached demo map that didn't have world_size yet so returning users see the expanded 200x200 world & fog volumes
+  const isLegacyDemoUpgrade =
+    Boolean(fallbackSeed?.world_size) && !m.world_size && !packed?.world_size;
+
+  const world_size = m.world_size ?? packed?.world_size ?? fallbackSeed?.world_size;
+  const sea_level = m.sea_level ?? packed?.sea_level ?? fallbackSeed?.sea_level;
+  const paint_url = m.paint_url ?? packed?.paint_url ?? fallbackSeed?.paint_url ?? null;
+  const water = m.water ?? packed?.water ?? fallbackSeed?.water;
+  const terrain_shading =
+    m.terrain_shading ?? packed?.terrain_shading ?? fallbackSeed?.terrain_shading;
+  const fog_volumes =
+    m.fog_volumes ?? packed?.fog_volumes ?? fallbackSeed?.fog_volumes ?? [];
+
   return {
     ...m,
     kind: m.kind || '3d',
+    heightmap_url:
+      isLegacyDemoUpgrade && fallbackSeed?.heightmap_url
+        ? fallbackSeed.heightmap_url
+        : m.heightmap_url,
+    albedo_url:
+      isLegacyDemoUpgrade && fallbackSeed?.albedo_url
+        ? fallbackSeed.albedo_url
+        : m.albedo_url,
+    world_size,
+    sea_level,
+    paint_url,
+    water,
+    terrain_shading,
+    fog_volumes,
     rivers: m.rivers || [],
     props,
     layers,
@@ -411,14 +489,29 @@ function normalizeMapOverlay(m: VaultMap, fallbackSeed?: VaultMap): VaultMap {
 
 function serializeMapRow(m: VaultMap, packOverlayInScaleConfig = false) {
   const cleanScale = { ...(m.scale_config || { ratio: '1 : 250 000', elevationSource: 'Heightmap', kmPerUnit: 1.6 }) } as Record<string, unknown>;
+  const existingOverlay = (cleanScale._overlay && typeof cleanScale._overlay === 'object'
+    ? cleanScale._overlay
+    : {}) as Record<string, unknown>;
+
+  const envOverlay: Record<string, unknown> = {
+    ...existingOverlay,
+    world_size: m.world_size,
+    sea_level: m.sea_level,
+    paint_url: m.paint_url ?? null,
+    water: m.water,
+    terrain_shading: m.terrain_shading,
+    fog_volumes: m.fog_volumes ?? [],
+  };
+
   if (packOverlayInScaleConfig) {
     cleanScale._overlay = {
+      ...envOverlay,
       layers: m.layers ?? [],
       zones: m.zones ?? [],
       labels: m.labels ?? [],
     };
   } else {
-    delete cleanScale._overlay;
+    cleanScale._overlay = envOverlay;
   }
 
   const base = {
@@ -768,8 +861,14 @@ export const useVaultStore = create<VaultState>((set, get) => ({
   brushRadius: 7,
   brushStrength: 0.45,
   brushFalloff: 'smooth',
+  terraceSteps: 8,
+  activeStampKind: 'mountain',
+  activeBiomePaint: 'grass',
   activePropKind: 'village',
   selectedPropId: null,
+  selectedFogId: null,
+  activeFogPreset: 'valley-mist',
+  terrainCommandSignal: { seq: 0, cmd: null },
   riverDrawingPoints: [],
   mapGeneratorModalOpen: false,
   mapGeneratorDefaultKind: '3d',
@@ -1677,16 +1776,12 @@ export const useVaultStore = create<VaultState>((set, get) => ({
   },
 
   updateMapAssets: async (mapId, patch) => {
-    const state = get();
     set((s) => {
       const nextMaps = s.maps.map((m) => (m.id === mapId ? { ...m, ...patch } : m));
       saveMapsToStorage(nextMaps);
       return { maps: nextMaps };
     });
-    const client = getSupabaseClient();
-    if (client && state.isAuthenticated) {
-      await client.from('maps').update(patch).eq('id', mapId);
-    }
+    scheduleMapSync(mapId, get, set);
   },
 
   setWorldsmithMode: (on) =>
@@ -1695,6 +1790,7 @@ export const useVaultStore = create<VaultState>((set, get) => ({
       mapToolMode: 'select',
       riverDrawingPoints: [],
       selectedPropId: null,
+      selectedFogId: null,
     }),
 
   setWorldsmithTool: (tool) =>
@@ -1706,8 +1802,98 @@ export const useVaultStore = create<VaultState>((set, get) => ({
   setBrushRadius: (r) => set({ brushRadius: r }),
   setBrushStrength: (s) => set({ brushStrength: s }),
   setBrushFalloff: (f) => set({ brushFalloff: f }),
+  setTerraceSteps: (steps) => set({ terraceSteps: Math.max(2, Math.min(24, Math.round(steps))) }),
+  setActiveStampKind: (kind) => set({ activeStampKind: kind }),
+  setActiveBiomePaint: (kind) => set({ activeBiomePaint: kind }),
   setActivePropKind: (k) => set({ activePropKind: k }),
   setSelectedPropId: (id) => set({ selectedPropId: id }),
+  setSelectedFogId: (id) => set({ selectedFogId: id }),
+  setActiveFogPreset: (preset) => set({ activeFogPreset: preset }),
+  dispatchTerrainCommand: (cmd) =>
+    set((s) => ({
+      terrainCommandSignal: { seq: s.terrainCommandSignal.seq + 1, cmd },
+    })),
+
+  addFogVolume: (mapId, at, preset, overrides) => {
+    const newFog = createFogVolume(at, preset || get().activeFogPreset, overrides);
+    set((s) => {
+      const nextMaps = s.maps.map((m) =>
+        m.id === mapId ? { ...m, fog_volumes: [...(m.fog_volumes || []), newFog] } : m
+      );
+      saveMapsToStorage(nextMaps);
+      return { maps: nextMaps, selectedFogId: newFog.id };
+    });
+    scheduleMapSync(mapId, get, set);
+    return newFog;
+  },
+
+  updateFogVolume: (mapId, fogId, patch) => {
+    set((s) => {
+      const nextMaps = s.maps.map((m) =>
+        m.id === mapId
+          ? {
+              ...m,
+              fog_volumes: (m.fog_volumes || []).map((f) =>
+                f.id === fogId ? { ...f, ...patch } : f
+              ),
+            }
+          : m
+      );
+      saveMapsToStorage(nextMaps);
+      return { maps: nextMaps };
+    });
+    scheduleMapSync(mapId, get, set);
+  },
+
+  deleteFogVolume: (mapId, fogId) => {
+    set((s) => {
+      const nextMaps = s.maps.map((m) =>
+        m.id === mapId
+          ? { ...m, fog_volumes: (m.fog_volumes || []).filter((f) => f.id !== fogId) }
+          : m
+      );
+      saveMapsToStorage(nextMaps);
+      return {
+        maps: nextMaps,
+        selectedFogId: s.selectedFogId === fogId ? null : s.selectedFogId,
+      };
+    });
+    scheduleMapSync(mapId, get, set);
+  },
+
+  updateMapEnvironment: (mapId, patch) => {
+    set((s) => {
+      const nextMaps = s.maps.map((m) => {
+        if (m.id !== mapId) return m;
+        const nextWater: WaterSettings | undefined = patch.water
+          ? { ...(m.water || DEFAULT_WATER_SETTINGS), ...patch.water }
+          : m.water;
+        const nextShading: TerrainShadingSettings | undefined = patch.terrain_shading
+          ? { ...(m.terrain_shading || DEFAULT_TERRAIN_SHADING), ...patch.terrain_shading }
+          : m.terrain_shading;
+        const nextGenConfig =
+          patch.sea_level !== undefined && m.generation_config
+            ? { ...m.generation_config, seaLevel: patch.sea_level }
+            : m.generation_config;
+        return {
+          ...m,
+          world_size: patch.world_size !== undefined ? patch.world_size : m.world_size,
+          sea_level: patch.sea_level !== undefined ? patch.sea_level : m.sea_level,
+          displacement_scale:
+            patch.displacement_scale !== undefined
+              ? patch.displacement_scale
+              : m.displacement_scale,
+          paint_url: patch.paint_url !== undefined ? patch.paint_url : m.paint_url,
+          water: nextWater,
+          terrain_shading: nextShading,
+          generation_config: nextGenConfig,
+        };
+      });
+      saveMapsToStorage(nextMaps);
+      return { maps: nextMaps };
+    });
+    scheduleMapSync(mapId, get, set);
+  },
 
   addRiverPoint: (pt) => set((s) => ({ riverDrawingPoints: [...s.riverDrawingPoints, pt] })),
   clearRiverPoints: () => set({ riverDrawingPoints: [] }),
@@ -1879,7 +2065,10 @@ export const useVaultStore = create<VaultState>((set, get) => ({
 
   createCustom3DMap: (name, config) => {
     const state = get();
-    const generated = generateCustomTerrain(config, 512, 16);
+    const worldSize = config.worldSize || DEFAULT_NEW_WORLD_SIZE;
+    const heightRes = heightResForWorldSize(worldSize);
+    const fullConfig: MapGenerationConfig = { ...config, worldSize };
+    const generated = generateCustomTerrain(fullConfig, heightRes, 16);
     const id = crypto.randomUUID();
     const mapTitle = name.trim() || 'Custom World Map';
     const newMap: VaultMap = {
@@ -1889,17 +2078,21 @@ export const useVaultStore = create<VaultState>((set, get) => ({
       kind: '3d',
       heightmap_url: generated.heightmapDataUrl,
       albedo_url: generated.albedoDataUrl,
+      paint_url: null,
       width: 8192,
       height: 8192,
       displacement_scale: 16,
+      world_size: worldSize,
+      sea_level: config.seaLevel,
       scale_config: {
         ratio: '1 : 250 000',
         elevationSource: `Custom (${config.archetype})`,
         kmPerUnit: 1.5,
       },
-      generation_config: config,
+      generation_config: fullConfig,
       rivers: generated.rivers,
       props: generated.props,
+      fog_volumes: [],
       layers: createDefaultWorldLayers(),
       zones: [],
       labels: [
@@ -1959,7 +2152,10 @@ export const useVaultStore = create<VaultState>((set, get) => ({
   },
 
   regenerate3DMap: (mapId, config) => {
-    const generated = generateCustomTerrain(config, 512, 16);
+    const worldSize = config.worldSize || DEFAULT_NEW_WORLD_SIZE;
+    const heightRes = heightResForWorldSize(worldSize);
+    const fullConfig: MapGenerationConfig = { ...config, worldSize };
+    const generated = generateCustomTerrain(fullConfig, heightRes, 16);
     set((s) => {
       const nextMaps = s.maps.map((m) =>
         m.id === mapId
@@ -1967,7 +2163,10 @@ export const useVaultStore = create<VaultState>((set, get) => ({
               ...m,
               heightmap_url: generated.heightmapDataUrl,
               albedo_url: generated.albedoDataUrl,
-              generation_config: config,
+              paint_url: null,
+              world_size: worldSize,
+              sea_level: config.seaLevel,
+              generation_config: fullConfig,
               rivers: generated.rivers,
               props: generated.props,
               scale_config: {

@@ -10,6 +10,7 @@ import {
   sampleClosedBorderPoints,
 } from '../../lib/worldLayers';
 import {
+  FogVolume,
   MapProp,
   MapRiver,
   WorldMapLabel,
@@ -52,6 +53,7 @@ interface RiverRibbonProps {
   displacementScale: number;
   seaY: number;
   terrainVersion: number;
+  terrainSize: number;
 }
 
 const SingleRiverRibbon: React.FC<RiverRibbonProps> = ({
@@ -61,6 +63,7 @@ const SingleRiverRibbon: React.FC<RiverRibbonProps> = ({
   displacementScale,
   seaY,
   terrainVersion,
+  terrainSize,
 }) => {
   const matRef = useRef<THREE.ShaderMaterial>(null);
 
@@ -113,9 +116,9 @@ const SingleRiverRibbon: React.FC<RiverRibbonProps> = ({
       const rx = p.x - nx * halfW;
       const rz = p.z - nz * halfW;
 
-      const yCenter = sampleTerrainElevation(heightData, heightRes, p.x, p.z, TERRAIN_SIZE, displacementScale);
-      const yLeft = sampleTerrainElevation(heightData, heightRes, lx, lz, TERRAIN_SIZE, displacementScale);
-      const yRight = sampleTerrainElevation(heightData, heightRes, rx, rz, TERRAIN_SIZE, displacementScale);
+      const yCenter = sampleTerrainElevation(heightData, heightRes, p.x, p.z, terrainSize, displacementScale);
+      const yLeft = sampleTerrainElevation(heightData, heightRes, lx, lz, terrainSize, displacementScale);
+      const yRight = sampleTerrainElevation(heightData, heightRes, rx, rz, terrainSize, displacementScale);
       const bankY = (yLeft + yRight) * 0.5;
       const waterY = Math.max(
         seaY + 0.03,
@@ -137,7 +140,7 @@ const SingleRiverRibbon: React.FC<RiverRibbonProps> = ({
     geom.setIndex(indices);
     geom.computeVertexNormals();
     return geom;
-  }, [river, heightData, heightRes, displacementScale, seaY, terrainVersion]);
+  }, [river, heightData, heightRes, displacementScale, seaY, terrainVersion, terrainSize]);
 
   useEffect(() => {
     return () => {
@@ -215,6 +218,7 @@ interface TerrainRivers3DProps {
   displacementScale: number;
   seaY: number;
   terrainVersion: number;
+  terrainSize?: number;
   visible: boolean;
   previewPoints: Array<{ x: number; y: number; z: number }>;
 }
@@ -226,6 +230,7 @@ export const TerrainRivers3D: React.FC<TerrainRivers3DProps> = ({
   displacementScale,
   seaY,
   terrainVersion,
+  terrainSize = TERRAIN_SIZE,
   visible,
   previewPoints,
 }) => {
@@ -240,6 +245,7 @@ export const TerrainRivers3D: React.FC<TerrainRivers3DProps> = ({
           displacementScale={displacementScale}
           seaY={seaY}
           terrainVersion={terrainVersion}
+          terrainSize={terrainSize}
         />
       ))}
 
@@ -274,6 +280,7 @@ interface TerrainProps3DProps {
   displacementScale: number;
   seaY?: number;
   terrainVersion: number;
+  terrainSize?: number;
   visible: boolean;
   selectedPropId: string | null;
   interactive: boolean;
@@ -622,6 +629,7 @@ export const TerrainProps3D: React.FC<TerrainProps3DProps> = ({
   displacementScale,
   seaY = 0,
   terrainVersion,
+  terrainSize = TERRAIN_SIZE,
   visible,
   selectedPropId,
   interactive,
@@ -662,7 +670,7 @@ export const TerrainProps3D: React.FC<TerrainProps3DProps> = ({
 
     if (pineTrunkRef.current && pineCrownRef.current) {
       naturalPines.forEach((p, i) => {
-        const y = sampleTerrainElevation(heightData, heightRes, p.x, p.z, TERRAIN_SIZE, displacementScale);
+        const y = sampleTerrainElevation(heightData, heightRes, p.x, p.z, terrainSize, displacementScale);
         dummy.position.set(p.x, y + 0.16 * p.scale, p.z);
         dummy.rotation.set(0, p.rotY, 0);
         dummy.scale.set(p.scale, p.scale, p.scale);
@@ -679,7 +687,7 @@ export const TerrainProps3D: React.FC<TerrainProps3DProps> = ({
 
     if (oakTrunkRef.current && oakCrownRef.current) {
       naturalOaks.forEach((p, i) => {
-        const y = sampleTerrainElevation(heightData, heightRes, p.x, p.z, TERRAIN_SIZE, displacementScale);
+        const y = sampleTerrainElevation(heightData, heightRes, p.x, p.z, terrainSize, displacementScale);
         dummy.position.set(p.x, y + 0.2 * p.scale, p.z);
         dummy.rotation.set(0, p.rotY, 0);
         dummy.scale.set(p.scale, p.scale, p.scale);
@@ -696,7 +704,7 @@ export const TerrainProps3D: React.FC<TerrainProps3DProps> = ({
 
     if (deadRef.current) {
       naturalDead.forEach((p, i) => {
-        const y = sampleTerrainElevation(heightData, heightRes, p.x, p.z, TERRAIN_SIZE, displacementScale);
+        const y = sampleTerrainElevation(heightData, heightRes, p.x, p.z, terrainSize, displacementScale);
         dummy.position.set(p.x, y + 0.34 * p.scale, p.z);
         dummy.rotation.set(0.08, p.rotY, 0.05);
         dummy.scale.set(p.scale, p.scale, p.scale);
@@ -708,7 +716,7 @@ export const TerrainProps3D: React.FC<TerrainProps3DProps> = ({
 
     if (boulderRef.current) {
       naturalBoulders.forEach((p, i) => {
-        const y = sampleTerrainElevation(heightData, heightRes, p.x, p.z, TERRAIN_SIZE, displacementScale);
+        const y = sampleTerrainElevation(heightData, heightRes, p.x, p.z, terrainSize, displacementScale);
         dummy.position.set(p.x, y - 0.05 * p.scale, p.z);
         dummy.rotation.set(0, p.rotY, 0);
         dummy.scale.set(p.scale * 0.28, p.scale * 0.2, p.scale * 0.25);
@@ -726,6 +734,7 @@ export const TerrainProps3D: React.FC<TerrainProps3DProps> = ({
     heightData,
     heightRes,
     displacementScale,
+    terrainSize,
     terrainVersion,
   ]);
 
@@ -862,7 +871,7 @@ export const TerrainProps3D: React.FC<TerrainProps3DProps> = ({
           heightRes,
           prop.x,
           prop.z,
-          TERRAIN_SIZE,
+          terrainSize,
           displacementScale
         );
         const y =
@@ -898,7 +907,7 @@ export const TerrainProps3D: React.FC<TerrainProps3DProps> = ({
                 heightRes,
                 selectedProp.x,
                 selectedProp.z,
-                TERRAIN_SIZE,
+                terrainSize,
                 displacementScale
               ) + 0.14,
               selectedProp.z,
@@ -920,6 +929,7 @@ interface SingleZoneMeshProps {
   displacementScale: number;
   seaY: number;
   terrainVersion: number;
+  terrainSize: number;
   showLabel: boolean;
   isSelected: boolean;
   interactive: boolean;
@@ -936,6 +946,7 @@ const SingleZoneMesh: React.FC<SingleZoneMeshProps> = ({
   displacementScale,
   seaY,
   terrainVersion,
+  terrainSize,
   showLabel,
   isSelected,
   interactive,
@@ -950,9 +961,10 @@ const SingleZoneMesh: React.FC<SingleZoneMeshProps> = ({
       heightRes,
       displacementScale,
       seaY,
-      0.18 + layerOffset
+      0.18 + layerOffset,
+      terrainSize
     );
-  }, [zone.points, heightData, heightRes, displacementScale, seaY, terrainVersion, layerOffset]);
+  }, [zone.points, heightData, heightRes, displacementScale, seaY, terrainVersion, layerOffset, terrainSize]);
 
   useEffect(() => {
     return () => {
@@ -968,9 +980,10 @@ const SingleZoneMesh: React.FC<SingleZoneMeshProps> = ({
       heightRes,
       displacementScale,
       seaY,
-      0.34 + layerOffset
+      0.34 + layerOffset,
+      terrainSize
     );
-  }, [zone.points, zone.borderStyle, isSelected, heightData, heightRes, displacementScale, seaY, terrainVersion, layerOffset]);
+  }, [zone.points, zone.borderStyle, isSelected, heightData, heightRes, displacementScale, seaY, terrainVersion, layerOffset, terrainSize]);
 
   const doubleBorderPts = useMemo(() => {
     if (zone.borderStyle !== 'double' || borderPts.length < 2) return [];
@@ -984,7 +997,7 @@ const SingleZoneMesh: React.FC<SingleZoneMeshProps> = ({
       heightRes,
       c.x,
       c.z,
-      TERRAIN_SIZE,
+      terrainSize,
       displacementScale
     );
     return {
@@ -992,7 +1005,7 @@ const SingleZoneMesh: React.FC<SingleZoneMeshProps> = ({
       y: Math.max(seaY + 0.45, ty + 0.72) + layerOffset,
       z: c.z,
     };
-  }, [zone.points, heightData, heightRes, displacementScale, seaY, terrainVersion, layerOffset]);
+  }, [zone.points, heightData, heightRes, displacementScale, seaY, terrainVersion, layerOffset, terrainSize]);
 
   const fillOpacity = Math.min(
     0.85,
@@ -1077,6 +1090,7 @@ interface TerrainZones3DProps {
   displacementScale: number;
   seaY: number;
   terrainVersion: number;
+  terrainSize?: number;
   gmMode: boolean;
   showRegionsLayer: boolean;
   showLabelsLayer: boolean;
@@ -1093,6 +1107,7 @@ export const TerrainZones3D: React.FC<TerrainZones3DProps> = ({
   displacementScale,
   seaY,
   terrainVersion,
+  terrainSize = TERRAIN_SIZE,
   gmMode,
   showRegionsLayer,
   showLabelsLayer,
@@ -1120,6 +1135,7 @@ export const TerrainZones3D: React.FC<TerrainZones3DProps> = ({
             displacementScale={displacementScale}
             seaY={seaY}
             terrainVersion={terrainVersion}
+            terrainSize={terrainSize}
             showLabel={showLabelsLayer}
             isSelected={selectedZoneId === zone.id}
             interactive={interactive}
@@ -1138,6 +1154,7 @@ interface TerrainLabels3DProps {
   heightRes: number;
   displacementScale: number;
   seaY: number;
+  terrainSize?: number;
   gmMode: boolean;
   visible: boolean;
   selectedLabelId: string | null;
@@ -1152,6 +1169,7 @@ export const TerrainLabels3D: React.FC<TerrainLabels3DProps> = ({
   heightRes,
   displacementScale,
   seaY,
+  terrainSize = TERRAIN_SIZE,
   gmMode,
   visible,
   selectedLabelId,
@@ -1178,7 +1196,7 @@ export const TerrainLabels3D: React.FC<TerrainLabels3DProps> = ({
             heightRes,
             label.x,
             label.z,
-            TERRAIN_SIZE,
+            terrainSize,
             displacementScale
           )
         );
@@ -1261,4 +1279,402 @@ export const TerrainLabels3D: React.FC<TerrainLabels3DProps> = ({
     </group>
   );
 };
+
+/* -------------------------------------------------------------------------- */
+/*                       Raymarched 3D Fog Volumes                            */
+/* -------------------------------------------------------------------------- */
+
+const FOG_VOLUME_VERT = `
+  varying vec3 vWorldPos;
+  varying vec3 vLocalPos;
+  void main() {
+    vLocalPos = position;
+    vec4 wp = modelMatrix * vec4(position, 1.0);
+    vWorldPos = wp.xyz;
+    gl_Position = projectionMatrix * viewMatrix * wp;
+  }
+`;
+
+const FOG_VOLUME_FRAG = `
+  uniform float uTime;
+  uniform sampler2D uHeightMap;
+  uniform float uHasHeightMap;
+  uniform float uTerrainSize;
+  uniform float uDisplacementScale;
+  uniform float uSeaY;
+
+  uniform vec3 uCenter;
+  uniform vec3 uHalfExtents;
+  uniform float uCosRot;
+  uniform float uSinRot;
+  uniform int uShape; // 0 = box, 1 = sphere, 2 = cylinder
+
+  uniform vec3 uColor;
+  uniform vec3 uSunDir;
+  uniform vec3 uSunColor;
+  uniform float uDensity;
+  uniform float uEdgeSoftness;
+  uniform float uHeightFalloff;
+  uniform float uNoiseScale;
+  uniform float uNoiseStrength;
+  uniform vec2 uWindVel;
+  uniform float uGlow;
+  uniform float uLightScattering;
+
+  varying vec3 vWorldPos;
+  varying vec3 vLocalPos;
+
+  float hash31(vec3 p) {
+    p = fract(p * vec3(443.897, 441.423, 437.195));
+    p += dot(p, p.yzx + 19.19);
+    return fract((p.x + p.y) * p.z);
+  }
+
+  float vnoise3(vec3 p) {
+    vec3 i = floor(p);
+    vec3 f = fract(p);
+    f = f * f * (3.0 - 2.0 * f);
+    float n000 = hash31(i);
+    float n100 = hash31(i + vec3(1.0, 0.0, 0.0));
+    float n010 = hash31(i + vec3(0.0, 1.0, 0.0));
+    float n110 = hash31(i + vec3(1.0, 1.0, 0.0));
+    float n001 = hash31(i + vec3(0.0, 0.0, 1.0));
+    float n101 = hash31(i + vec3(1.0, 0.0, 1.0));
+    float n011 = hash31(i + vec3(0.0, 1.0, 1.0));
+    float n111 = hash31(i + vec3(1.0, 1.0, 1.0));
+    vec4 nx0 = mix(vec4(n000, n010, n001, n011), vec4(n100, n110, n101, n111), f.x);
+    vec2 nxy = mix(nx0.xz, nx0.yw, f.y);
+    return mix(nxy.x, nxy.y, f.z);
+  }
+
+  float fbm3(vec3 p) {
+    float v = 0.55 * vnoise3(p);
+    v += 0.30 * vnoise3(p * 2.07 + vec3(17.1, 9.3, 23.7));
+    v += 0.15 * vnoise3(p * 4.21 + vec3(3.7, 31.4, 11.2));
+    return v;
+  }
+
+  vec3 worldToLocal(vec3 wp) {
+    vec3 d = wp - uCenter;
+    return vec3(
+      d.x * uCosRot + d.z * uSinRot,
+      d.y,
+      -d.x * uSinRot + d.z * uCosRot
+    );
+  }
+
+  vec3 dirToLocal(vec3 wd) {
+    return vec3(
+      wd.x * uCosRot + wd.z * uSinRot,
+      wd.y,
+      -wd.x * uSinRot + wd.z * uCosRot
+    );
+  }
+
+  void main() {
+    vec3 ro = worldToLocal(cameraPosition);
+    vec3 rdWorld = normalize(vWorldPos - cameraPosition);
+    vec3 rd = dirToLocal(rdWorld);
+
+    vec3 invD = 1.0 / (sign(rd + vec3(1e-6)) * max(abs(rd), vec3(1e-5)));
+    vec3 t0 = (-uHalfExtents - ro) * invD;
+    vec3 t1 = (uHalfExtents - ro) * invD;
+    vec3 tMinV = min(t0, t1);
+    vec3 tMaxV = max(t0, t1);
+    float tEnter = max(max(tMinV.x, tMinV.y), max(tMinV.z, 0.0));
+    float tExit = min(tMaxV.x, min(tMaxV.y, tMaxV.z));
+    if (tExit <= tEnter) discard;
+
+    const int STEPS = 10;
+    float marchLen = tExit - tEnter;
+    float dt = marchLen / float(STEPS);
+
+    // Per-pixel blue-noise-like jitter to soften banding
+    float jitter = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453);
+    float t = tEnter + dt * jitter;
+
+    float transmittance = 1.0;
+    vec3 accumLight = vec3(0.0);
+
+    float cosTheta = dot(rdWorld, uSunDir);
+    float g = 0.55;
+    float phase = (1.0 - g * g) / (4.0 * 3.14159 * pow(1.0 + g * g - 2.0 * g * cosTheta, 1.5));
+    vec3 scatterCol = mix(uColor, uSunColor, clamp(phase * uLightScattering * 0.65, 0.0, 0.85));
+    scatterCol += uColor * uGlow * 0.65;
+
+    float soft = max(0.04, uEdgeSoftness * 0.85);
+
+    for (int i = 0; i < STEPS; i++) {
+      vec3 lp = ro + rd * t;
+      vec3 wp = cameraPosition + rdWorld * t;
+
+      // Normalized local coordinates in [-1..1]
+      vec3 q = lp / max(uHalfExtents, vec3(0.01));
+
+      float shapeDist = 0.0;
+      if (uShape == 1) {
+        shapeDist = length(q);
+      } else if (uShape == 2) {
+        shapeDist = max(length(q.xz), abs(q.y));
+      } else {
+        vec3 aq = abs(q);
+        shapeDist = max(max(aq.x, aq.y), aq.z);
+      }
+
+      float edgeMask = 1.0 - smoothstep(1.0 - soft, 1.0, shapeDist);
+
+      // Height falloff inside volume (q.y in [-1..1] -> h01 in [0..1])
+      float h01 = clamp(q.y * 0.5 + 0.5, 0.0, 1.0);
+      float heightMask = pow(1.0 - h01, mix(0.25, 2.8, uHeightFalloff)) * smoothstep(0.0, 0.14, h01);
+
+      // Terrain occlusion & ground-hugging boost
+      float groundMask = 1.0;
+      if (uHasHeightMap > 0.5) {
+        vec2 tUv = vec2(wp.x / uTerrainSize + 0.5, 0.5 - wp.z / uTerrainSize);
+        float terrH = texture2D(uHeightMap, clamp(tUv, 0.002, 0.998)).r * uDisplacementScale;
+        float surfH = max(terrH, uSeaY - 0.25);
+        float aboveGround = wp.y - surfH;
+        groundMask = smoothstep(-0.35, 0.45, aboveGround);
+        float hug = exp(-max(0.0, aboveGround) * (0.18 * uHeightFalloff));
+        heightMask = mix(heightMask, hug, uHeightFalloff * 0.55);
+      }
+
+      if (edgeMask * heightMask * groundMask > 0.005) {
+        vec3 windOffset = vec3(uWindVel.x, 0.08, uWindVel.y) * uTime;
+        float n = fbm3(wp * (0.18 * uNoiseScale) + windOffset);
+        float billow = mix(1.0, smoothstep(0.22, 0.78, n), uNoiseStrength);
+        float sampleDensity = edgeMask * heightMask * groundMask * billow * uDensity * 0.26;
+        if (sampleDensity > 0.001) {
+          float stepAlpha = 1.0 - exp(-sampleDensity * dt);
+          vec3 stepCol = scatterCol * mix(0.72, 1.18, h01);
+          accumLight += transmittance * stepAlpha * stepCol;
+          transmittance *= (1.0 - stepAlpha);
+          if (transmittance < 0.03) break;
+        }
+      }
+      t += dt;
+    }
+
+    float alpha = clamp(1.0 - transmittance, 0.0, 0.96);
+    if (alpha < 0.005) discard;
+    vec3 finalCol = accumLight / max(alpha, 0.001);
+    gl_FragColor = vec4(finalCol, alpha);
+  }
+`;
+
+interface SingleFogVolumeProps {
+  volume: FogVolume;
+  heightTex: THREE.Texture | null;
+  terrainSize: number;
+  displacementScale: number;
+  seaY: number;
+  sunDir: THREE.Vector3;
+  sunColor: string;
+  isSelected: boolean;
+  showGizmo: boolean;
+  interactive: boolean;
+  onSelect: (volume: FogVolume, e: ThreeEvent<PointerEvent>) => void;
+}
+
+const SingleFogVolumeMesh: React.FC<SingleFogVolumeProps> = ({
+  volume,
+  heightTex,
+  terrainSize,
+  displacementScale,
+  seaY,
+  sunDir,
+  sunColor,
+  isSelected,
+  showGizmo,
+  interactive,
+  onSelect,
+}) => {
+  const matRef = useRef<THREE.ShaderMaterial>(null);
+  const centerY = volume.y + volume.height * 0.5;
+
+  const uniforms = useMemo(
+    () => ({
+      uTime: { value: 0 },
+      uHeightMap: { value: null as THREE.Texture | null },
+      uHasHeightMap: { value: 0 },
+      uTerrainSize: { value: TERRAIN_SIZE },
+      uDisplacementScale: { value: 16 },
+      uSeaY: { value: 3.68 },
+      uCenter: { value: new THREE.Vector3() },
+      uHalfExtents: { value: new THREE.Vector3(9, 2.5, 9) },
+      uCosRot: { value: 1 },
+      uSinRot: { value: 0 },
+      uShape: { value: 0 },
+      uColor: { value: new THREE.Color('#c9d4e0') },
+      uSunDir: { value: new THREE.Vector3(-0.6, 0.7, 0.3).normalize() },
+      uSunColor: { value: new THREE.Color('#ffd28a') },
+      uDensity: { value: 0.7 },
+      uEdgeSoftness: { value: 0.6 },
+      uHeightFalloff: { value: 0.7 },
+      uNoiseScale: { value: 1 },
+      uNoiseStrength: { value: 0.55 },
+      uWindVel: { value: new THREE.Vector2(0.3, 0.15) },
+      uGlow: { value: 0 },
+      uLightScattering: { value: 0.6 },
+    }),
+    []
+  );
+
+  useEffect(() => {
+    const m = matRef.current;
+    if (!m) return;
+    m.uniforms.uHeightMap.value = heightTex;
+    m.uniforms.uHasHeightMap.value = heightTex ? 1 : 0;
+    m.uniforms.uTerrainSize.value = terrainSize;
+    m.uniforms.uDisplacementScale.value = displacementScale;
+    m.uniforms.uSeaY.value = seaY;
+    m.uniforms.uCenter.value.set(volume.x, centerY, volume.z);
+    m.uniforms.uHalfExtents.value.set(volume.width * 0.5, volume.height * 0.5, volume.depth * 0.5);
+    m.uniforms.uCosRot.value = Math.cos(volume.rotY || 0);
+    m.uniforms.uSinRot.value = Math.sin(volume.rotY || 0);
+    m.uniforms.uShape.value = volume.shape === 'sphere' ? 1 : volume.shape === 'cylinder' ? 2 : 0;
+    m.uniforms.uColor.value.set(volume.color || '#c9d4e0');
+    m.uniforms.uSunDir.value.copy(sunDir);
+    m.uniforms.uSunColor.value.set(sunColor);
+    m.uniforms.uDensity.value = volume.density;
+    m.uniforms.uEdgeSoftness.value = volume.edgeSoftness;
+    m.uniforms.uHeightFalloff.value = volume.heightFalloff;
+    m.uniforms.uNoiseScale.value = volume.noiseScale;
+    m.uniforms.uNoiseStrength.value = volume.noiseStrength;
+    const rad = ((volume.windDirection || 0) * Math.PI) / 180;
+    m.uniforms.uWindVel.value.set(Math.cos(rad) * volume.windSpeed, Math.sin(rad) * volume.windSpeed);
+    m.uniforms.uGlow.value = volume.glow;
+    m.uniforms.uLightScattering.value = volume.lightScattering;
+  }, [volume, centerY, heightTex, terrainSize, displacementScale, seaY, sunDir, sunColor]);
+
+  useFrame(({ clock }) => {
+    if (matRef.current) {
+      matRef.current.uniforms.uTime.value = clock.getElapsedTime();
+    }
+  });
+
+  return (
+    <group position={[volume.x, centerY, volume.z]} rotation={[0, volume.rotY || 0, 0]}>
+      {/* Volumetric raymarched proxy box (renders BackSide so camera inside the fog still renders) */}
+      <mesh renderOrder={6} raycast={noopRaycast}>
+        <boxGeometry args={[volume.width, volume.height, volume.depth]} />
+        <shaderMaterial
+          ref={matRef}
+          uniforms={uniforms}
+          vertexShader={FOG_VOLUME_VERT}
+          fragmentShader={FOG_VOLUME_FRAG}
+          transparent
+          depthWrite={false}
+          side={THREE.BackSide}
+        />
+      </mesh>
+
+      {/* Interactive handle / selection bounds when editing fog volumes */}
+      {(showGizmo || isSelected) && (
+        <group>
+          <mesh
+            position={[0, -volume.height * 0.5 + 0.18, 0]}
+            rotation={[-Math.PI / 2, 0, 0]}
+            raycast={interactive ? undefined : noopRaycast}
+            onPointerDown={(e) => {
+              if (!interactive || e.button !== 0) return;
+              e.stopPropagation();
+              onSelect(volume, e);
+            }}
+          >
+            <planeGeometry args={[Math.min(volume.width, 10), Math.min(volume.depth, 10)]} />
+            <meshBasicMaterial transparent opacity={0} depthWrite={false} side={THREE.DoubleSide} />
+          </mesh>
+          <mesh position={[0, 0, 0]} raycast={noopRaycast}>
+            <boxGeometry args={[volume.width, volume.height, volume.depth]} />
+            <meshBasicMaterial
+              color={isSelected ? '#facc15' : volume.color}
+              wireframe
+              transparent
+              opacity={isSelected ? 0.65 : 0.25}
+              depthWrite={false}
+            />
+          </mesh>
+          <Html position={[0, volume.height * 0.5 + 0.8, 0]} center zIndexRange={[16, 0]}>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onSelect(volume, e as unknown as ThreeEvent<PointerEvent>);
+              }}
+              className={`px-2 py-0.5 rounded text-[10.5px] font-mono whitespace-nowrap transition-all border shadow ${
+                isSelected
+                  ? 'bg-[#2a2214] text-[#f9e7b2] border-[#eab308]'
+                  : 'bg-[#0e1218]/85 text-[#cfd6e2] border-[#334155] hover:border-[#eab308]'
+              }`}
+            >
+              ☁ {volume.name}
+            </button>
+          </Html>
+        </group>
+      )}
+    </group>
+  );
+};
+
+export interface FogVolumes3DProps {
+  volumes: FogVolume[];
+  heightTex: THREE.Texture | null;
+  terrainSize: number;
+  displacementScale: number;
+  seaY: number;
+  sunPos: [number, number, number];
+  sunColor: string;
+  gmMode: boolean;
+  visible: boolean;
+  selectedFogId: string | null;
+  showGizmos: boolean;
+  interactive: boolean;
+  onSelectFog: (volume: FogVolume, e: ThreeEvent<PointerEvent>) => void;
+}
+
+export const FogVolumes3D: React.FC<FogVolumes3DProps> = ({
+  volumes,
+  heightTex,
+  terrainSize,
+  displacementScale,
+  seaY,
+  sunPos,
+  sunColor,
+  gmMode,
+  visible,
+  selectedFogId,
+  showGizmos,
+  interactive,
+  onSelectFog,
+}) => {
+  const sunDir = useMemo(() => new THREE.Vector3(...sunPos).normalize(), [sunPos]);
+  if (!visible || volumes.length === 0) return null;
+
+  return (
+    <group>
+      {volumes.map((v) => {
+        if (!v.visible) return null;
+        if (v.is_gm_only && !gmMode) return null;
+        return (
+          <SingleFogVolumeMesh
+            key={v.id}
+            volume={v}
+            heightTex={heightTex}
+            terrainSize={terrainSize}
+            displacementScale={displacementScale}
+            seaY={seaY}
+            sunDir={sunDir}
+            sunColor={sunColor}
+            isSelected={selectedFogId === v.id}
+            showGizmo={showGizmos}
+            interactive={interactive}
+            onSelect={onSelectFog}
+          />
+        );
+      })}
+    </group>
+  );
+};
+
 

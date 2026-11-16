@@ -64,7 +64,9 @@ export type TerrainArchetype =
   | 'fjord'
   | 'basin'
   | 'caldera'
-  | 'peninsula';
+  | 'peninsula'
+  | 'continent'
+  | 'blank';
 
 export interface MapGenerationConfig {
   seed: number;
@@ -76,6 +78,62 @@ export interface MapGenerationConfig {
   riverCount: number;
   treeDensity: number;
   rockDensity: number;
+  /** Edge length of the square world in scene units (100 = classic size). */
+  worldSize?: number;
+}
+
+/** Animated ocean / sea surface settings (per map). */
+export interface WaterSettings {
+  waveHeight: number; // 0..2 multiplier
+  waveScale: number; // 0.4..2.5 wavelength multiplier
+  waveSpeed: number; // 0..2.5
+  windDirection: number; // degrees, 0 = waves travelling toward +X
+  choppiness: number; // 0..1 crest sharpness
+  foamAmount: number; // 0..2 whitecap + shore foam multiplier
+  shoreWaves: number; // 0..2 rolling shoreline breaker bands
+  clarity: number; // 0..1 (0 murky, 1 crystal clear)
+  deepColor?: string | null; // override (null = from atmosphere)
+  shallowColor?: string | null; // override (null = from atmosphere)
+}
+
+/** Procedural biome shading settings for the terrain. */
+export interface TerrainShadingSettings {
+  snowLine: number; // 0..1 normalized height where snow starts
+  aridity: number; // 0..1 (0 = lush & green, 1 = deserts & steppe)
+  beachWidth: number; // 0..1
+  vegetationHue: number; // -1..1 (cooler/teal .. warmer/autumn)
+  albedoBlend: number; // 0..1 how much an uploaded albedo image tints the terrain
+  colorRichness?: number; // 0.4..2.0 biome saturation / vibrance boost
+  rockContrast?: number; // 0.5..2.0 strata & micro-normal cliff sharpness
+  lushness?: number; // 0..1.5 procedural meadow/forest blend weight
+}
+
+export type FogVolumeShape = 'box' | 'sphere' | 'cylinder';
+
+/** Placeable raymarched volumetric fog region. */
+export interface FogVolume {
+  id: string;
+  name: string;
+  shape: FogVolumeShape;
+  x: number;
+  y: number; // base (bottom) height
+  z: number;
+  width: number; // X size
+  depth: number; // Z size
+  height: number; // Y size
+  rotY: number;
+  color: string;
+  density: number; // 0..2
+  edgeSoftness: number; // 0..1
+  heightFalloff: number; // 0..1 (thicker near the ground)
+  noiseScale: number; // 0.2..3
+  noiseStrength: number; // 0..1
+  windSpeed: number; // 0..3
+  windDirection: number; // degrees
+  glow: number; // 0..2 emissive self-illumination
+  lightScattering: number; // 0..1 sun forward scattering
+  visible: boolean;
+  is_gm_only: boolean;
 }
 
 export interface MapRiver {
@@ -284,12 +342,18 @@ export interface VaultMap {
   kind?: MapKind; // defaults to '3d'
   albedo_url?: string | null;
   heightmap_url?: string | null;
+  paint_url?: string | null;
   width: number;
   height: number;
   displacement_scale: number;
+  world_size?: number;
+  sea_level?: number;
   scale_config: MapScaleConfig;
   generation_config?: MapGenerationConfig;
   atmosphere?: WorldAtmospherePreset;
+  water?: WaterSettings;
+  terrain_shading?: TerrainShadingSettings;
+  fog_volumes?: FogVolume[];
   rivers?: MapRiver[];
   props?: MapProp[];
   layers?: WorldMapLayer[];
@@ -379,12 +443,48 @@ export type WorldsmithTool =
   | 'flatten'
   | 'smooth'
   | 'coast'
+  | 'ridge'
+  | 'noise'
+  | 'terrace'
+  | 'erode'
+  | 'stamp'
+  | 'paint-biome'
   | 'river'
   | 'paint-flora'
   | 'place-mesh'
   | 'edit-mesh'
-  | 'erase-mesh';
+  | 'erase-mesh'
+  | 'fog';
 export type BrushFalloff = 'smooth' | 'peak' | 'plateau';
+export type TerrainStampKind = 'mountain' | 'volcano' | 'crater' | 'mesa' | 'island' | 'lake' | 'canyon';
+export type BiomePaintKind =
+  | 'grass'
+  | 'forest'
+  | 'meadow'
+  | 'sand'
+  | 'desert'
+  | 'savanna'
+  | 'swamp'
+  | 'tundra'
+  | 'rock'
+  | 'snow'
+  | 'volcanic'
+  | 'autumn'
+  | 'crimson'
+  | 'arcane'
+  | 'erase';
+
+/** Commands sent from UI to the live 3D terrain scene. */
+export type TerrainCommand =
+  | { type: 'undo' }
+  | { type: 'redo' }
+  | { type: 'blank'; preset: 'plains' | 'ocean' | 'hills'; seed?: number }
+  | { type: 'smooth-all'; iterations?: number }
+  | { type: 'erode-all'; iterations?: number }
+  | { type: 'noise-all'; amount?: number }
+  | { type: 'raise-all'; delta: number }
+  | { type: 'clear-paint' }
+  | { type: 'expand'; newWorldSize: number };
 export type BattlemapToolMode =
   | 'select'
   | 'place-party'

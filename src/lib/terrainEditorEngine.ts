@@ -4,12 +4,15 @@ import {
   TERRAIN_SIZE,
   sampleTerrainElevation,
 } from './terrainGenerator';
+import { BIOME_PAINT_PALETTE } from './worldEnvironment';
 import {
+  BiomePaintKind,
   BrushFalloff,
   MapGenerationConfig,
   MapProp,
   MapRiver,
   PathPoint,
+  TerrainStampKind,
   WorldsmithTool,
 } from '../types/vault';
 
@@ -19,6 +22,12 @@ function clamp(v: number, min: number, max: number): number {
 
 function mix(a: number, b: number, t: number): number {
   return a + (b - a) * t;
+}
+
+function hexToRgb(hex: string): [number, number, number] {
+  const clean = hex.replace('#', '');
+  const num = parseInt(clean.length === 3 ? clean.replace(/(.)/g, '$1$1') : clean, 16) || 0;
+  return [(num >> 16) & 255, (num >> 8) & 255, num & 255];
 }
 
 function hash2Seed(x: number, y: number, seed: number): number {
@@ -107,7 +116,8 @@ export function carveRiverIntoHeightData(
   resolution: number,
   river: MapRiver,
   displacementScale = DEFAULT_DISPLACEMENT,
-  seaLevelNorm = SEA_LEVEL_NORM
+  seaLevelNorm = SEA_LEVEL_NORM,
+  terrainSize = TERRAIN_SIZE
 ): void {
   if (river.points.length < 2) return;
   const samples = 90;
@@ -120,7 +130,7 @@ export function carveRiverIntoHeightData(
       resolution,
       pt.x,
       pt.z,
-      TERRAIN_SIZE,
+      terrainSize,
       displacementScale
     );
     const curH = curY / Math.max(displacementScale, 0.001);
@@ -139,11 +149,11 @@ export function carveRiverIntoHeightData(
   }
 
   const bankRadius = river.width * 2.4;
-  const pxPerUnit = (resolution - 1) / TERRAIN_SIZE;
+  const pxPerUnit = (resolution - 1) / terrainSize;
 
   for (const s of sampled) {
-    const cx = Math.round((s.x / TERRAIN_SIZE + 0.5) * (resolution - 1));
-    const cz = Math.round((s.z / TERRAIN_SIZE + 0.5) * (resolution - 1));
+    const cx = Math.round((s.x / terrainSize + 0.5) * (resolution - 1));
+    const cz = Math.round((s.z / terrainSize + 0.5) * (resolution - 1));
     const rPx = Math.ceil(bankRadius * pxPerUnit);
 
     const minX = Math.max(0, cx - rPx);
@@ -152,9 +162,9 @@ export function carveRiverIntoHeightData(
     const maxZ = Math.min(resolution - 1, cz + rPx);
 
     for (let pz = minZ; pz <= maxZ; pz++) {
-      const wz = (pz / (resolution - 1) - 0.5) * TERRAIN_SIZE;
+      const wz = (pz / (resolution - 1) - 0.5) * terrainSize;
       for (let px = minX; px <= maxX; px++) {
-        const wx = (px / (resolution - 1) - 0.5) * TERRAIN_SIZE;
+        const wx = (px / (resolution - 1) - 0.5) * terrainSize;
         const dist = Math.hypot(wx - s.x, wz - s.z);
         if (dist > bankRadius) continue;
 
@@ -169,13 +179,15 @@ export function carveRiverIntoHeightData(
 }
 
 /**
- * Generates an albedo canvas & PNG data URL directly from heightData.
+ * Generates an albedo canvas & PNG data URL directly from heightData (plus optional biome paint).
  */
 export function buildTexturesFromHeightData(
   heightData: Float32Array,
   resolution: number,
-  seaLevelNorm = SEA_LEVEL_NORM
-): { heightmapDataUrl: string; albedoDataUrl: string } {
+  seaLevelNorm = SEA_LEVEL_NORM,
+  paintData?: Uint8Array | null,
+  paintRes = 256
+): { heightmapDataUrl: string; albedoDataUrl: string; paintDataUrl?: string } {
   const hCanvas = document.createElement('canvas');
   hCanvas.width = resolution;
   hCanvas.height = resolution;
@@ -204,36 +216,60 @@ export function buildTexturesFromHeightData(
 
       const micro = fbmSeed(u * 24, v * 24, 17, 3);
       const autumn = fbmSeed(u * 9 + 4.1, v * 9 + 1.3, 41, 3);
+      const moisture = fbmSeed(u * 3.6 + 8.1, v * 3.6 + 2.3, 73, 3);
 
-      let r = 34;
-      let g = 50;
-      let b = 33;
+      let r = 52;
+      let g = 88;
+      let b = 46;
 
       if (h < seaLevelNorm) {
         const d = clamp((seaLevelNorm - h) / Math.max(seaLevelNorm, 0.01), 0, 1);
-        r = Math.round(mix(56, 10, d));
-        g = Math.round(mix(104, 24, d));
-        b = Math.round(mix(110, 34, d));
-      } else if (h < seaLevelNorm + 0.03) {
-        const t = (h - seaLevelNorm) / 0.03;
-        r = Math.round(mix(58, 36, t));
-        g = Math.round(mix(66, 48, t));
-        b = Math.round(mix(64, 38, t));
+        r = Math.round(mix(124, 10, d));
+        g = Math.round(mix(142, 32, d));
+        b = Math.round(mix(126, 48, d));
+      } else if (h < seaLevelNorm + 0.032) {
+        const t = (h - seaLevelNorm) / 0.032;
+        r = Math.round(mix(178, 86, t));
+        g = Math.round(mix(160, 108, t));
+        b = Math.round(mix(118, 62, t));
       } else if (h < 0.56) {
-        r = Math.round(mix(24, 44, micro));
-        g = Math.round(mix(40, 64, micro));
-        b = Math.round(mix(26, 38, micro));
-        if (autumn > 0.58) {
-          const at = clamp((autumn - 0.58) * 2.2, 0, 0.65);
-          r = Math.round(mix(r, 114, at));
-          g = Math.round(mix(g, 74, at));
-          b = Math.round(mix(b, 34, at));
+        r = Math.round(mix(36, 78, micro));
+        g = Math.round(mix(64, 114, micro));
+        b = Math.round(mix(38, 54, micro));
+        if (moisture < 0.42) {
+          const dryT = clamp((0.42 - moisture) * 2.1, 0, 0.8);
+          r = Math.round(mix(r, 152, dryT));
+          g = Math.round(mix(g, 128, dryT));
+          b = Math.round(mix(b, 70, dryT));
         }
+        if (autumn > 0.56) {
+          const at = clamp((autumn - 0.56) * 2.2, 0, 0.72);
+          r = Math.round(mix(r, 156, at));
+          g = Math.round(mix(g, 92, at));
+          b = Math.round(mix(b, 42, at));
+        }
+      } else if (h < 0.72) {
+        const t = clamp((h - 0.56) / 0.16, 0, 1);
+        r = Math.round(mix(88, 106, t));
+        g = Math.round(mix(92, 104, t));
+        b = Math.round(mix(68, 100, t));
       } else {
-        const t = clamp((h - 0.56) / 0.34, 0, 1);
-        r = Math.round(mix(44, 118, t));
-        g = Math.round(mix(52, 125, t));
-        b = Math.round(mix(54, 136, t));
+        const t = clamp((h - 0.72) / 0.2, 0, 1);
+        r = Math.round(mix(108, 224, t));
+        g = Math.round(mix(106, 232, t));
+        b = Math.round(mix(104, 240, t));
+      }
+
+      if (paintData && paintData.length === paintRes * paintRes * 4) {
+        const qx = Math.min(paintRes - 1, Math.floor(u * (paintRes - 1)));
+        const qy = Math.min(paintRes - 1, Math.floor(v * (paintRes - 1)));
+        const qIdx = (qy * paintRes + qx) * 4;
+        const pa = paintData[qIdx + 3] / 255;
+        if (pa > 0.01) {
+          r = Math.round(mix(r, paintData[qIdx], pa));
+          g = Math.round(mix(g, paintData[qIdx + 1], pa));
+          b = Math.round(mix(b, paintData[qIdx + 2], pa));
+        }
       }
 
       aImg.data[pIdx] = r;
@@ -246,14 +282,36 @@ export function buildTexturesFromHeightData(
   hCtx.putImageData(hImg, 0, 0);
   aCtx.putImageData(aImg, 0, 0);
 
+  let paintDataUrl: string | undefined;
+  if (paintData && paintData.length === paintRes * paintRes * 4) {
+    let anyPaint = false;
+    for (let i = 3; i < paintData.length; i += 4) {
+      if (paintData[i] > 0) {
+        anyPaint = true;
+        break;
+      }
+    }
+    if (anyPaint) {
+      const pCanvas = document.createElement('canvas');
+      pCanvas.width = paintRes;
+      pCanvas.height = paintRes;
+      const pCtx = pCanvas.getContext('2d')!;
+      const pImg = pCtx.createImageData(paintRes, paintRes);
+      pImg.data.set(paintData);
+      pCtx.putImageData(pImg, 0, 0);
+      paintDataUrl = pCanvas.toDataURL('image/png');
+    }
+  }
+
   return {
     heightmapDataUrl: hCanvas.toDataURL('image/png'),
     albedoDataUrl: aCanvas.toDataURL('image/png'),
+    paintDataUrl,
   };
 }
 
 /**
- * Generates a custom 512x512 terrain + rivers + editable 3D props from user parameters.
+ * Generates a custom terrain + rivers + editable 3D props from user parameters.
  */
 export function generateCustomTerrain(
   config: MapGenerationConfig,
@@ -268,6 +326,7 @@ export function generateCustomTerrain(
 } {
   const heightData = new Float32Array(resolution * resolution);
   const { seed, archetype, continentScale, ridgeSharpness, seaLevel, valleyDepth } = config;
+  const worldSize = config.worldSize || TERRAIN_SIZE;
 
   for (let py = 0; py < resolution; py++) {
     const v = py / (resolution - 1);
@@ -278,12 +337,19 @@ export function generateCustomTerrain(
       const distCenter = Math.hypot(nu, nv) * 2;
 
       const base = fbmSeed(u * continentScale * 3.8, v * continentScale * 3.8, seed, 5);
-      const ridges = ridgedSeed(u * continentScale * 5.6 + 2.3, v * continentScale * 5.6 + 1.1, seed + 7, 5);
+      const ridges = ridgedSeed(
+        u * continentScale * 5.6 + 2.3,
+        v * continentScale * 5.6 + 1.1,
+        seed + 7,
+        5
+      );
       const valley = fbmSeed(u * 2.2 + 5.1, v * 2.2 + 3.7, seed + 19, 3);
 
       let h = 0.14 + base * 0.34 + Math.pow(ridges, 1.35) * (0.26 * ridgeSharpness);
 
-      if (archetype === 'archipelago') {
+      if (archetype === 'blank') {
+        h = seaLevel + 0.05 + (base - 0.5) * 0.04;
+      } else if (archetype === 'archipelago') {
         const islands = Math.pow(ridges, 1.75) * 0.42;
         h = 0.08 + base * 0.24 + islands - distCenter * 0.18;
       } else if (archetype === 'fjord') {
@@ -297,14 +363,20 @@ export function generateCustomTerrain(
         const ring = Math.exp(-Math.pow((distCenter - 0.52) / 0.19, 2));
         const crater = Math.exp(-Math.pow(distCenter / 0.28, 2));
         h = 0.10 + base * 0.22 + ring * 0.54 * ridgeSharpness - crater * 0.32;
+      } else if (archetype === 'continent') {
+        const contMask = clamp(1 - Math.pow(distCenter * 0.88, 2.2), 0, 1);
+        const spine = Math.exp(-Math.pow((nu - Math.sin(v * 4.5) * 0.18) * 3.8, 2));
+        h =
+          0.06 +
+          contMask *
+            (0.28 + base * 0.26 + Math.pow(ridges, 1.3) * (0.22 + spine * 0.28) * ridgeSharpness);
       } else {
         // peninsula
         const penMask = clamp(1 - Math.hypot(nu * 1.15, (nv + 0.12) * 1.25) * 1.35, 0, 1);
         h = 0.07 + penMask * (0.34 + base * 0.26 + ridges * 0.35 * ridgeSharpness);
       }
 
-      // Valley troughs
-      if (valley > 0.55) {
+      if (archetype !== 'blank' && valley > 0.55) {
         h -= (valley - 0.55) * 0.48 * valleyDepth;
       }
 
@@ -314,20 +386,27 @@ export function generateCustomTerrain(
 
   // Generate downstream rivers if requested
   const rivers: MapRiver[] = [];
+  const spanScale = worldSize / 100;
   for (let r = 0; r < config.riverCount; r++) {
-    const startX = (hash2Seed(r + 1, 3, seed) - 0.5) * 56;
-    const startZ = -30 + hash2Seed(r + 2, 7, seed) * 24;
+    const startX = (hash2Seed(r + 1, 3, seed) - 0.5) * 56 * spanScale;
+    const startZ = (-30 + hash2Seed(r + 2, 7, seed) * 24) * spanScale;
     const pts: PathPoint[] = [];
     let curX = startX;
     let curZ = startZ;
 
     for (let step = 0; step < 6; step++) {
-      const y = sampleTerrainElevation(heightData, resolution, curX, curZ, TERRAIN_SIZE, displacementScale);
+      const y = sampleTerrainElevation(
+        heightData,
+        resolution,
+        curX,
+        curZ,
+        worldSize,
+        displacementScale
+      );
       pts.push({ x: curX, y, z: curZ });
-      // Steer gradually toward southern/western sea
-      curX += (hash2Seed(r * 10 + step, 19, seed) - 0.55) * 10;
-      curZ += 8 + hash2Seed(r * 10 + step, 23, seed) * 6;
-      if (curZ > 44) break;
+      curX += (hash2Seed(r * 10 + step, 19, seed) - 0.55) * 10 * spanScale;
+      curZ += (8 + hash2Seed(r * 10 + step, 23, seed) * 6) * spanScale;
+      if (curZ > 44 * spanScale) break;
     }
 
     const river: MapRiver = {
@@ -337,25 +416,40 @@ export function generateCustomTerrain(
       width: 1.55,
       depth: 1.25,
     };
-    carveRiverIntoHeightData(heightData, resolution, river, displacementScale, seaLevel);
+    carveRiverIntoHeightData(heightData, resolution, river, displacementScale, seaLevel, worldSize);
     rivers.push(river);
   }
 
   // Scatter initial editable trees & boulders
   const props: MapProp[] = [];
-  const targetTrees = Math.round(config.treeDensity * 380);
-  const targetRocks = Math.round(config.rockDensity * 120);
+  const areaFactor = Math.min(2.6, Math.pow(worldSize / 100, 1.4));
+  const targetTrees = Math.round(config.treeDensity * 380 * areaFactor);
+  const targetRocks = Math.round(config.rockDensity * 120 * areaFactor);
   const seaY = seaLevel * displacementScale;
 
-  for (let i = 0; i < 1600 && props.length < targetTrees; i++) {
-    const rx = (hash2Seed(i, 1, seed + 101) - 0.5) * 90;
-    const rz = (hash2Seed(i, 2, seed + 101) - 0.5) * 90;
-    const y = sampleTerrainElevation(heightData, resolution, rx, rz, TERRAIN_SIZE, displacementScale);
+  for (let i = 0; i < 3200 && props.length < targetTrees; i++) {
+    const rx = (hash2Seed(i, 1, seed + 101) - 0.5) * worldSize * 0.9;
+    const rz = (hash2Seed(i, 2, seed + 101) - 0.5) * worldSize * 0.9;
+    const y = sampleTerrainElevation(heightData, resolution, rx, rz, worldSize, displacementScale);
     const hNorm = y / Math.max(displacementScale, 0.001);
     if (y < seaY + 0.55 || hNorm > 0.56) continue;
 
-    const yX = sampleTerrainElevation(heightData, resolution, rx + 0.6, rz, TERRAIN_SIZE, displacementScale);
-    const yZ = sampleTerrainElevation(heightData, resolution, rx, rz + 0.6, TERRAIN_SIZE, displacementScale);
+    const yX = sampleTerrainElevation(
+      heightData,
+      resolution,
+      rx + 0.6,
+      rz,
+      worldSize,
+      displacementScale
+    );
+    const yZ = sampleTerrainElevation(
+      heightData,
+      resolution,
+      rx,
+      rz + 0.6,
+      worldSize,
+      displacementScale
+    );
     const slope = Math.hypot(yX - y, yZ - y) / 0.6;
     if (slope > 0.36) continue;
 
@@ -372,10 +466,10 @@ export function generateCustomTerrain(
   }
 
   let rockCount = 0;
-  for (let i = 0; i < 800 && rockCount < targetRocks; i++) {
-    const rx = (hash2Seed(i, 3, seed + 303) - 0.5) * 92;
-    const rz = (hash2Seed(i, 4, seed + 303) - 0.5) * 92;
-    const y = sampleTerrainElevation(heightData, resolution, rx, rz, TERRAIN_SIZE, displacementScale);
+  for (let i = 0; i < 1600 && rockCount < targetRocks; i++) {
+    const rx = (hash2Seed(i, 3, seed + 303) - 0.5) * worldSize * 0.92;
+    const rz = (hash2Seed(i, 4, seed + 303) - 0.5) * worldSize * 0.92;
+    const y = sampleTerrainElevation(heightData, resolution, rx, rz, worldSize, displacementScale);
     if (y < seaY - 0.1 || y > displacementScale * 0.74) continue;
     rockCount++;
     props.push({
@@ -406,6 +500,9 @@ export interface TerrainBrushOptions {
   targetHeightNorm?: number;
   seaLevelNorm?: number;
   invert?: boolean;
+  terrainSize?: number;
+  terraceSteps?: number;
+  strokeDir?: { x: number; z: number } | null;
 }
 
 /**
@@ -418,9 +515,10 @@ export function applyTerrainBrush(
   worldZ: number,
   opts: TerrainBrushOptions
 ): { minWx: number; maxWx: number; minWz: number; maxWz: number } {
-  const pxPerUnit = (resolution - 1) / TERRAIN_SIZE;
-  const cx = Math.round((worldX / TERRAIN_SIZE + 0.5) * (resolution - 1));
-  const cz = Math.round((worldZ / TERRAIN_SIZE + 0.5) * (resolution - 1));
+  const terrainSize = opts.terrainSize || TERRAIN_SIZE;
+  const pxPerUnit = (resolution - 1) / terrainSize;
+  const cx = Math.round((worldX / terrainSize + 0.5) * (resolution - 1));
+  const cz = Math.round((worldZ / terrainSize + 0.5) * (resolution - 1));
   const rPx = Math.max(1, Math.ceil(opts.radius * pxPerUnit));
 
   const minX = Math.max(1, cx - rPx);
@@ -429,13 +527,25 @@ export function applyTerrainBrush(
   const maxZ = Math.min(resolution - 2, cz + rPx);
 
   const deltaAmp = 0.028 * opts.strength * (opts.invert ? -1 : 1);
-  const copy = opts.tool === 'smooth' ? heightData.slice() : null;
+  const copy = opts.tool === 'smooth' || opts.tool === 'erode' ? heightData.slice() : null;
+  const steps = Math.max(3, opts.terraceSteps || 8);
+
+  // Unit tangent / normal for directional ridge brush
+  let dirX = opts.strokeDir?.x ?? 0.707;
+  let dirZ = opts.strokeDir?.z ?? 0.707;
+  const dirLen = Math.hypot(dirX, dirZ) || 1;
+  dirX /= dirLen;
+  dirZ /= dirLen;
+  const perpX = -dirZ;
+  const perpZ = dirX;
 
   for (let pz = minZ; pz <= maxZ; pz++) {
-    const wz = (pz / (resolution - 1) - 0.5) * TERRAIN_SIZE;
+    const wz = (pz / (resolution - 1) - 0.5) * terrainSize;
     for (let px = minX; px <= maxX; px++) {
-      const wx = (px / (resolution - 1) - 0.5) * TERRAIN_SIZE;
-      const dist = Math.hypot(wx - worldX, wz - worldZ);
+      const wx = (px / (resolution - 1) - 0.5) * terrainSize;
+      const dx = wx - worldX;
+      const dz = wz - worldZ;
+      const dist = Math.hypot(dx, dz);
       if (dist > opts.radius) continue;
 
       const t = dist / opts.radius;
@@ -459,16 +569,50 @@ export function applyTerrainBrush(
         next = mix(next, target, clamp(opts.strength * 0.45 * weight, 0, 1));
       } else if (opts.tool === 'smooth' && copy) {
         const avg =
-          (copy[idx] +
+          (copy[idx] * 2 +
             copy[idx - 1] +
             copy[idx + 1] +
             copy[idx - resolution] +
-            copy[idx + resolution]) /
-          5;
-        next = mix(next, avg, clamp(opts.strength * 0.65 * weight, 0, 1));
+            copy[idx + resolution] +
+            copy[idx - resolution - 1] * 0.5 +
+            copy[idx - resolution + 1] * 0.5 +
+            copy[idx + resolution - 1] * 0.5 +
+            copy[idx + resolution + 1] * 0.5) /
+          8;
+        next = mix(next, avg, clamp(opts.strength * 0.72 * weight, 0, 1));
       } else if (opts.tool === 'coast') {
         const seaTarget = (opts.seaLevelNorm ?? SEA_LEVEL_NORM) - (opts.invert ? -0.06 : 0.08);
         next = mix(next, seaTarget, clamp(opts.strength * 0.4 * weight, 0, 1));
+      } else if (opts.tool === 'ridge') {
+        // Sharp spine along stroke direction with ridged noise
+        const across = Math.abs(dx * perpX + dz * perpZ) / Math.max(opts.radius * 0.55, 0.25);
+        const along = Math.abs(dx * dirX + dz * dirZ) / Math.max(opts.radius, 0.25);
+        const crest = Math.max(0, 1 - across) * Math.max(0, 1 - along * along);
+        const craggy = 0.65 + 0.7 * ridgedSeed(wx * 0.22, wz * 0.22, 31, 3);
+        next += deltaAmp * 1.45 * Math.pow(crest, 1.4) * craggy;
+      } else if (opts.tool === 'noise') {
+        const r = ridgedSeed(wx * 0.26, wz * 0.26, 53, 4) - 0.42;
+        next += deltaAmp * 1.6 * weight * r;
+      } else if (opts.tool === 'terrace') {
+        const quantized = Math.round(next * steps) / steps;
+        next = mix(next, quantized, clamp(opts.strength * 0.55 * weight, 0, 1));
+      } else if (opts.tool === 'erode' && copy) {
+        // Local thermal + hydraulic gully relaxation
+        const nL = copy[idx - 1];
+        const nR = copy[idx + 1];
+        const nU = copy[idx - resolution];
+        const nD = copy[idx + resolution];
+        const minN = Math.min(nL, nR, nU, nD);
+        const avgN = (nL + nR + nU + nD) * 0.25;
+        const slope = Math.max(0, copy[idx] - minN);
+        const talus = 0.006;
+        if (slope > talus) {
+          const gully = smoothNoiseSeed(wx * 0.55, wz * 0.55, 79);
+          const drop = (slope - talus) * (0.35 + 0.4 * gully) * opts.strength * weight;
+          next = mix(copy[idx] - drop, avgN, 0.25 * weight * opts.strength);
+        } else {
+          next = mix(copy[idx], avgN, 0.18 * weight * opts.strength);
+        }
       }
 
       heightData[idx] = clamp(next, 0.02, 0.99);
@@ -481,4 +625,271 @@ export function applyTerrainBrush(
     minWz: worldZ - opts.radius - 1,
     maxWz: worldZ + opts.radius + 1,
   };
+}
+
+/**
+ * Stamps a parametric landform (mountain, volcano, crater, mesa, island, lake, canyon) at (worldX, worldZ).
+ */
+export function applyTerrainStamp(
+  heightData: Float32Array,
+  resolution: number,
+  worldX: number,
+  worldZ: number,
+  opts: {
+    stamp: TerrainStampKind;
+    radius: number;
+    strength: number;
+    seaLevelNorm?: number;
+    terrainSize?: number;
+    invert?: boolean;
+    seed?: number;
+  }
+): void {
+  const terrainSize = opts.terrainSize || TERRAIN_SIZE;
+  const sea = opts.seaLevelNorm ?? SEA_LEVEL_NORM;
+  const seed = opts.seed ?? Math.round((worldX + 500) * 13 + (worldZ + 500) * 31);
+  const pxPerUnit = (resolution - 1) / terrainSize;
+  const cx = Math.round((worldX / terrainSize + 0.5) * (resolution - 1));
+  const cz = Math.round((worldZ / terrainSize + 0.5) * (resolution - 1));
+  const rPx = Math.max(2, Math.ceil(opts.radius * pxPerUnit));
+
+  const minX = Math.max(1, cx - rPx);
+  const maxX = Math.min(resolution - 2, cx + rPx);
+  const minZ = Math.max(1, cz - rPx);
+  const maxZ = Math.min(resolution - 2, cz + rPx);
+  const sign = opts.invert ? -1 : 1;
+  const amp = clamp(opts.strength, 0.1, 1.5);
+
+  const angle = hash2Seed(worldX, worldZ, seed) * Math.PI;
+  const cosA = Math.cos(angle);
+  const sinA = Math.sin(angle);
+
+  for (let pz = minZ; pz <= maxZ; pz++) {
+    const wz = (pz / (resolution - 1) - 0.5) * terrainSize;
+    for (let px = minX; px <= maxX; px++) {
+      const wx = (px / (resolution - 1) - 0.5) * terrainSize;
+      const dx = wx - worldX;
+      const dz = wz - worldZ;
+      const dist = Math.hypot(dx, dz);
+      if (dist > opts.radius) continue;
+
+      const t = dist / opts.radius; // 0 at center, 1 at rim
+      const idx = pz * resolution + px;
+      const cur = heightData[idx];
+      const ridge = ridgedSeed(wx * 0.24, wz * 0.24, seed, 4);
+      const detail = fbmSeed(wx * 0.35, wz * 0.35, seed + 17, 3);
+      let next = cur;
+
+      if (opts.stamp === 'mountain') {
+        const cone = Math.pow(1 - t, 1.75) * (0.55 + 0.65 * ridge);
+        next = cur + sign * cone * 0.42 * amp;
+      } else if (opts.stamp === 'volcano') {
+        const cone = Math.pow(1 - t * t, 1.45) * (0.75 + 0.35 * ridge);
+        const crater = t < 0.34 ? Math.pow(1 - t / 0.34, 1.8) * 0.58 : 0;
+        next = cur + sign * (cone - crater) * 0.48 * amp;
+      } else if (opts.stamp === 'crater') {
+        const bowl = t < 0.68 ? -Math.pow(1 - (t / 0.68) * (t / 0.68), 1.4) * 0.28 : 0;
+        const rim = Math.exp(-Math.pow((t - 0.72) / 0.14, 2)) * 0.12 * (0.7 + 0.5 * detail);
+        next = cur + sign * (bowl + rim) * amp;
+      } else if (opts.stamp === 'mesa') {
+        const plateau =
+          t < 0.56
+            ? 1
+            : t < 0.85
+            ? Math.pow(1 - (t - 0.56) / 0.29, 2.4)
+            : 0;
+        const strata = Math.round(plateau * 5) / 5;
+        const target = Math.max(cur, sea + 0.18) + 0.26 * amp;
+        next = mix(cur, target - (1 - strata) * 0.24 * amp, plateau * (0.85 + 0.15 * detail));
+      } else if (opts.stamp === 'island') {
+        const falloff = Math.pow(1 - t * t, 1.8);
+        const target = sea + 0.06 + (0.14 + 0.22 * ridge) * amp * falloff;
+        next = mix(cur, Math.max(cur, target), falloff);
+      } else if (opts.stamp === 'lake') {
+        const falloff = Math.pow(1 - t * t, 1.8);
+        const target = Math.max(0.03, sea - 0.12 * amp);
+        next = mix(cur, Math.min(cur, target), falloff);
+      } else if (opts.stamp === 'canyon') {
+        const rx = dx * cosA - dz * sinA;
+        const rz = dx * sinA + dz * cosA;
+        const meander = Math.sin((rx / opts.radius) * Math.PI * 1.5) * opts.radius * 0.16;
+        const cross = Math.abs(rz - meander) / (opts.radius * 0.34);
+        const along = 1 - Math.pow(rx / opts.radius, 2);
+        if (cross < 1 && along > 0) {
+          const wall = Math.pow(1 - cross * cross, 2.2) * along;
+          next = cur - sign * wall * 0.28 * amp;
+        }
+      }
+
+      heightData[idx] = clamp(next, 0.02, 0.99);
+    }
+  }
+}
+
+/**
+ * Applies a biome color paint brush stroke onto the RGBA paint buffer.
+ */
+export function applyBiomePaintBrush(
+  paintData: Uint8Array,
+  paintRes: number,
+  worldX: number,
+  worldZ: number,
+  opts: {
+    biome: BiomePaintKind;
+    radius: number;
+    strength: number;
+    falloff: BrushFalloff;
+    terrainSize?: number;
+    invert?: boolean;
+  }
+): void {
+  const terrainSize = opts.terrainSize || TERRAIN_SIZE;
+  const pxPerUnit = (paintRes - 1) / terrainSize;
+  const cx = Math.round((worldX / terrainSize + 0.5) * (paintRes - 1));
+  const cz = Math.round((worldZ / terrainSize + 0.5) * (paintRes - 1));
+  const rPx = Math.max(1, Math.ceil(opts.radius * pxPerUnit));
+
+  const minX = Math.max(0, cx - rPx);
+  const maxX = Math.min(paintRes - 1, cx + rPx);
+  const minZ = Math.max(0, cz - rPx);
+  const maxZ = Math.min(paintRes - 1, cz + rPx);
+
+  const entry = BIOME_PAINT_PALETTE.find((b) => b.kind === opts.biome) || BIOME_PAINT_PALETTE[0];
+  const [tr, tg, tb] = hexToRgb(entry.color);
+  const isErase = opts.biome === 'erase' || Boolean(opts.invert);
+
+  for (let pz = minZ; pz <= maxZ; pz++) {
+    const wz = (pz / (paintRes - 1) - 0.5) * terrainSize;
+    for (let px = minX; px <= maxX; px++) {
+      const wx = (px / (paintRes - 1) - 0.5) * terrainSize;
+      const dist = Math.hypot(wx - worldX, wz - worldZ);
+      if (dist > opts.radius) continue;
+
+      const t = dist / opts.radius;
+      let weight = Math.pow(1 - t * t, 2);
+      if (opts.falloff === 'peak') weight = Math.pow(1 - t, 2);
+      else if (opts.falloff === 'plateau') weight = t < 0.6 ? 1 : Math.pow(1 - (t - 0.6) / 0.4, 2);
+
+      const pIdx = (pz * paintRes + px) * 4;
+      const curA = paintData[pIdx + 3] / 255;
+
+      if (isErase) {
+        const nextA = Math.max(0, curA - weight * opts.strength * 0.45);
+        paintData[pIdx + 3] = Math.round(nextA * 255);
+      } else {
+        const blend = clamp(weight * opts.strength * 0.42, 0, 1);
+        const nextA = clamp(curA + blend * (1 - curA * 0.5), 0, 0.95);
+        const colorMix = curA < 0.02 ? 1 : clamp(blend / Math.max(nextA, 0.05), 0, 1);
+        paintData[pIdx] = Math.round(mix(paintData[pIdx], tr, colorMix));
+        paintData[pIdx + 1] = Math.round(mix(paintData[pIdx + 1], tg, colorMix));
+        paintData[pIdx + 2] = Math.round(mix(paintData[pIdx + 2], tb, colorMix));
+        paintData[pIdx + 3] = Math.round(nextA * 255);
+      }
+    }
+  }
+}
+
+/* -------------------------------------------------------------------------- */
+/*                        Global landscape operations                         */
+/* -------------------------------------------------------------------------- */
+
+export function applyGlobalBlankTerrain(
+  heightData: Float32Array,
+  resolution: number,
+  mode: 'plains' | 'ocean' | 'hills',
+  seaLevelNorm = SEA_LEVEL_NORM,
+  seed = 101
+): void {
+  for (let py = 0; py < resolution; py++) {
+    const v = py / (resolution - 1);
+    for (let px = 0; px < resolution; px++) {
+      const u = px / (resolution - 1);
+      const n = fbmSeed(u * 4.2, v * 4.2, seed, 4);
+      let h = seaLevelNorm + 0.05;
+      if (mode === 'ocean') {
+        h = Math.max(0.03, seaLevelNorm - 0.11 + (n - 0.5) * 0.04);
+      } else if (mode === 'plains') {
+        h = seaLevelNorm + 0.055 + (n - 0.5) * 0.035;
+      } else {
+        const r = ridgedSeed(u * 5.2, v * 5.2, seed + 19, 4);
+        h = seaLevelNorm + 0.04 + n * 0.22 + r * 0.16;
+      }
+      heightData[py * resolution + px] = clamp(h, 0.02, 0.99);
+    }
+  }
+}
+
+export function applyGlobalSmooth(
+  heightData: Float32Array,
+  resolution: number,
+  strength = 0.5
+): void {
+  const copy = heightData.slice();
+  const k = clamp(strength, 0.05, 1);
+  for (let py = 1; py < resolution - 1; py++) {
+    for (let px = 1; px < resolution - 1; px++) {
+      const idx = py * resolution + px;
+      const avg =
+        (copy[idx] * 2 +
+          copy[idx - 1] +
+          copy[idx + 1] +
+          copy[idx - resolution] +
+          copy[idx + resolution]) /
+        6;
+      heightData[idx] = mix(copy[idx], avg, k);
+    }
+  }
+}
+
+export function applyGlobalThermalErosion(
+  heightData: Float32Array,
+  resolution: number,
+  iterations = 6
+): void {
+  const talus = 0.0045;
+  const temp = new Float32Array(heightData.length);
+  for (let iter = 0; iter < iterations; iter++) {
+    temp.set(heightData);
+    for (let py = 1; py < resolution - 1; py++) {
+      for (let px = 1; px < resolution - 1; px++) {
+        const idx = py * resolution + px;
+        const h = temp[idx];
+        const nL = temp[idx - 1];
+        const nR = temp[idx + 1];
+        const nU = temp[idx - resolution];
+        const nD = temp[idx + resolution];
+        const minN = Math.min(nL, nR, nU, nD);
+        const maxN = Math.max(nL, nR, nU, nD);
+        const avgN = (nL + nR + nU + nD) * 0.25;
+        if (h - minN > talus) {
+          heightData[idx] = clamp(h - (h - minN - talus) * 0.35, 0.02, 0.99);
+        } else if (maxN - h > talus) {
+          heightData[idx] = clamp(mix(h, avgN, 0.22), 0.02, 0.99);
+        }
+      }
+    }
+  }
+}
+
+export function applyGlobalNoiseDetail(
+  heightData: Float32Array,
+  resolution: number,
+  amount = 0.05,
+  seed = 77
+): void {
+  for (let py = 0; py < resolution; py++) {
+    const v = py / (resolution - 1);
+    for (let px = 0; px < resolution; px++) {
+      const u = px / (resolution - 1);
+      const idx = py * resolution + px;
+      const r = ridgedSeed(u * 14, v * 14, seed, 4) - 0.45;
+      heightData[idx] = clamp(heightData[idx] + r * amount, 0.02, 0.99);
+    }
+  }
+}
+
+export function applyGlobalHeightOffset(heightData: Float32Array, deltaNorm: number): void {
+  for (let i = 0; i < heightData.length; i++) {
+    heightData[i] = clamp(heightData[i] + deltaNorm, 0.02, 0.99);
+  }
 }

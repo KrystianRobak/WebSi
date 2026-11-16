@@ -187,7 +187,8 @@ export function buildTerrainConformingPolygonGeometry(
   heightRes: number,
   displacementScale: number,
   seaY: number,
-  yOffset = 0.22
+  yOffset = 0.22,
+  terrainSize = TERRAIN_SIZE
 ): THREE.BufferGeometry | null {
   if (points.length < 3) return null;
 
@@ -242,7 +243,7 @@ export function buildTerrainConformingPolygonGeometry(
       heightRes,
       wx,
       wz,
-      TERRAIN_SIZE,
+      terrainSize,
       displacementScale
     );
     return Math.max(seaY + 0.05, ty) + yOffset;
@@ -276,7 +277,8 @@ export function sampleClosedBorderPoints(
   heightRes: number,
   displacementScale: number,
   seaY: number,
-  yOffset = 0.34
+  yOffset = 0.34,
+  terrainSize = TERRAIN_SIZE
 ): Array<[number, number, number]> {
   if (points.length < 2) return [];
   const closed = [...points, points[0]];
@@ -295,7 +297,7 @@ export function sampleClosedBorderPoints(
         heightRes,
         x,
         z,
-        TERRAIN_SIZE,
+        terrainSize,
         displacementScale
       );
       out.push([x, Math.max(seaY + 0.06, ty) + yOffset, z]);

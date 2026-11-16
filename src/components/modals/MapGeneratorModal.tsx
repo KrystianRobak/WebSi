@@ -1,6 +1,11 @@
 import React, { useState } from 'react';
 import { Dices, Grid, Mountain, Sparkles, Sun, Trash2, Trees, Upload, Waves, X } from 'lucide-react';
 import { uploadVaultAsset } from '../../lib/supabase';
+import {
+  DEFAULT_NEW_WORLD_SIZE,
+  WORLD_SIZE_PRESETS,
+  getWorldSize,
+} from '../../lib/worldEnvironment';
 import { useVaultStore } from '../../store/useVaultStore';
 import {
   BattlemapTheme,
@@ -10,11 +15,13 @@ import {
 } from '../../types/vault';
 
 const ARCHETYPES: Array<{ id: TerrainArchetype; label: string; desc: string }> = [
+  { id: 'continent', label: 'Vast Continent', desc: 'Broad realm with inland peaks & coasts' },
   { id: 'archipelago', label: 'Shattered Archipelago', desc: 'Island chains & reef shoals' },
   { id: 'fjord', label: 'Alpine Fjord', desc: 'Glacial sea inlet & jagged cliffs' },
   { id: 'basin', label: 'Highland Basin', desc: 'Mountain ring & central valley' },
   { id: 'caldera', label: 'Volcanic Caldera', desc: 'Crater rim & central sea' },
   { id: 'peninsula', label: 'Coastal Peninsula', desc: 'Headland harbor & rolling hills' },
+  { id: 'blank', label: 'Blank Canvas', desc: 'Flat sea & plains ready for sculpting' },
 ];
 
 const BATTLEMAP_THEMES: Array<{ id: BattlemapTheme; label: string; desc: string }> = [
@@ -54,17 +61,23 @@ export const MapGeneratorModal: React.FC<{ targetMapId?: string }> = ({ targetMa
   const [atmosphere, setAtmosphere] = useState<WorldAtmospherePreset>('golden-hour');
 
   const [config, setConfig] = useState<MapGenerationConfig>(
-    existingMap?.generation_config || {
-      seed: Math.floor(Math.random() * 9000) + 1000,
-      archetype: 'peninsula',
-      continentScale: 1.0,
-      ridgeSharpness: 1.15,
-      seaLevel: 0.24,
-      valleyDepth: 0.45,
-      riverCount: 1,
-      treeDensity: 0.75,
-      rockDensity: 0.55,
-    }
+    existingMap?.generation_config
+      ? {
+          ...existingMap.generation_config,
+          worldSize: existingMap.generation_config.worldSize ?? getWorldSize(existingMap),
+        }
+      : {
+          seed: Math.floor(Math.random() * 9000) + 1000,
+          archetype: 'continent',
+          continentScale: 1.0,
+          ridgeSharpness: 1.15,
+          seaLevel: 0.24,
+          valleyDepth: 0.45,
+          riverCount: 1,
+          treeDensity: 0.75,
+          rockDensity: 0.55,
+          worldSize: DEFAULT_NEW_WORLD_SIZE,
+        }
   );
 
   // 2D Battlemap form state
@@ -86,7 +99,10 @@ export const MapGeneratorModal: React.FC<{ targetMapId?: string }> = ({ targetMa
       setRegenCurrent(false);
       setAtmosphere(editingMap.atmosphere || 'golden-hour');
       if (editingMap.generation_config) {
-        setConfig(editingMap.generation_config);
+        setConfig({
+          ...editingMap.generation_config,
+          worldSize: editingMap.generation_config.worldSize ?? getWorldSize(editingMap),
+        });
       }
       if (editingMap.battlemap) {
         const bm = editingMap.battlemap;
@@ -115,6 +131,15 @@ export const MapGeneratorModal: React.FC<{ targetMapId?: string }> = ({ targetMa
         ? 'Dungeon Encounter Map'
         : existingMap?.name || 'New Custom Realm'
     );
+    if (existingMap) {
+      setConfig((c) => ({
+        ...c,
+        ...(existingMap.generation_config || {}),
+        worldSize: existingMap.generation_config?.worldSize ?? getWorldSize(existingMap),
+      }));
+    } else {
+      setConfig((c) => ({ ...c, worldSize: c.worldSize || DEFAULT_NEW_WORLD_SIZE }));
+    }
     setBmBgAsset('');
     setBmCustomUrl(null);
     setBmGridPx(64);
@@ -321,6 +346,37 @@ export const MapGeneratorModal: React.FC<{ targetMapId?: string }> = ({ targetMa
                       <div className="text-[10.5px] text-[#838b9b]">{a.desc}</div>
                     </button>
                   ))}
+                </div>
+              </div>
+
+              {/* World Dimensions */}
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-[11px] text-[#9aa3b2]">World Size</label>
+                  <span className="text-[10.5px] font-mono text-[#e5be58]">
+                    {config.worldSize ?? DEFAULT_NEW_WORLD_SIZE} ×{' '}
+                    {config.worldSize ?? DEFAULT_NEW_WORLD_SIZE} u
+                  </span>
+                </div>
+                <div className="grid grid-cols-4 gap-2">
+                  {WORLD_SIZE_PRESETS.map((preset) => {
+                    const active = (config.worldSize ?? DEFAULT_NEW_WORLD_SIZE) === preset.size;
+                    return (
+                      <button
+                        type="button"
+                        key={preset.size}
+                        onClick={() => setConfig((c) => ({ ...c, worldSize: preset.size }))}
+                        className={`px-2 py-2 rounded-lg border text-center transition-all ${
+                          active
+                            ? 'bg-[#1d1912] border-[#d4a853]/65 text-[#f3ead8]'
+                            : 'bg-[#0e1116] border-[#1d222b] text-[#9aa3b2] hover:border-[#2c3444]'
+                        }`}
+                      >
+                        <div className="text-xs font-semibold text-[#e6c478]">{preset.label}</div>
+                        <div className="text-[10px] text-[#838b9b]">{preset.desc}</div>
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
 

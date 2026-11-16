@@ -3,8 +3,8 @@ import {
   generateShatteredReachTerrain,
   sampleTerrainElevation,
   DEFAULT_DISPLACEMENT,
-  TERRAIN_SIZE,
 } from '../lib/terrainGenerator';
+import { DEFAULT_NEW_WORLD_SIZE, heightResForWorldSize } from '../lib/worldEnvironment';
 import { createDefaultWorldLayers } from '../lib/worldLayers';
 import { computeAllEntityLinks } from '../lib/wikilinks';
 import {
@@ -32,14 +32,18 @@ export function buildSeedDataset(): {
   initialTabs: TabItem[];
   activeTabId: string;
 } {
-  const terrain = generateShatteredReachTerrain(512);
+  const seedWorldSize = DEFAULT_NEW_WORLD_SIZE;
+  const terrain = generateShatteredReachTerrain(
+    heightResForWorldSize(seedWorldSize),
+    seedWorldSize
+  );
   const yAt = (x: number, z: number) =>
     sampleTerrainElevation(
       terrain.heightData,
       terrain.resolution,
       x,
       z,
-      TERRAIN_SIZE,
+      seedWorldSize,
       DEFAULT_DISPLACEMENT
     );
 
@@ -748,6 +752,7 @@ Chaired by [[Kaelen Voss]] under the [[Treaty of Emberfall]].`,
       width: 8192,
       height: 8192,
       displacement_scale: DEFAULT_DISPLACEMENT,
+      world_size: seedWorldSize,
       scale_config: {
         ratio: '1 : 250 000',
         elevationSource: 'Heightmap (32-bit)',
@@ -756,6 +761,80 @@ Chaired by [[Kaelen Voss]] under the [[Treaty of Emberfall]].`,
       layers: createDefaultWorldLayers(),
       zones: seededZones,
       labels: seededLabels,
+      fog_volumes: [
+        {
+          id: 'seed-fog-oakhaven-bay',
+          name: 'Oakhaven Harbor Mist',
+          shape: 'cylinder',
+          x: -20,
+          y: 2.8,
+          z: 8,
+          width: 24,
+          depth: 20,
+          height: 5.5,
+          rotY: 0.25,
+          color: '#bcd0dc',
+          density: 0.72,
+          edgeSoftness: 0.68,
+          heightFalloff: 0.75,
+          noiseScale: 0.9,
+          noiseStrength: 0.6,
+          windSpeed: 0.55,
+          windDirection: 28,
+          glow: 0.05,
+          lightScattering: 0.7,
+          visible: true,
+          is_gm_only: false,
+        },
+        {
+          id: 'seed-fog-sunken-reliquary',
+          name: 'Drowned Choir Sea Fog',
+          shape: 'sphere',
+          x: 11,
+          y: 2.6,
+          z: 22,
+          width: 22,
+          depth: 22,
+          height: 6.5,
+          rotY: 0,
+          color: '#7ab8c8',
+          density: 0.85,
+          edgeSoftness: 0.72,
+          heightFalloff: 0.6,
+          noiseScale: 1.15,
+          noiseStrength: 0.68,
+          windSpeed: 0.45,
+          windDirection: -35,
+          glow: 0.25,
+          lightScattering: 0.65,
+          visible: true,
+          is_gm_only: false,
+        },
+        {
+          id: 'seed-fog-cinder-pass',
+          name: 'Cinder Crown Valley Shroud',
+          shape: 'box',
+          x: 4,
+          y: 5.2,
+          z: -14,
+          width: 28,
+          depth: 18,
+          height: 7,
+          rotY: -0.2,
+          color: '#cfd8e3',
+          density: 0.68,
+          edgeSoftness: 0.65,
+          heightFalloff: 0.8,
+          noiseScale: 0.85,
+          noiseStrength: 0.55,
+          windSpeed: 0.38,
+          windDirection: 15,
+          glow: 0,
+          lightScattering: 0.6,
+          visible: true,
+          is_gm_only: false,
+        },
+      ],
       props: [
         { id: 'seed-prop-village-oakhaven', kind: 'village', name: 'Oakhaven Town', x: -16.8, y: yAt(-16.8, 3.2), z: 3.2, rotY: 0.4, scale: 1.2 },
         { id: 'seed-prop-pier-oakhaven', kind: 'pier', name: 'Salt-Iron Docks', x: -18.5, y: yAt(-18.5, 6.2), z: 6.2, rotY: 0.55, scale: 1.2 },

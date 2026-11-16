@@ -8,7 +8,9 @@ import {
   ArrowUpFromLine,
   Castle,
   Check,
+  Cloud,
   Compass,
+  Droplets,
   Eraser,
   Eye,
   EyeOff,
@@ -22,12 +24,16 @@ import {
   MousePointer,
   Mountain,
   Move,
+  Paintbrush,
   Pentagon,
   Plus,
+  Redo2,
   Route,
   Settings2,
   Sparkles,
+  Stamp,
   Trees,
+  TrendingUp,
   Type,
   Undo2,
   Wand2,
@@ -38,17 +44,32 @@ import {
 import {
   DEFAULT_DISPLACEMENT,
   SEA_LEVEL_NORM,
-  TERRAIN_SEGMENTS,
   TERRAIN_SIZE,
+  expandHeightDataToWorldSize,
   extractHeightDataFromImage,
   generateShatteredReachTerrain,
   sampleTerrainElevation,
 } from '../../lib/terrainGenerator';
 import {
+  applyBiomePaintBrush,
+  applyGlobalBlankTerrain,
+  applyGlobalHeightOffset,
+  applyGlobalNoiseDetail,
+  applyGlobalSmooth,
+  applyGlobalThermalErosion,
   applyTerrainBrush,
+  applyTerrainStamp,
   buildTexturesFromHeightData,
   carveRiverIntoHeightData,
 } from '../../lib/terrainEditorEngine';
+import {
+  getSeaLevelNorm,
+  getWorldSize,
+  heightResForWorldSize,
+  resolveTerrainShading,
+  resolveWaterSettings,
+  terrainSegmentsForWorldSize,
+} from '../../lib/worldEnvironment';
 import {
   LABEL_COLOR_PALETTE,
   LAYER_CATEGORY_META,
@@ -59,12 +80,15 @@ import {
 import { useVaultStore } from '../../store/useVaultStore';
 import {
   Entity,
+  FogVolume,
   MapLabelStyle,
   MapPath,
   MapPin as MapPinType,
   MapProp,
   MapPropKind,
+  TerrainShadingSettings,
   VaultMap,
+  WaterSettings,
   WorldAtmospherePreset,
   WorldLayerCategory,
   WorldMapLabel,
@@ -75,6 +99,7 @@ import { EntityIcon } from '../common/EntityIcon';
 import { PinEntitySlideOver } from './PinEntitySlideOver';
 import {
   BrushCursorRing,
+  FogVolumes3D,
   TerrainLabels3D,
   TerrainProps3D,
   TerrainRivers3D,
@@ -106,15 +131,15 @@ const ATMOSPHERE_PRESETS: Record<
     fog: '#090b0e',
     hemiSky: '#85a1c2',
     hemiGround: '#181512',
-    hemiIntensity: 0.72,
+    hemiIntensity: 0.78,
     sunColor: '#ffd28a',
-    sunIntensity: 2.6,
+    sunIntensity: 2.65,
     sunPos: [-48, 36, 18],
     fillColor: '#7ca3cf',
-    fillIntensity: 0.95,
-    waterDeep: '#06131c',
-    waterMid: '#0e3542',
-    waterShallow: '#256e77',
+    fillIntensity: 1.0,
+    waterDeep: '#041320',
+    waterMid: '#0b3b4c',
+    waterShallow: '#22878e',
     skyHorizon: '#2d4358',
     skyZenith: '#0d1521',
   },
@@ -123,15 +148,15 @@ const ATMOSPHERE_PRESETS: Record<
     fog: '#131d2b',
     hemiSky: '#cfe4ff',
     hemiGround: '#24201b',
-    hemiIntensity: 0.92,
+    hemiIntensity: 0.96,
     sunColor: '#fff5e0',
-    sunIntensity: 2.85,
+    sunIntensity: 2.9,
     sunPos: [-12, 68, 22],
     fillColor: '#98bce3',
-    fillIntensity: 1.05,
-    waterDeep: '#092438',
-    waterMid: '#12536e',
-    waterShallow: '#2d8e99',
+    fillIntensity: 1.1,
+    waterDeep: '#072238',
+    waterMid: '#0f5573',
+    waterShallow: '#2aa1ab',
     skyHorizon: '#4c7399',
     skyZenith: '#162842',
   },
@@ -140,15 +165,15 @@ const ATMOSPHERE_PRESETS: Record<
     fog: '#060a14',
     hemiSky: '#3b588c',
     hemiGround: '#0a0d14',
-    hemiIntensity: 0.42,
+    hemiIntensity: 0.46,
     sunColor: '#a6c8ff',
-    sunIntensity: 1.55,
+    sunIntensity: 1.65,
     sunPos: [38, 44, -26],
     fillColor: '#36507a',
-    fillIntensity: 0.65,
+    fillIntensity: 0.7,
     waterDeep: '#030a14',
-    waterMid: '#091f30',
-    waterShallow: '#16465c',
+    waterMid: '#092236',
+    waterShallow: '#17526b',
     skyHorizon: '#162844',
     skyZenith: '#050914',
   },
@@ -157,15 +182,15 @@ const ATMOSPHERE_PRESETS: Record<
     fog: '#18090d',
     hemiSky: '#964758',
     hemiGround: '#1a0c0e',
-    hemiIntensity: 0.56,
+    hemiIntensity: 0.6,
     sunColor: '#ff7a5c',
-    sunIntensity: 2.2,
+    sunIntensity: 2.25,
     sunPos: [-42, 28, 24],
     fillColor: '#a64d79',
-    fillIntensity: 0.8,
+    fillIntensity: 0.85,
     waterDeep: '#12080d',
     waterMid: '#2a121b',
-    waterShallow: '#54262e',
+    waterShallow: '#5d2932',
     skyHorizon: '#4a1d26',
     skyZenith: '#14080d',
   },
@@ -228,39 +253,72 @@ function syncLiveHeightDataTexture(tex: THREE.DataTexture, heightData: Float32Ar
   tex.needsUpdate = true;
 }
 
-const DEFAULT_CAMERA_POS = new THREE.Vector3(-4, 42, 56);
+function buildLivePaintDataTexture(paintData: Uint8Array, res: number): THREE.DataTexture {
+  const copy = new Uint8Array(paintData.length);
+  copy.set(paintData);
+  const tex = new THREE.DataTexture(copy, res, res, THREE.RGBAFormat);
+  tex.colorSpace = THREE.LinearSRGBColorSpace;
+  tex.wrapS = THREE.ClampToEdgeWrapping;
+  tex.wrapT = THREE.ClampToEdgeWrapping;
+  tex.magFilter = THREE.LinearFilter;
+  tex.minFilter = THREE.LinearFilter;
+  tex.needsUpdate = true;
+  return tex;
+}
+
+function syncLivePaintDataTexture(tex: THREE.DataTexture, paintData: Uint8Array): void {
+  const data = tex.image?.data as Uint8Array | undefined;
+  if (!data || data.length !== paintData.length) return;
+  data.set(paintData);
+  tex.needsUpdate = true;
+}
+
+function extractRgbaDataFromImage(img: HTMLImageElement | HTMLCanvasElement, res: number): Uint8Array {
+  const canvas = document.createElement('canvas');
+  canvas.width = res;
+  canvas.height = res;
+  const ctx = canvas.getContext('2d')!;
+  ctx.drawImage(img, 0, 0, res, res);
+  const { data } = ctx.getImageData(0, 0, res, res);
+  return new Uint8Array(data);
+}
+
+const DEFAULT_CAMERA_POS = new THREE.Vector3(-6, 54, 78);
 const DEFAULT_TARGET = new THREE.Vector3(0, 3.2, 2);
-const TOP_CAMERA_POS = new THREE.Vector3(0, 148, 0.01);
 const TOP_TARGET = new THREE.Vector3(0, 0, 0);
 
 interface SeaLevelWaterProps {
   seaY: number;
+  terrainSize: number;
   heightTex: THREE.Texture | null;
   displacementScale: number;
+  waterSettings: WaterSettings;
   wireframe?: boolean;
   atmosphereKey?: WorldAtmospherePreset;
   disableRaycast?: boolean;
   onClick?: (e: ThreeEvent<MouseEvent>) => void;
+  onPointerDown?: (e: ThreeEvent<PointerEvent>) => void;
   onPointerMove?: (e: ThreeEvent<PointerEvent>) => void;
   onPointerUp?: () => void;
 }
 
 /**
- * Semi-realistic, single-pass bathymetry-driven GLSL water shader:
- * - Samples the terrain heightmap once per fragment for true depth absorption,
- *   submerged caustics, and animated shoreline foam (zero extra render passes).
- * - Multi-directional Gerstner vertex swell + analytic micro-ripple normals with
- *   distance-based specular anti-aliasing.
- * - Schlick Fresnel sky reflection & atmosphere-driven sun/moon glints.
+ * High-quality single-pass bathymetry-driven GLSL water shader:
+ * - 6-wave directional Gerstner vertex swell with wind direction, choppiness, and crest Jacobian tracking.
+ * - Analytic multi-octave wave normals + capillary ripples + FBM foam noise.
+ * - Subsurface turquoise wave-crest scattering, open-water whitecaps, and multi-band animated shore breakers & lacy foam.
  */
 const SeaLevelWater: React.FC<SeaLevelWaterProps> = ({
   seaY,
+  terrainSize,
   heightTex,
   displacementScale,
+  waterSettings,
   wireframe = false,
   atmosphereKey = 'golden-hour',
   disableRaycast = false,
   onClick,
+  onPointerDown,
   onPointerMove,
   onPointerUp,
 }) => {
@@ -271,55 +329,80 @@ const SeaLevelWater: React.FC<SeaLevelWaterProps> = ({
       uTime: { value: 0 },
       uHeightMap: { value: null as THREE.Texture | null },
       uHasHeightMap: { value: 0 },
-      uTerrainSize: { value: TERRAIN_SIZE },
+      uTerrainSize: { value: terrainSize },
       uDisplacementScale: { value: DEFAULT_DISPLACEMENT },
       uSeaY: { value: SEA_LEVEL_NORM * DEFAULT_DISPLACEMENT },
+      uWaveHeight: { value: 1.0 },
+      uWaveScale: { value: 1.0 },
+      uWaveSpeed: { value: 1.0 },
+      uChoppiness: { value: 0.72 },
+      uFoamAmount: { value: 1.15 },
+      uShoreWaves: { value: 1.2 },
+      uClarity: { value: 1.0 },
+      uWindDir: { value: new THREE.Vector2(0.82, 0.57) },
       uSunDir: { value: new THREE.Vector3(-48, 36, 18).normalize() },
       uFillDir: { value: new THREE.Vector3(42, 22, -38).normalize() },
-      uDeepColor: { value: new THREE.Color('#06131c') },
-      uMidColor: { value: new THREE.Color('#0e3542') },
-      uShallowColor: { value: new THREE.Color('#256e77') },
+      uDeepColor: { value: new THREE.Color('#041320') },
+      uMidColor: { value: new THREE.Color('#0b3b4c') },
+      uShallowColor: { value: new THREE.Color('#22878e') },
       uSunColor: { value: new THREE.Color('#ffd28a') },
       uFillColor: { value: new THREE.Color('#7ca3cf') },
       uSkyHorizon: { value: new THREE.Color('#2d4358') },
       uSkyZenith: { value: new THREE.Color('#0d1521') },
-      uFoamColor: { value: new THREE.Color('#cfdce0') },
+      uFoamColor: { value: new THREE.Color('#e8f3f6') },
       uFogColor: { value: new THREE.Color('#090b0e') },
-      uFogNear: { value: 68.0 },
-      uFogFar: { value: 138.0 },
+      uFogNear: { value: 110.0 },
+      uFogFar: { value: 260.0 },
       uWireframe: { value: 0.0 },
     }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     []
   );
 
   useEffect(() => {
     if (!matRef.current) return;
     const atmo = ATMOSPHERE_PRESETS[atmosphereKey] || ATMOSPHERE_PRESETS['golden-hour'];
-    matRef.current.uniforms.uHeightMap.value = heightTex;
-    matRef.current.uniforms.uHasHeightMap.value = heightTex ? 1.0 : 0.0;
-    matRef.current.uniforms.uDisplacementScale.value = displacementScale;
-    matRef.current.uniforms.uSeaY.value = seaY;
-    matRef.current.uniforms.uWireframe.value = wireframe ? 1.0 : 0.0;
-    matRef.current.uniforms.uSunDir.value.set(...atmo.sunPos).normalize();
-    matRef.current.uniforms.uSunColor.value.set(atmo.sunColor);
-    matRef.current.uniforms.uFillColor.value.set(atmo.fillColor);
-    matRef.current.uniforms.uDeepColor.value.set(atmo.waterDeep);
-    matRef.current.uniforms.uMidColor.value.set(atmo.waterMid);
-    matRef.current.uniforms.uShallowColor.value.set(atmo.waterShallow);
-    matRef.current.uniforms.uSkyHorizon.value.set(atmo.skyHorizon);
-    matRef.current.uniforms.uSkyZenith.value.set(atmo.skyZenith);
-    matRef.current.uniforms.uFogColor.value.set(atmo.fog);
-  }, [heightTex, displacementScale, seaY, wireframe, atmosphereKey]);
+    const u = matRef.current.uniforms;
+    u.uHeightMap.value = heightTex;
+    u.uHasHeightMap.value = heightTex ? 1.0 : 0.0;
+    u.uTerrainSize.value = terrainSize;
+    u.uDisplacementScale.value = displacementScale;
+    u.uSeaY.value = seaY;
+    u.uWaveHeight.value = waterSettings.waveHeight;
+    u.uWaveScale.value = waterSettings.waveScale;
+    u.uWaveSpeed.value = waterSettings.waveSpeed;
+    u.uChoppiness.value = waterSettings.choppiness;
+    u.uFoamAmount.value = waterSettings.foamAmount;
+    u.uShoreWaves.value = waterSettings.shoreWaves;
+    u.uClarity.value = waterSettings.clarity;
+    const rad = (waterSettings.windDirection * Math.PI) / 180;
+    u.uWindDir.value.set(Math.cos(rad), Math.sin(rad));
+    u.uWireframe.value = wireframe ? 1.0 : 0.0;
+    u.uSunDir.value.set(...atmo.sunPos).normalize();
+    u.uSunColor.value.set(atmo.sunColor);
+    u.uFillColor.value.set(atmo.fillColor);
+    const deepHex = waterSettings.deepColor || atmo.waterDeep;
+    const shallowHex = waterSettings.shallowColor || atmo.waterShallow;
+    u.uDeepColor.value.set(deepHex);
+    u.uShallowColor.value.set(shallowHex);
+    u.uMidColor.value.set(deepHex).lerp(new THREE.Color(shallowHex), 0.45);
+    u.uSkyHorizon.value.set(atmo.skyHorizon);
+    u.uSkyZenith.value.set(atmo.skyZenith);
+    u.uFogColor.value.set(atmo.fog);
+  }, [heightTex, terrainSize, displacementScale, seaY, waterSettings, wireframe, atmosphereKey]);
 
   useFrame(({ clock, camera }) => {
     if (matRef.current) {
       matRef.current.uniforms.uTime.value = clock.getElapsedTime();
       const camDist = camera.position.length();
-      const topBlend = THREE.MathUtils.smoothstep(camDist, 76, 118);
-      matRef.current.uniforms.uFogNear.value = THREE.MathUtils.lerp(68.0, 240.0, topBlend);
-      matRef.current.uniforms.uFogFar.value = THREE.MathUtils.lerp(138.0, 460.0, topBlend);
+      const sizeScale = Math.max(1, terrainSize / 100);
+      const topBlend = THREE.MathUtils.smoothstep(camDist, 85 * sizeScale, 155 * sizeScale);
+      matRef.current.uniforms.uFogNear.value = THREE.MathUtils.lerp(76.0 * sizeScale, 280.0 * sizeScale, topBlend);
+      matRef.current.uniforms.uFogFar.value = THREE.MathUtils.lerp(165.0 * sizeScale, 560.0 * sizeScale, topBlend);
     }
   });
+
+  const waterPlaneSize = terrainSize * 1.38;
 
   return (
     <mesh
@@ -327,10 +410,11 @@ const SeaLevelWater: React.FC<SeaLevelWaterProps> = ({
       rotation={[-Math.PI / 2, 0, 0]}
       raycast={disableRaycast ? () => null : undefined}
       onClick={onClick}
+      onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
     >
-      <planeGeometry args={[TERRAIN_SIZE * 1.24, TERRAIN_SIZE * 1.24, 96, 96]} />
+      <planeGeometry args={[waterPlaneSize, waterPlaneSize, 160, 160]} />
       <shaderMaterial
         ref={matRef}
         transparent
@@ -341,6 +425,7 @@ const SeaLevelWater: React.FC<SeaLevelWaterProps> = ({
           varying vec2 vUv;
           varying vec3 vWorldPos;
           varying float vShoreDamp;
+          varying float vWaveCrest;
 
           uniform float uTime;
           uniform sampler2D uHeightMap;
@@ -348,6 +433,17 @@ const SeaLevelWater: React.FC<SeaLevelWaterProps> = ({
           uniform float uTerrainSize;
           uniform float uDisplacementScale;
           uniform float uSeaY;
+          uniform float uWaveHeight;
+          uniform float uWaveScale;
+          uniform float uWaveSpeed;
+          uniform float uChoppiness;
+          uniform vec2 uWindDir;
+
+          vec2 rot2D(vec2 v, float a) {
+            float c = cos(a);
+            float s = sin(a);
+            return vec2(v.x * c - v.y * s, v.x * s + v.y * c);
+          }
 
           void main() {
             vUv = uv;
@@ -358,19 +454,56 @@ const SeaLevelWater: React.FC<SeaLevelWaterProps> = ({
               vec2 tUv = vec2(wp.x / uTerrainSize + 0.5, 0.5 - wp.z / uTerrainSize);
               float inBox = step(0.0, tUv.x) * step(tUv.x, 1.0) * step(0.0, tUv.y) * step(tUv.y, 1.0);
               float terrainH = texture2D(uHeightMap, clamp(tUv, 0.002, 0.998)).r * uDisplacementScale;
-              float depth = mix(4.0, max(0.0, uSeaY - terrainH), inBox);
-              shoreDamp = smoothstep(0.05, 1.45, depth);
+              float depth = mix(5.0, max(0.0, uSeaY - terrainH), inBox);
+              shoreDamp = smoothstep(0.04, 1.55, depth);
             }
             vShoreDamp = shoreDamp;
 
-            // Lightweight 3-wave directional Gerstner-style swell
-            vec2 p = wp.xz;
-            float p1 = dot(p, vec2(0.84, 0.54)) * 0.36 + uTime * 1.15;
-            float p2 = dot(p, vec2(-0.52, 0.85)) * 0.58 + uTime * 1.45;
-            float p3 = dot(p, vec2(0.28, -0.96)) * 0.92 - uTime * 1.80;
+            // 6-wave directional Gerstner swell aligned to wind direction with cross-sea spread
+            vec2 p = wp.xz * uWaveScale;
+            float t = uTime * uWaveSpeed;
+            vec2 d1 = normalize(uWindDir);
+            vec2 d2 = rot2D(d1, 0.42);
+            vec2 d3 = rot2D(d1, -0.51);
+            vec2 d4 = rot2D(d1, 0.88);
+            vec2 d5 = rot2D(d1, -1.04);
+            vec2 d6 = rot2D(d1, 1.52);
 
-            float dy = (sin(p1) * 0.075 + sin(p2) * 0.048 + sin(p3) * 0.024) * shoreDamp;
-            vec2 dxz = (vec2(0.84, 0.54) * cos(p1) * 0.04 + vec2(-0.52, 0.85) * cos(p2) * 0.025) * shoreDamp;
+            float p1 = dot(p, d1) * 0.34 + t * 1.18;
+            float p2 = dot(p, d2) * 0.56 + t * 1.48;
+            float p3 = dot(p, d3) * 0.86 - t * 1.72;
+            float p4 = dot(p, d4) * 1.32 + t * 2.08;
+            float p5 = dot(p, d5) * 1.88 - t * 2.42;
+            float p6 = dot(p, d6) * 2.65 + t * 2.85;
+
+            float amp = uWaveHeight * shoreDamp;
+            float dy = (
+              sin(p1) * 0.115 +
+              sin(p2) * 0.072 +
+              sin(p3) * 0.046 +
+              sin(p4) * 0.028 +
+              sin(p5) * 0.017 +
+              sin(p6) * 0.010
+            ) * amp;
+
+            float chop = uChoppiness * amp;
+            vec2 dxz = (
+              d1 * cos(p1) * 0.095 +
+              d2 * cos(p2) * 0.062 +
+              d3 * cos(p3) * 0.040 +
+              d4 * cos(p4) * 0.024 +
+              d5 * cos(p5) * 0.014
+            ) * chop;
+
+            // Crest compression / steepness indicator for whitecaps & subsurface scattering
+            float crest = (
+              sin(p1) * 0.40 +
+              sin(p2) * 0.26 +
+              sin(p3) * 0.18 +
+              sin(p4) * 0.10 +
+              sin(p5) * 0.06
+            ) * uWaveHeight * shoreDamp;
+            vWaveCrest = clamp(crest * 0.85 + 0.25, 0.0, 1.5);
 
             wp.y += dy;
             wp.xz += dxz;
@@ -382,6 +515,7 @@ const SeaLevelWater: React.FC<SeaLevelWaterProps> = ({
           varying vec2 vUv;
           varying vec3 vWorldPos;
           varying float vShoreDamp;
+          varying float vWaveCrest;
 
           uniform float uTime;
           uniform sampler2D uHeightMap;
@@ -389,6 +523,14 @@ const SeaLevelWater: React.FC<SeaLevelWaterProps> = ({
           uniform float uTerrainSize;
           uniform float uDisplacementScale;
           uniform float uSeaY;
+          uniform float uWaveHeight;
+          uniform float uWaveScale;
+          uniform float uWaveSpeed;
+          uniform float uChoppiness;
+          uniform float uFoamAmount;
+          uniform float uShoreWaves;
+          uniform float uClarity;
+          uniform vec2 uWindDir;
           uniform vec3 uSunDir;
           uniform vec3 uFillDir;
           uniform vec3 uDeepColor;
@@ -403,6 +545,12 @@ const SeaLevelWater: React.FC<SeaLevelWaterProps> = ({
           uniform float uFogNear;
           uniform float uFogFar;
           uniform float uWireframe;
+
+          vec2 rot2D(vec2 v, float a) {
+            float c = cos(a);
+            float s = sin(a);
+            return vec2(v.x * c - v.y * s, v.x * s + v.y * c);
+          }
 
           float hash21(vec2 p) {
             p = fract(p * vec2(123.34, 456.21));
@@ -421,33 +569,61 @@ const SeaLevelWater: React.FC<SeaLevelWaterProps> = ({
             return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
           }
 
-          // Analytic surface normal from 4 rotated directional wave octaves (zero extra texture fetches)
-          vec3 computeWaterNormal(vec2 xz, float detailFade, float shoreDamp) {
-            float ampScale = mix(0.42, 1.0, shoreDamp) * detailFade;
+          float fbm3(vec2 p) {
+            float v = 0.0;
+            float a = 0.5;
+            mat2 rot = mat2(0.8, -0.6, 0.6, 0.8);
+            for (int i = 0; i < 3; i++) {
+              v += a * vnoise(p);
+              p = rot * p * 2.05;
+              a *= 0.5;
+            }
+            return v;
+          }
 
-            float k1 = dot(xz, vec2(0.84, 0.54)) * 0.62 + uTime * 1.15;
-            float k2 = dot(xz, vec2(-0.52, 0.85)) * 1.08 + uTime * 1.48;
-            float k3 = dot(xz, vec2(0.35, -0.93)) * 1.92 - uTime * 1.92;
-            float k4 = dot(xz, vec2(-0.91, -0.41)) * 3.18 + uTime * 2.35;
+          // Analytic surface normal from 6 rotated directional Gerstner wave octaves + capillary wind ripples
+          vec3 computeWaterNormal(vec2 xz, float detailFade, float shoreDamp, out float microCrest) {
+            float t = uTime * uWaveSpeed;
+            vec2 p = xz * uWaveScale;
+            float ampScale = mix(0.38, 1.0, shoreDamp) * max(0.15, uWaveHeight);
+
+            vec2 d1 = normalize(uWindDir);
+            vec2 d2 = rot2D(d1, 0.42);
+            vec2 d3 = rot2D(d1, -0.51);
+            vec2 d4 = rot2D(d1, 0.88);
+            vec2 d5 = rot2D(d1, -1.04);
+            vec2 d6 = rot2D(d1, 1.52);
+
+            float k1 = dot(p, d1) * 0.52 + t * 1.18;
+            float k2 = dot(p, d2) * 0.96 + t * 1.48;
+            float k3 = dot(p, d3) * 1.68 - t * 1.82;
+            float k4 = dot(p, d4) * 2.85 + t * 2.25;
+            float k5 = dot(p, d5) * 4.40 - t * 2.75;
+            float k6 = dot(p, d6) * 6.80 + t * 3.20;
 
             vec2 grad = vec2(0.0);
-            grad += vec2(0.84, 0.54) * cos(k1) * 0.125;
-            grad += vec2(-0.52, 0.85) * cos(k2) * 0.095;
-            grad += vec2(0.35, -0.93) * cos(k3) * 0.068 * detailFade;
-            grad += vec2(-0.91, -0.41) * cos(k4) * 0.044 * detailFade;
+            grad += d1 * cos(k1) * 0.165;
+            grad += d2 * cos(k2) * 0.125;
+            grad += d3 * cos(k3) * 0.092 * detailFade;
+            grad += d4 * cos(k4) * 0.068 * detailFade;
+            grad += d5 * cos(k5) * 0.048 * detailFade;
+            grad += d6 * cos(k6) * 0.032 * detailFade;
 
-            // Rotated capillary micro-ripples for realistic wave facet shimmer
-            vec2 r1 = vec2(xz.x * 0.8 - xz.y * 0.6, xz.x * 0.6 + xz.y * 0.8);
-            float c1 = sin(r1.x * 4.3 + r1.y * 2.9 + uTime * 2.6);
-            float c2 = cos(r1.x * -3.7 + r1.y * 5.1 - uTime * 2.2);
-            grad += vec2(c1, c2) * 0.036 * ampScale;
+            // Fine capillary shimmer & wind streaks
+            vec2 r1 = rot2D(p, 0.64);
+            float c1 = sin(r1.x * 5.2 + r1.y * 3.4 + t * 2.9);
+            float c2 = cos(r1.x * -4.3 + r1.y * 5.8 - t * 2.5);
+            grad += vec2(c1, c2) * 0.042 * detailFade;
 
+            grad *= ampScale * (0.65 + 0.55 * uChoppiness);
+
+            microCrest = (sin(k1) * 0.35 + sin(k2) * 0.28 + sin(k3) * 0.22 + sin(k4) * 0.15) * 0.5 + 0.5;
             return normalize(vec3(-grad.x, 1.0, -grad.y));
           }
 
           void main() {
             if (uWireframe > 0.5) {
-              gl_FragColor = vec4(0.11, 0.34, 0.40, 0.38);
+              gl_FragColor = vec4(0.11, 0.42, 0.48, 0.42);
               return;
             }
 
@@ -455,13 +631,13 @@ const SeaLevelWater: React.FC<SeaLevelWaterProps> = ({
             vec2 clampedUv = clamp(tUv, 0.002, 0.998);
             float outsideDist = length(tUv - clampedUv);
 
-            float terrainH = uSeaY - 3.5;
+            float terrainH = uSeaY - 4.0;
             if (uHasHeightMap > 0.5) {
               terrainH = texture2D(uHeightMap, clampedUv).r * uDisplacementScale;
             }
 
-            float waterDepth = (uSeaY - terrainH) + outsideDist * 14.0;
-            if (uHasHeightMap > 0.5 && outsideDist < 0.0001 && waterDepth < -0.05) {
+            float waterDepth = (uSeaY - terrainH) + outsideDist * 16.0;
+            if (uHasHeightMap > 0.5 && outsideDist < 0.0001 && waterDepth < -0.06) {
               discard;
             }
             float depthPos = max(0.0, waterDepth);
@@ -470,68 +646,104 @@ const SeaLevelWater: React.FC<SeaLevelWaterProps> = ({
             float camDist = length(toCam);
             vec3 V = toCam / max(camDist, 0.0001);
 
-            // Distance-based normal & specular attenuation to avoid horizon shimmer
-            float detailFade = 1.0 - smoothstep(38.0, 118.0, camDist);
-            vec3 N = computeWaterNormal(vWorldPos.xz, detailFade, vShoreDamp);
+            float sizeScale = max(1.0, uTerrainSize / 100.0);
+            float detailFade = 1.0 - smoothstep(45.0 * sizeScale, 165.0 * sizeScale, camDist);
+            float microCrest = 0.5;
+            vec3 N = computeWaterNormal(vWorldPos.xz, detailFade, vShoreDamp, microCrest);
             float NdotV = max(dot(N, V), 0.001);
 
-            // Beer-Lambert exponential depth absorption
-            float shallowFactor = exp(-depthPos * 0.90);
-            float midFactor = exp(-depthPos * 0.32);
+            // Beer-Lambert exponential depth absorption with clarity control
+            float clarityInv = 1.0 / max(0.25, uClarity);
+            float shallowFactor = exp(-depthPos * 0.82 * clarityInv);
+            float midFactor = exp(-depthPos * 0.28 * clarityInv);
             vec3 col = mix(uDeepColor, uMidColor, midFactor);
-            col = mix(col, uShallowColor, shallowFactor * 0.88);
+            col = mix(col, uShallowColor, shallowFactor * 0.92);
 
-            // Subtle non-grid dual-rotated underwater caustics in shoals & harbor
-            float causticMask = exp(-depthPos * 1.25) * smoothstep(0.04, 0.32, depthPos) * detailFade;
+            // Subsurface turquoise wave-crest scattering (SSS when waves are backlit or crested)
+            float backSun = pow(max(0.0, dot(V, -uSunDir) * 0.6 + 0.4), 2.0);
+            float sssFactor = clamp((vWaveCrest * 0.65 + microCrest * 0.35) - 0.35, 0.0, 1.0) * vShoreDamp;
+            col += uShallowColor * sssFactor * (0.28 + 0.32 * backSun) * min(1.4, uWaveHeight);
+
+            // Dual-rotated underwater caustics in shoals & lagoons
+            float causticMask = exp(-depthPos * 1.10 * clarityInv) * smoothstep(0.03, 0.30, depthPos) * detailFade * min(1.5, uClarity);
             if (causticMask > 0.01) {
-              vec2 c1 = vWorldPos.xz * 0.68;
+              vec2 c1 = vWorldPos.xz * 0.72;
               vec2 c2 = vec2(c1.x * 0.8 - c1.y * 0.6, c1.x * 0.6 + c1.y * 0.8) * 1.37;
-              float wA = sin(c1.x + sin(c1.y * 1.15 + uTime * 0.85));
-              float wB = cos(c2.y - sin(c2.x * 1.12 - uTime * 0.95));
-              float caustic = pow(clamp(1.0 - abs(wA + wB) * 0.55, 0.0, 1.0), 4.0);
-              col += vec3(0.22, 0.48, 0.50) * caustic * causticMask * 0.16;
+              float wA = sin(c1.x + sin(c1.y * 1.15 + uTime * 0.95));
+              float wB = cos(c2.y - sin(c2.x * 1.12 - uTime * 1.05));
+              float caustic = pow(clamp(1.0 - abs(wA + wB) * 0.52, 0.0, 1.0), 3.6);
+              col += (uShallowColor * 1.25 + vec3(0.18, 0.35, 0.36)) * caustic * causticMask * 0.24;
             }
 
-            // Schlick Fresnel + twilight sky reflection
+            // Schlick Fresnel + sky reflection
             float fresnel = 0.03 + 0.97 * pow(1.0 - NdotV, 5.0);
             vec3 R = reflect(-V, N);
             float skyT = pow(clamp(R.y, 0.0, 1.0), 0.55);
             vec3 skyRefl = mix(uSkyHorizon, uSkyZenith, skyT);
-            float sunHalo = pow(max(dot(R, uSunDir), 0.0), 6.0);
+            float sunHalo = pow(max(dot(R, uSunDir), 0.0), 7.0);
             float fillHalo = pow(max(dot(R, uFillDir), 0.0), 5.0);
-            skyRefl += uSunColor * sunHalo * 0.36 + uFillColor * fillHalo * 0.16;
-            col = mix(col, skyRefl, clamp(fresnel * 0.85, 0.0, 0.90));
+            skyRefl += uSunColor * sunHalo * 0.38 + uFillColor * fillHalo * 0.18;
+            col = mix(col, skyRefl, clamp(fresnel * 0.84, 0.0, 0.88));
 
-            // Dual light specular response: golden-hour sun glints + cool moonlit/twilight wave facets
+            // Dual light specular glints
             vec3 Hsun = normalize(uSunDir + V);
             float NdotHsun = max(dot(N, Hsun), 0.0);
-            float sunGlint = pow(NdotHsun, 180.0) * 1.45 * detailFade;
-            float sunSheen = pow(NdotHsun, 24.0) * 0.18;
+            float sunGlint = pow(NdotHsun, 210.0) * 1.65 * detailFade;
+            float sunSheen = pow(NdotHsun, 26.0) * 0.20;
 
             vec3 Hfill = normalize(uFillDir + V);
             float NdotHfill = max(dot(N, Hfill), 0.0);
-            float fillGlint = pow(NdotHfill, 96.0) * 0.55 * detailFade;
+            float fillGlint = pow(NdotHfill, 96.0) * 0.58 * detailFade;
 
-            float specMask = smoothstep(0.0, 0.22, depthPos);
+            float specMask = smoothstep(0.0, 0.18, depthPos);
             col += (uSunColor * (sunGlint + sunSheen) + uFillColor * fillGlint) * specMask;
 
-            // Organic lacy shoreline foam & lapping surf
-            float shoreZone = (1.0 - smoothstep(0.02, 0.62, depthPos)) * smoothstep(-0.02, 0.04, waterDepth);
-            float foamAmount = 0.0;
-            if (shoreZone > 0.01) {
-              float fn1 = vnoise(vWorldPos.xz * 1.4 + vec2(uTime * 0.16, -uTime * 0.12));
-              float fn2 = vnoise(vWorldPos.xz * 3.6 - vec2(uTime * 0.22, uTime * 0.18));
-              float fNoise = fn1 * 0.65 + fn2 * 0.35;
-              float lap = sin(depthPos * 11.5 - uTime * 2.0 + fNoise * 4.8) * 0.5 + 0.5;
-              float waterline = (1.0 - smoothstep(0.0, 0.12, depthPos)) * (0.45 + 0.55 * fNoise);
-              foamAmount = clamp(shoreZone * smoothstep(0.48, 0.90, lap * 0.55 + fNoise * 0.55) + waterline * 0.65, 0.0, 1.0);
-              col = mix(col, uFoamColor, foamAmount * 0.55);
+            // 1) Open-water wind-driven wave-crest whitecaps & lacy foam trails
+            float totalFoam = 0.0;
+            if (uFoamAmount > 0.01 && uWaveHeight > 0.15) {
+              vec2 windFlow = normalize(uWindDir) * uTime * 0.32 * uWaveSpeed;
+              float fbmFoam = fbm3(vWorldPos.xz * 0.55 * uWaveScale - windFlow);
+              float fineBubbles = vnoise(vWorldPos.xz * 2.8 - windFlow * 1.6);
+              float crestScore = (vWaveCrest * 0.58 + microCrest * 0.42) * min(1.35, uWaveHeight * 0.85) + fbmFoam * 0.42;
+              float whitecap = smoothstep(0.92 - min(0.32, uFoamAmount * 0.16), 1.28, crestScore) * vShoreDamp;
+              float lacyWake = smoothstep(0.76, 1.12, crestScore) * smoothstep(0.42, 0.82, fineBubbles) * 0.45 * vShoreDamp;
+              totalFoam += clamp((whitecap + lacyWake) * uFoamAmount, 0.0, 0.95);
             }
 
-            // Soft coastal translucency -> deep pelagic opacity + edge feather
-            float shoreAlpha = smoothstep(-0.02, 0.14, waterDepth);
-            float depthAlpha = mix(0.58, 0.94, 1.0 - exp(-depthPos * 0.85));
-            float alpha = clamp((depthAlpha + foamAmount * 0.25) * shoreAlpha, 0.0, 0.96);
+            // 2) Multi-band animated shoreline surf breakers & lacy receding beach foam
+            float shoreZone = (1.0 - smoothstep(0.02, 1.05, depthPos)) * smoothstep(-0.04, 0.04, waterDepth);
+            if (shoreZone > 0.005 && (uFoamAmount > 0.01 || uShoreWaves > 0.01)) {
+              float fn1 = vnoise(vWorldPos.xz * 1.25 + vec2(uTime * 0.18, -uTime * 0.14));
+              float fn2 = vnoise(vWorldPos.xz * 3.8 - vec2(uTime * 0.24, uTime * 0.20));
+              float fn3 = vnoise(vWorldPos.xz * 8.2 + vec2(uTime * 0.12, uTime * 0.15));
+              float fNoise = fn1 * 0.52 + fn2 * 0.33 + fn3 * 0.15;
+
+              // Rolling shore-parallel surf wave trains
+              float surfPhase = depthPos * 13.5 - uTime * (2.35 * max(0.35, uWaveSpeed)) + fNoise * 4.4;
+              float breaker1 = pow(clamp(sin(surfPhase) * 0.5 + 0.5, 0.0, 1.0), 3.2);
+              float breaker2 = pow(clamp(sin(surfPhase * 0.55 + 1.7) * 0.5 + 0.5, 0.0, 1.0), 4.0);
+              float surfBands = (breaker1 * 0.72 + breaker2 * 0.48) * smoothstep(1.05, 0.06, depthPos) * uShoreWaves;
+
+              // Dense frothy waterline lip + lacy bubble web
+              float waterline = (1.0 - smoothstep(0.0, 0.16, depthPos)) * (0.55 + 0.45 * fNoise);
+              float lacyWeb = smoothstep(0.46, 0.78, fn2 * 0.6 + fn3 * 0.4) * (1.0 - smoothstep(0.05, 0.65, depthPos)) * 0.55;
+
+              float shoreFoam = clamp(
+                (surfBands * (0.55 + 0.45 * fNoise) + waterline * 0.85 + lacyWeb) * shoreZone * max(0.25, uFoamAmount),
+                0.0,
+                1.0
+              );
+              totalFoam = clamp(totalFoam + shoreFoam, 0.0, 1.0);
+            }
+
+            // Lit foam with subtle sun warmth
+            vec3 litFoam = uFoamColor * (0.78 + 0.28 * max(0.0, uSunDir.y)) + uSunColor * 0.10;
+            col = mix(col, litFoam, totalFoam * 0.82);
+
+            // Soft coastal translucency -> deep pelagic opacity
+            float shoreAlpha = smoothstep(-0.04, 0.12, waterDepth);
+            float depthAlpha = mix(0.54, 0.95, 1.0 - exp(-depthPos * 0.85));
+            float alpha = clamp((depthAlpha + totalFoam * 0.35) * shoreAlpha, 0.0, 0.97);
 
             // Seamless scene distance fog
             float fogFactor = smoothstep(uFogNear, uFogFar, camDist);
@@ -551,7 +763,16 @@ const TERRAIN_SHADER_COMMON = `
   varying vec3 vTerrWorldNormal;
   uniform float uSeaY;
   uniform float uDispScale;
+  uniform float uTerrainSize;
   uniform float uShowBiome;
+  uniform sampler2D uPaintMap;
+  uniform float uHasPaintMap;
+  uniform float uColorRichness;
+  uniform float uSnowLine;
+  uniform float uRockContrast;
+  uniform float uBeachWidth;
+  uniform float uAridity;
+  uniform float uLushness;
 
   float tHash21(vec2 p) {
     p = fract(p * vec2(127.1, 311.7));
@@ -589,32 +810,74 @@ const TERRAIN_MAP_CHUNK = `
   float tSlope = clamp(1.0 - tWNorm.y, 0.0, 1.0);
   float tAboveSea = tWPos.y - uSeaY;
   float tHNorm = clamp(tWPos.y / max(uDispScale, 0.001), 0.0, 1.0);
+  vec2 tWorldUv = clamp(vec2(tWPos.x / max(uTerrainSize, 1.0) + 0.5, 0.5 - tWPos.z / max(uTerrainSize, 1.0)), 0.001, 0.999);
 
+  float fMacro = tFbm(tWPos.xz * 0.045 + vec2(4.2, -3.1));
+  float fMoisture = tFbm(tWPos.xz * 0.075 + vec2(-11.4, 8.7));
   float fLarge = tFbm(tWPos.xz * 0.18);
   float fFine = tFbm(tWPos.xz * 0.95);
   float strata = sin(tWPos.y * 3.8 + fLarge * 3.4) * 0.5 + 0.5;
 
   if (uShowBiome > 0.5) {
-    // Enrich base linear albedo with crisp world-space flora & moss variation
-    vec3 mossTint = mix(vec3(0.012, 0.028, 0.014), vec3(0.036, 0.052, 0.020), fFine);
-    vec3 baseCol = mix(diffuseColor.rgb * mix(0.82, 1.35, fFine), mossTint, 0.28);
+    // Rich multi-biome procedural palette in linear RGB
+    vec3 lushGrass = mix(vec3(0.022, 0.068, 0.018), vec3(0.055, 0.115, 0.026), fFine);
+    vec3 meadowGold = vec3(0.095, 0.110, 0.024);
+    vec3 borealForest = vec3(0.012, 0.042, 0.018);
+    vec3 savannaOchre = mix(vec3(0.115, 0.075, 0.022), vec3(0.155, 0.088, 0.028), fFine);
+    vec3 autumnAmber = vec3(0.135, 0.048, 0.014);
+    vec3 highlandHeather = mix(vec3(0.048, 0.036, 0.046), vec3(0.068, 0.058, 0.032), fFine);
 
-    // Wet coastal slate & shingle near sea level (linear RGB)
-    float shoreWet = 1.0 - smoothstep(-0.2, 0.70, tAboveSea);
-    vec3 wetSlate = vec3(0.012, 0.017, 0.020) * (0.8 + 0.4 * fFine);
-    baseCol = mix(baseCol, wetSlate, shoreWet * 0.78);
+    // Blend baked albedo with rich world-space biome zones
+    vec3 vegCol = mix(lushGrass, meadowGold, smoothstep(0.52, 0.80, fLarge) * 0.55);
+    vegCol = mix(vegCol, borealForest, smoothstep(0.46, 0.76, fMoisture) * smoothstep(0.20, 0.55, tHNorm) * 0.72);
 
-    // Stratified basalt & granite cliffs on steep slopes (linear RGB)
-    float rockMask = smoothstep(0.13, 0.34, tSlope);
-    vec3 rockDark = vec3(0.014, 0.016, 0.022);
-    vec3 rockLit = vec3(0.052, 0.054, 0.064);
-    vec3 rockCol = mix(rockDark, rockLit, strata * 0.72 + fFine * 0.28);
+    // Aridity / Savanna & Autumn forest patches
+    float dryZone = clamp((1.0 - fMoisture) * 0.75 + uAridity * 0.85 - 0.35, 0.0, 1.0);
+    vegCol = mix(vegCol, savannaOchre, dryZone * (1.0 - smoothstep(0.45, 0.68, tHNorm)) * 0.78);
+    float autumnPatch = smoothstep(0.62, 0.84, fMacro) * smoothstep(0.24, 0.52, tHNorm);
+    vegCol = mix(vegCol, autumnAmber, autumnPatch * 0.52 * uColorRichness);
+
+    // Highland heather & alpine tundra transition
+    float heatherZone = smoothstep(0.44, 0.64, tHNorm) * (1.0 - smoothstep(0.66, 0.80, tHNorm));
+    vegCol = mix(vegCol, highlandHeather, heatherZone * 0.75);
+
+    vec3 baseCol = mix(diffuseColor.rgb * mix(0.84, 1.28, fFine), vegCol, clamp(0.48 * uLushness * uColorRichness, 0.0, 0.88));
+
+    // Golden sandy beaches on gentle coastal slopes + wet coastal shingle
+    float beachBand = (1.0 - smoothstep(-0.15, 1.15 * max(0.2, uBeachWidth), tAboveSea)) * (1.0 - smoothstep(0.08, 0.22, tSlope));
+    vec3 drySand = mix(vec3(0.145, 0.112, 0.058), vec3(0.195, 0.152, 0.082), fFine);
+    baseCol = mix(baseCol, drySand, beachBand * 0.85);
+
+    float shoreWet = 1.0 - smoothstep(-0.25, 0.52, tAboveSea);
+    vec3 wetShore = mix(vec3(0.016, 0.022, 0.026), vec3(0.055, 0.044, 0.028), beachBand) * (0.8 + 0.4 * fFine);
+    baseCol = mix(baseCol, wetShore, shoreWet * 0.76);
+
+    // Hand-painted custom biome layer (blended before steep cliff rock so cliffs stay crisp)
+    if (uHasPaintMap > 0.5) {
+      vec4 pSample = texture2D(uPaintMap, tWorldUv);
+      if (pSample.a > 0.01) {
+        vec3 paintLin = pow(pSample.rgb, vec3(2.2)) * mix(0.82, 1.22, fFine);
+        baseCol = mix(baseCol, paintLin, clamp(pSample.a * 0.92, 0.0, 0.95));
+      }
+    }
+
+    // Stratified basalt, granite & warm canyon sandstone on steep slopes
+    float rockMask = smoothstep(0.12, 0.33, tSlope);
+    vec3 rockDark = mix(vec3(0.016, 0.018, 0.024), vec3(0.042, 0.022, 0.014), dryZone * 0.65);
+    vec3 rockLit = mix(vec3(0.062, 0.064, 0.074), vec3(0.125, 0.068, 0.036), dryZone * 0.70);
+    vec3 rockCol = mix(rockDark, rockLit, clamp((strata * 0.72 + fFine * 0.28) * uRockContrast, 0.0, 1.0));
     baseCol = mix(baseCol, rockCol, rockMask * 0.90);
 
-    // Wind-swept alpine snow on high ridges & saddles (linear RGB)
-    float snowFactor = smoothstep(0.58, 0.78, tHNorm + (fLarge - 0.5) * 0.14 - tSlope * 0.46);
-    vec3 snowCol = mix(vec3(0.32, 0.36, 0.42), vec3(0.58, 0.62, 0.68), fFine);
-    baseCol = mix(baseCol, snowCol, snowFactor * 0.92);
+    // Wind-swept alpine snow & glacial ice above snowLine
+    float snowStart = clamp(uSnowLine - 0.08, 0.15, 0.95);
+    float snowEnd = clamp(uSnowLine + 0.12, snowStart + 0.05, 1.02);
+    float snowFactor = smoothstep(snowStart, snowEnd, tHNorm + (fLarge - 0.5) * 0.14 - tSlope * 0.44);
+    vec3 snowCol = mix(vec3(0.34, 0.40, 0.48), vec3(0.64, 0.68, 0.74), fFine);
+    baseCol = mix(baseCol, snowCol, snowFactor * 0.94);
+
+    // Subtle color richness boost
+    float luma = dot(baseCol, vec3(0.2126, 0.7152, 0.0722));
+    baseCol = max(vec3(0.0), mix(vec3(luma), baseCol, clamp(uColorRichness, 0.4, 2.0)));
 
     diffuseColor.rgb = baseCol;
   } else {
@@ -635,11 +898,11 @@ const TERRAIN_NORMAL_CHUNK = `
     float hX = tFbm((pxz + vec2(eps, 0.0)) * 1.15);
     float hZ = tFbm((pxz + vec2(0.0, eps)) * 1.15);
     float strataN = cos(vTerrWorldPos.y * 3.8 + hC * 3.4);
-    float microStrength = mix(0.28, 0.85, smoothstep(0.10, 0.38, tSlopeN));
+    float microStrength = mix(0.28, 0.90, smoothstep(0.10, 0.36, tSlopeN)) * uRockContrast;
     vec3 gradWorld = vec3(
-      (hC - hX) * microStrength * 1.8,
-      strataN * tSlopeN * 0.16,
-      (hC - hZ) * microStrength * 1.8
+      (hC - hX) * microStrength * 1.85,
+      strataN * tSlopeN * 0.18 * uRockContrast,
+      (hC - hZ) * microStrength * 1.85
     );
     normal = normalize(normal + (viewMatrix * vec4(gradWorld, 0.0)).xyz);
   }
@@ -651,20 +914,24 @@ const TERRAIN_ROUGHNESS_CHUNK = `
     float tAboveR = vTerrWorldPos.y - uSeaY;
     float tHNormR = clamp(vTerrWorldPos.y / max(uDispScale, 0.001), 0.0, 1.0);
     float wetR = 1.0 - smoothstep(-0.15, 0.55, tAboveR);
-    float snowR = smoothstep(0.60, 0.80, tHNormR - tSlopeR * 0.45);
-    roughnessFactor = mix(0.88, 0.72, smoothstep(0.15, 0.4, tSlopeR));
-    roughnessFactor = mix(roughnessFactor, 0.54, snowR);
-    roughnessFactor = mix(roughnessFactor, 0.26, wetR * 0.85);
+    float snowR = smoothstep(uSnowLine - 0.05, uSnowLine + 0.12, tHNormR - tSlopeR * 0.45);
+    roughnessFactor = mix(0.88, 0.70, smoothstep(0.15, 0.4, tSlopeR));
+    roughnessFactor = mix(roughnessFactor, 0.52, snowR);
+    roughnessFactor = mix(roughnessFactor, 0.24, wetR * 0.85);
   }
 `;
 
 interface DisplacedTerrainMeshProps {
   heightData: Float32Array;
   heightRes: number;
+  terrainSize: number;
+  terrainSegments: number;
   displacementScale: number;
   terrainVersion: number;
   seaY: number;
   albedoTex: THREE.Texture | null;
+  paintTex: THREE.Texture | null;
+  terrainShading: TerrainShadingSettings;
   showBiome: boolean;
   wireframe: boolean;
   onClick: (e: ThreeEvent<MouseEvent>) => void;
@@ -676,10 +943,14 @@ interface DisplacedTerrainMeshProps {
 const DisplacedTerrainMesh: React.FC<DisplacedTerrainMeshProps> = ({
   heightData,
   heightRes,
+  terrainSize,
+  terrainSegments,
   displacementScale,
   terrainVersion,
   seaY,
   albedoTex,
+  paintTex,
+  terrainShading,
   showBiome,
   wireframe,
   onClick,
@@ -688,42 +959,69 @@ const DisplacedTerrainMesh: React.FC<DisplacedTerrainMeshProps> = ({
   onPointerUp,
 }) => {
   const geom = useMemo(() => {
-    const g = new THREE.PlaneGeometry(TERRAIN_SIZE, TERRAIN_SIZE, TERRAIN_SEGMENTS, TERRAIN_SEGMENTS);
+    const g = new THREE.PlaneGeometry(terrainSize, terrainSize, terrainSegments, terrainSegments);
     g.rotateX(-Math.PI / 2);
     return g;
-  }, []);
+  }, [terrainSize, terrainSegments]);
 
   useEffect(() => {
     const pos = geom.attributes.position as THREE.BufferAttribute;
     for (let i = 0; i < pos.count; i++) {
       const x = pos.getX(i);
       const z = pos.getZ(i);
-      const y = sampleTerrainElevation(heightData, heightRes, x, z, TERRAIN_SIZE, displacementScale);
+      const y = sampleTerrainElevation(heightData, heightRes, x, z, terrainSize, displacementScale);
       pos.setY(i, y);
     }
     pos.needsUpdate = true;
     geom.computeVertexNormals();
     geom.computeBoundingBox();
     geom.computeBoundingSphere();
-  }, [geom, heightData, heightRes, displacementScale, terrainVersion]);
+  }, [geom, heightData, heightRes, terrainSize, displacementScale, terrainVersion]);
 
   const uniformsRef = useRef({
     uSeaY: { value: seaY },
     uDispScale: { value: displacementScale },
+    uTerrainSize: { value: terrainSize },
     uShowBiome: { value: showBiome ? 1.0 : 0.0 },
+    uPaintMap: { value: paintTex },
+    uHasPaintMap: { value: paintTex ? 1.0 : 0.0 },
+    uColorRichness: { value: terrainShading.colorRichness ?? 1.15 },
+    uSnowLine: { value: terrainShading.snowLine },
+    uRockContrast: { value: terrainShading.rockContrast ?? 1.1 },
+    uBeachWidth: { value: terrainShading.beachWidth },
+    uAridity: { value: terrainShading.aridity },
+    uLushness: { value: terrainShading.lushness ?? 1.0 },
   });
 
   useEffect(() => {
     uniformsRef.current.uSeaY.value = seaY;
     uniformsRef.current.uDispScale.value = displacementScale;
+    uniformsRef.current.uTerrainSize.value = terrainSize;
     uniformsRef.current.uShowBiome.value = showBiome ? 1.0 : 0.0;
-  }, [seaY, displacementScale, showBiome]);
+    uniformsRef.current.uPaintMap.value = paintTex;
+    uniformsRef.current.uHasPaintMap.value = paintTex ? 1.0 : 0.0;
+    uniformsRef.current.uColorRichness.value = terrainShading.colorRichness ?? 1.15;
+    uniformsRef.current.uSnowLine.value = terrainShading.snowLine;
+    uniformsRef.current.uRockContrast.value = terrainShading.rockContrast ?? 1.1;
+    uniformsRef.current.uBeachWidth.value = terrainShading.beachWidth;
+    uniformsRef.current.uAridity.value = terrainShading.aridity;
+    uniformsRef.current.uLushness.value = terrainShading.lushness ?? 1.0;
+  }, [seaY, displacementScale, terrainSize, showBiome, paintTex, terrainShading]);
 
   const handleBeforeCompile = useMemo(
     () => (shader: THREE.WebGLProgramParametersWithUniforms) => {
       shader.uniforms.uSeaY = uniformsRef.current.uSeaY;
       shader.uniforms.uDispScale = uniformsRef.current.uDispScale;
+      shader.uniforms.uTerrainSize = uniformsRef.current.uTerrainSize;
       shader.uniforms.uShowBiome = uniformsRef.current.uShowBiome;
+      shader.uniforms.uPaintMap = uniformsRef.current.uPaintMap;
+      shader.uniforms.uHasPaintMap = uniformsRef.current.uHasPaintMap;
+      shader.uniforms.uColorRichness = uniformsRef.current.uColorRichness;
+      shader.uniforms.uSnowLine = uniformsRef.current.uSnowLine;
+      shader.uniforms.uRockContrast = uniformsRef.current.uRockContrast;
+      shader.uniforms.uBeachWidth = uniformsRef.current.uBeachWidth;
+      shader.uniforms.uAridity = uniformsRef.current.uAridity;
+      shader.uniforms.uLushness = uniformsRef.current.uLushness;
 
       shader.vertexShader = shader.vertexShader
         .replace('#include <common>', `#include <common>\nvarying vec3 vTerrWorldPos;\nvarying vec3 vTerrWorldNormal;`)
@@ -740,7 +1038,7 @@ const DisplacedTerrainMesh: React.FC<DisplacedTerrainMeshProps> = ({
   );
 
   const hasMap = Boolean(showBiome && albedoTex);
-  const matCacheKey = `aethelgard-terrain-pbr-v2-${hasMap ? 'map' : 'nomap'}`;
+  const matCacheKey = `aethelgard-terrain-pbr-v3-${hasMap ? 'map' : 'nomap'}`;
 
   return (
     <mesh
@@ -779,6 +1077,7 @@ const DisplacedTerrainMesh: React.FC<DisplacedTerrainMeshProps> = ({
 interface TerrainFloraProps {
   heightData: Float32Array;
   heightRes: number;
+  terrainSize: number;
   displacementScale: number;
   seaY: number;
   pins: MapPinType[];
@@ -786,11 +1085,12 @@ interface TerrainFloraProps {
 }
 
 /**
- * Renders ~420 instanced boreal pines + ~140 angular boulders in 3 GPU draw calls.
+ * Renders instanced boreal pines + autumn trees + angular boulders in 3 GPU draw calls.
  */
 const TerrainFloraAndProps: React.FC<TerrainFloraProps> = ({
   heightData,
   heightRes,
+  terrainSize,
   displacementScale,
   seaY,
   pins,
@@ -812,28 +1112,35 @@ const TerrainFloraAndProps: React.FC<TerrainFloraProps> = ({
     const nearPin = (x: number, z: number) =>
       pins.some((p) => (p.x - x) * (p.x - x) + (p.z - z) * (p.z - z) < 11.5);
 
-    const pinePal = [new THREE.Color('#1c3323'), new THREE.Color('#253f2a'), new THREE.Color('#344528'), new THREE.Color('#4a3c22')];
+    const pinePal = [
+      new THREE.Color('#1d4428'),
+      new THREE.Color('#285432'),
+      new THREE.Color('#3b5a2b'),
+      new THREE.Color('#6b4f24'),
+      new THREE.Color('#8c5322'),
+    ];
 
-    for (let i = 0; i < 1600 && tList.length < 420; i++) {
-      const rx = (rand(i * 3 + 1) - 0.5) * (TERRAIN_SIZE * 0.9);
-      const rz = (rand(i * 3 + 2) - 0.5) * (TERRAIN_SIZE * 0.9);
+    const maxTrees = Math.min(820, Math.round(420 * (terrainSize / 100)));
+    const maxRocks = Math.min(260, Math.round(130 * (terrainSize / 100)));
+
+    for (let i = 0; i < 3200 && tList.length < maxTrees; i++) {
+      const rx = (rand(i * 3 + 1) - 0.5) * (terrainSize * 0.92);
+      const rz = (rand(i * 3 + 2) - 0.5) * (terrainSize * 0.92);
       if (nearPin(rx, rz)) continue;
 
-      const y = sampleTerrainElevation(heightData, heightRes, rx, rz, TERRAIN_SIZE, displacementScale);
+      const y = sampleTerrainElevation(heightData, heightRes, rx, rz, terrainSize, displacementScale);
       const hNorm = y / Math.max(displacementScale, 0.001);
-      if (y < seaY + 0.55 || hNorm > 0.54) continue;
+      if (y < seaY + 0.55 || hNorm > 0.56) continue;
 
-      // Estimate local slope
-      const yX = sampleTerrainElevation(heightData, heightRes, rx + 0.6, rz, TERRAIN_SIZE, displacementScale);
-      const yZ = sampleTerrainElevation(heightData, heightRes, rx, rz + 0.6, TERRAIN_SIZE, displacementScale);
+      const yX = sampleTerrainElevation(heightData, heightRes, rx + 0.6, rz, terrainSize, displacementScale);
+      const yZ = sampleTerrainElevation(heightData, heightRes, rx, rz + 0.6, terrainSize, displacementScale);
       const slope = Math.hypot(yX - y, yZ - y) / 0.6;
       if (slope > 0.36) continue;
 
-      // Cluster trees organically using deterministic hash wave
-      const cluster = Math.sin(rx * 0.16) * Math.cos(rz * 0.16) + rand(i * 7) * 0.5;
+      const cluster = Math.sin(rx * 0.14) * Math.cos(rz * 0.14) + rand(i * 7) * 0.5;
       if (cluster < 0.12) continue;
 
-      const scale = 0.52 + rand(i * 5 + 3) * 0.55;
+      const scale = 0.52 + rand(i * 5 + 3) * 0.58;
       tList.push({
         x: rx,
         y,
@@ -844,18 +1151,17 @@ const TerrainFloraAndProps: React.FC<TerrainFloraProps> = ({
       });
     }
 
-    for (let i = 0; i < 800 && rList.length < 130; i++) {
-      const rx = (rand(i * 13 + 700) - 0.5) * (TERRAIN_SIZE * 0.92);
-      const rz = (rand(i * 13 + 701) - 0.5) * (TERRAIN_SIZE * 0.92);
+    for (let i = 0; i < 1600 && rList.length < maxRocks; i++) {
+      const rx = (rand(i * 13 + 700) - 0.5) * (terrainSize * 0.92);
+      const rz = (rand(i * 13 + 701) - 0.5) * (terrainSize * 0.92);
       if (nearPin(rx, rz)) continue;
 
-      const y = sampleTerrainElevation(heightData, heightRes, rx, rz, TERRAIN_SIZE, displacementScale);
+      const y = sampleTerrainElevation(heightData, heightRes, rx, rz, terrainSize, displacementScale);
       if (y < seaY - 0.08 || y > displacementScale * 0.72) continue;
 
-      const yX = sampleTerrainElevation(heightData, heightRes, rx + 0.6, rz, TERRAIN_SIZE, displacementScale);
-      const yZ = sampleTerrainElevation(heightData, heightRes, rx, rz + 0.6, TERRAIN_SIZE, displacementScale);
+      const yX = sampleTerrainElevation(heightData, heightRes, rx + 0.6, rz, terrainSize, displacementScale);
+      const yZ = sampleTerrainElevation(heightData, heightRes, rx, rz + 0.6, terrainSize, displacementScale);
       const slope = Math.hypot(yX - y, yZ - y) / 0.6;
-      // Prefer rocky coasts and mountain talus rather than flat open meadows
       if (y > seaY + 1.1 && slope < 0.16) continue;
 
       const baseS = 0.15 + rand(i * 17 + 702) * 0.28;
@@ -871,7 +1177,7 @@ const TerrainFloraAndProps: React.FC<TerrainFloraProps> = ({
     }
 
     return { trees: tList, rocks: rList };
-  }, [heightData, heightRes, displacementScale, seaY, pins]);
+  }, [heightData, heightRes, terrainSize, displacementScale, seaY, pins]);
 
   useEffect(() => {
     if (!visible) return;
@@ -1008,8 +1314,9 @@ const TerrainPathOverlay: React.FC<{
   path: MapPath;
   heightData: Float32Array;
   resolution: number;
+  terrainSize: number;
   displacement: number;
-}> = ({ path, heightData, resolution, displacement }) => {
+}> = ({ path, heightData, resolution, terrainSize, displacement }) => {
   const isRegion = path.style === 'region-polygon';
 
   const sampledPoints = useMemo(() => {
@@ -1027,7 +1334,7 @@ const TerrainPathOverlay: React.FC<{
           const x = THREE.MathUtils.lerp(a.x, b.x, t);
           const z = THREE.MathUtils.lerp(a.z, b.z, t);
           const y =
-            sampleTerrainElevation(heightData, resolution, x, z, TERRAIN_SIZE, displacement) + 0.35;
+            sampleTerrainElevation(heightData, resolution, x, z, terrainSize, displacement) + 0.35;
           out.push([x, y, z]);
         }
       }
@@ -1039,10 +1346,10 @@ const TerrainPathOverlay: React.FC<{
     const curvePts = curve.getPoints(divisions);
     return curvePts.map((pt) => {
       const y =
-        sampleTerrainElevation(heightData, resolution, pt.x, pt.z, TERRAIN_SIZE, displacement) + 0.32;
+        sampleTerrainElevation(heightData, resolution, pt.x, pt.z, terrainSize, displacement) + 0.32;
       return [pt.x, y, pt.z] as [number, number, number];
     });
-  }, [path.points, isRegion, heightData, resolution, displacement]);
+  }, [path.points, isRegion, heightData, resolution, terrainSize, displacement]);
 
   if (sampledPoints.length < 2) return null;
 
@@ -1188,6 +1495,13 @@ const MapPin3D: React.FC<{
   );
 };
 
+interface TerrainHistorySnapshot {
+  height: Float32Array;
+  paint: Uint8Array;
+  res: number;
+  worldSize: number;
+}
+
 /**
  * Full 3D Scene inside R3F Canvas.
  */
@@ -1227,10 +1541,20 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({
     brushRadius,
     brushStrength,
     brushFalloff,
+    terraceSteps,
+    activeStampKind,
+    activeBiomePaint,
     activePropKind,
     selectedPropId,
+    selectedFogId,
+    activeFogPreset,
+    terrainCommandSignal,
     riverDrawingPoints,
     setSelectedPropId,
+    setSelectedFogId,
+    addFogVolume,
+    updateFogVolume,
+    updateMapEnvironment,
     addRiverPoint,
     finishRiver,
     addMapProp,
@@ -1245,11 +1569,17 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({
   const fogRef = useRef<THREE.Fog>(null);
   const { camera } = useThree();
 
+  const worldSize = getWorldSize(mapData);
+  const terrainSegments = terrainSegmentsForWorldSize(worldSize);
+  const waterSettings = useMemo(() => resolveWaterSettings(mapData), [mapData]);
+  const terrainShading = useMemo(() => resolveTerrainShading(mapData), [mapData]);
+
   // Generate procedural terrain assets (memoized fallback for Shattered Reach)
-  const procedural = useMemo(() => generateShatteredReachTerrain(512), []);
+  const procedural = useMemo(() => generateShatteredReachTerrain(512, worldSize), [worldSize]);
 
   const [heightTex, setHeightTex] = useState<THREE.Texture | null>(null);
   const [albedoTex, setAlbedoTex] = useState<THREE.Texture | null>(null);
+  const [paintTex, setPaintTex] = useState<THREE.Texture | null>(null);
   const [activeHeightData, setActiveHeightData] = useState<Float32Array>(() => procedural.heightData.slice());
   const [activeHeightRes, setActiveHeightRes] = useState<number>(procedural.resolution);
   const [terrainVersion, setTerrainVersion] = useState(0);
@@ -1257,42 +1587,86 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({
 
   const heightDataRef = useRef<Float32Array>(activeHeightData);
   const heightResRef = useRef<number>(activeHeightRes);
+  const paintDataRef = useRef<Uint8Array>(new Uint8Array(procedural.resolution * procedural.resolution * 4));
   const liveHeightTexRef = useRef<THREE.DataTexture | null>(null);
+  const livePaintTexRef = useRef<THREE.DataTexture | null>(null);
   const skipReloadHeightUrlRef = useRef<string | null>(null);
+  const skipReloadPaintUrlRef = useRef<string | null>(null);
   const isSculptingRef = useRef(false);
   const didMutateTerrainRef = useRef(false);
   const flattenTargetRef = useRef<number>(SEA_LEVEL_NORM + 0.08);
   const lastSculptTsRef = useRef(0);
   const lastPaintPosRef = useRef<{ x: number; z: number } | null>(null);
+  const lastBrushWorldPosRef = useRef<{ x: number; z: number } | null>(null);
   const draggingPropIdRef = useRef<string | null>(null);
   const draggingLabelIdRef = useRef<string | null>(null);
+  const draggingFogIdRef = useRef<string | null>(null);
+  const undoStackRef = useRef<TerrainHistorySnapshot[]>([]);
+  const redoStackRef = useRef<TerrainHistorySnapshot[]>([]);
+  const lastProcessedCmdSeqRef = useRef<number>(0);
 
-  const activeSeaNorm = mapData.generation_config?.seaLevel ?? SEA_LEVEL_NORM;
+  const activeSeaNorm = getSeaLevelNorm(mapData);
   const displacementScale = mapData.displacement_scale || DEFAULT_DISPLACEMENT;
   const effectiveDisplacementScale = mapLayers.terrain ? displacementScale : 0.4;
   const seaY = activeSeaNorm * effectiveDisplacementScale;
 
-  const commitBakedTextures = useCallback(() => {
-    const res = heightResRef.current;
-    const baked = buildTexturesFromHeightData(heightDataRef.current, res, activeSeaNorm);
-    skipReloadHeightUrlRef.current = baked.heightmapDataUrl;
-    const loader = new THREE.TextureLoader();
-    loader.load(baked.albedoDataUrl, (tex) => {
-      tex.colorSpace = THREE.SRGBColorSpace;
-      tex.anisotropy = 8;
-      tex.wrapS = THREE.ClampToEdgeWrapping;
-      tex.wrapT = THREE.ClampToEdgeWrapping;
-      tex.needsUpdate = true;
-      setAlbedoTex(tex);
-    });
-    updateMapAssets(mapData.id, {
-      heightmap_url: baked.heightmapDataUrl,
-      albedo_url: baked.albedoDataUrl,
-    });
-  }, [activeSeaNorm, mapData.id, updateMapAssets]);
+  const pushUndoSnapshot = useCallback(() => {
+    const snap: TerrainHistorySnapshot = {
+      height: heightDataRef.current.slice(),
+      paint: paintDataRef.current.slice(),
+      res: heightResRef.current,
+      worldSize,
+    };
+    undoStackRef.current.push(snap);
+    if (undoStackRef.current.length > 16) {
+      undoStackRef.current.shift();
+    }
+    redoStackRef.current = [];
+  }, [worldSize]);
+
+  const commitBakedTextures = useCallback(
+    (extraPatch?: Partial<VaultMap>) => {
+      const res = heightResRef.current;
+      let hasAnyPaint = false;
+      const pBuf = paintDataRef.current;
+      for (let i = 3; i < pBuf.length; i += 4) {
+        if (pBuf[i] > 2) {
+          hasAnyPaint = true;
+          break;
+        }
+      }
+      const baked = buildTexturesFromHeightData(
+        heightDataRef.current,
+        res,
+        activeSeaNorm,
+        hasAnyPaint ? pBuf : null
+      );
+      skipReloadHeightUrlRef.current = baked.heightmapDataUrl;
+      if (baked.paintDataUrl) {
+        skipReloadPaintUrlRef.current = baked.paintDataUrl;
+      }
+      const loader = new THREE.TextureLoader();
+      loader.load(baked.albedoDataUrl, (tex) => {
+        tex.colorSpace = THREE.SRGBColorSpace;
+        tex.anisotropy = 8;
+        tex.wrapS = THREE.ClampToEdgeWrapping;
+        tex.wrapT = THREE.ClampToEdgeWrapping;
+        tex.needsUpdate = true;
+        setAlbedoTex(tex);
+      });
+      updateMapAssets(mapData.id, {
+        heightmap_url: baked.heightmapDataUrl,
+        albedo_url: baked.albedoDataUrl,
+        paint_url: baked.paintDataUrl ?? null,
+        ...extraPatch,
+      });
+    },
+    [activeSeaNorm, mapData.id, updateMapAssets]
+  );
 
   useEffect(() => {
     const loader = new THREE.TextureLoader();
+    const targetRes = heightResForWorldSize(worldSize);
     const hUrl = mapData.heightmap_url || procedural.heightmapDataUrl;
     const aUrl = mapData.albedo_url || procedural.albedoDataUrl;
 
@@ -1304,10 +1678,11 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({
         tex.wrapS = THREE.ClampToEdgeWrapping;
         tex.wrapT = THREE.ClampToEdgeWrapping;
         tex.needsUpdate = true;
-        const extracted = mapData.heightmap_url && tex.image
-          ? extractHeightDataFromImage(tex.image, 512)
-          : procedural.heightData.slice();
-        const res = mapData.heightmap_url ? 512 : procedural.resolution;
+        const extracted =
+          mapData.heightmap_url && tex.image
+            ? extractHeightDataFromImage(tex.image, targetRes)
+            : procedural.heightData.slice();
+        const res = mapData.heightmap_url ? targetRes : procedural.resolution;
         heightDataRef.current = extracted;
         heightResRef.current = res;
         const liveTex = buildLiveHeightDataTexture(extracted, res);
@@ -1316,8 +1691,36 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({
         setHeightTex(liveTex);
         setActiveHeightData(extracted);
         setActiveHeightRes(res);
+
+        // Initialize or resize paint buffer to match resolution
+        if (paintDataRef.current.length !== res * res * 4) {
+          paintDataRef.current = new Uint8Array(res * res * 4);
+        }
+        const livePTex = buildLivePaintDataTexture(paintDataRef.current, res);
+        livePaintTexRef.current?.dispose();
+        livePaintTexRef.current = livePTex;
+        setPaintTex(livePTex);
+
         setTerrainVersion((v) => v + 1);
       });
+    }
+
+    if (mapData.paint_url) {
+      if (skipReloadPaintUrlRef.current && mapData.paint_url === skipReloadPaintUrlRef.current) {
+        skipReloadPaintUrlRef.current = null;
+      } else {
+        loader.load(mapData.paint_url, (ptex) => {
+          if (ptex.image) {
+            const res = heightResRef.current;
+            const extractedPaint = extractRgbaDataFromImage(ptex.image, res);
+            paintDataRef.current = extractedPaint;
+            const livePTex = buildLivePaintDataTexture(extractedPaint, res);
+            livePaintTexRef.current?.dispose();
+            livePaintTexRef.current = livePTex;
+            setPaintTex(livePTex);
+          }
+        });
+      }
     }
 
     loader.load(aUrl, (tex) => {
@@ -1328,7 +1731,153 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({
       tex.needsUpdate = true;
       setAlbedoTex(tex);
     });
-  }, [mapData.id, mapData.heightmap_url, mapData.albedo_url, procedural]);
+  }, [mapData.id, mapData.heightmap_url, mapData.albedo_url, mapData.paint_url, procedural, worldSize]);
+
+  // Execute global terrain commands (Undo, Redo, Blank Canvas, Smooth All, Erode All, Noise Detail, Expand World, etc.)
+  useEffect(() => {
+    if (
+      terrainCommandSignal.seq === 0 ||
+      terrainCommandSignal.seq === lastProcessedCmdSeqRef.current ||
+      !terrainCommandSignal.cmd
+    ) {
+      return;
+    }
+    lastProcessedCmdSeqRef.current = terrainCommandSignal.seq;
+    const cmd = terrainCommandSignal.cmd;
+
+    const syncAllLiveTextures = () => {
+      const res = heightResRef.current;
+      if (liveHeightTexRef.current) {
+        syncLiveHeightDataTexture(liveHeightTexRef.current, heightDataRef.current, res);
+      } else {
+        const liveTex = buildLiveHeightDataTexture(heightDataRef.current, res);
+        liveHeightTexRef.current = liveTex;
+        setHeightTex(liveTex);
+      }
+      if (livePaintTexRef.current) {
+        syncLivePaintDataTexture(livePaintTexRef.current, paintDataRef.current);
+      }
+      setActiveHeightData(heightDataRef.current);
+      setActiveHeightRes(res);
+      setTerrainVersion((v) => v + 1);
+    };
+
+    if (cmd.type === 'undo') {
+      const prev = undoStackRef.current.pop();
+      if (!prev) return;
+      redoStackRef.current.push({
+        height: heightDataRef.current.slice(),
+        paint: paintDataRef.current.slice(),
+        res: heightResRef.current,
+        worldSize,
+      });
+      heightDataRef.current = prev.height;
+      paintDataRef.current = prev.paint;
+      heightResRef.current = prev.res;
+      syncAllLiveTextures();
+      commitBakedTextures();
+      return;
+    }
+
+    if (cmd.type === 'redo') {
+      const next = redoStackRef.current.pop();
+      if (!next) return;
+      undoStackRef.current.push({
+        height: heightDataRef.current.slice(),
+        paint: paintDataRef.current.slice(),
+        res: heightResRef.current,
+        worldSize,
+      });
+      heightDataRef.current = next.height;
+      paintDataRef.current = next.paint;
+      heightResRef.current = next.res;
+      syncAllLiveTextures();
+      commitBakedTextures();
+      return;
+    }
+
+    pushUndoSnapshot();
+
+    if (cmd.type === 'blank') {
+      applyGlobalBlankTerrain(
+        heightDataRef.current,
+        heightResRef.current,
+        cmd.preset,
+        activeSeaNorm,
+        cmd.seed ?? Date.now()
+      );
+      paintDataRef.current.fill(0);
+      syncAllLiveTextures();
+      commitBakedTextures();
+    } else if (cmd.type === 'smooth-all') {
+      const passes = Math.max(1, cmd.iterations || 2);
+      for (let i = 0; i < passes; i++) {
+        applyGlobalSmooth(heightDataRef.current, heightResRef.current, 0.55);
+      }
+      syncAllLiveTextures();
+      commitBakedTextures();
+    } else if (cmd.type === 'erode-all') {
+      applyGlobalThermalErosion(
+        heightDataRef.current,
+        heightResRef.current,
+        cmd.iterations || 5
+      );
+      syncAllLiveTextures();
+      commitBakedTextures();
+    } else if (cmd.type === 'noise-all') {
+      applyGlobalNoiseDetail(
+        heightDataRef.current,
+        heightResRef.current,
+        (cmd.amount ?? 0.35) * 0.14,
+        Date.now() % 10000
+      );
+      syncAllLiveTextures();
+      commitBakedTextures();
+    } else if (cmd.type === 'raise-all') {
+      applyGlobalHeightOffset(heightDataRef.current, cmd.delta);
+      syncAllLiveTextures();
+      commitBakedTextures();
+    } else if (cmd.type === 'clear-paint') {
+      paintDataRef.current.fill(0);
+      syncAllLiveTextures();
+      commitBakedTextures({ paint_url: null });
+    } else if (cmd.type === 'expand') {
+      const newSize = cmd.newWorldSize;
+      const newRes = heightResForWorldSize(newSize);
+      const expanded = expandHeightDataToWorldSize(
+        heightDataRef.current,
+        heightResRef.current,
+        worldSize,
+        newSize,
+        newRes,
+        activeSeaNorm
+      );
+      heightDataRef.current = expanded;
+      heightResRef.current = newRes;
+      paintDataRef.current = new Uint8Array(newRes * newRes * 4);
+      const liveTex = buildLiveHeightDataTexture(expanded, newRes);
+      liveHeightTexRef.current?.dispose();
+      liveHeightTexRef.current = liveTex;
+      setHeightTex(liveTex);
+      const livePTex = buildLivePaintDataTexture(paintDataRef.current, newRes);
+      livePaintTexRef.current?.dispose();
+      livePaintTexRef.current = livePTex;
+      setPaintTex(livePTex);
+      setActiveHeightData(expanded);
+      setActiveHeightRes(newRes);
+      setTerrainVersion((v) => v + 1);
+      updateMapEnvironment(mapData.id, { world_size: newSize });
+      commitBakedTextures({ world_size: newSize, paint_url: null });
+    }
+  }, [
+    terrainCommandSignal,
+    worldSize,
+    activeSeaNorm,
+    pushUndoSnapshot,
+    commitBakedTextures,
+    updateMapEnvironment,
+    mapData.id,
+  ]);
 
   // Register river carving action handle for the UI toolbar
   useEffect(() => {
@@ -1336,6 +1885,7 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({
       carveRiver: (name: string, width: number, depth: number) => {
         const pts = useVaultStore.getState().riverDrawingPoints;
         if (pts.length < 2) return;
+        pushUndoSnapshot();
         const riverDraft = {
           id: `river-draft-${Date.now()}`,
           name: name.trim() || 'Carved River',
@@ -1348,7 +1898,8 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({
           heightResRef.current,
           riverDraft,
           displacementScale,
-          activeSeaNorm
+          activeSeaNorm,
+          worldSize
         );
         if (liveHeightTexRef.current) {
           syncLiveHeightDataTexture(liveHeightTexRef.current, heightDataRef.current, heightResRef.current);
@@ -1361,7 +1912,7 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({
     return () => {
       terrainActionsRef.current = null;
     };
-  }, [terrainActionsRef, displacementScale, activeSeaNorm, finishRiver, mapData.id, commitBakedTextures]);
+  }, [terrainActionsRef, displacementScale, activeSeaNorm, worldSize, finishRiver, mapData.id, commitBakedTextures, pushUndoSnapshot]);
 
   // Ensure drag finishes cleanly even if pointer releases outside mesh
   useEffect(() => {
@@ -1373,7 +1924,9 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({
       isSculptingRef.current = false;
       draggingPropIdRef.current = null;
       draggingLabelIdRef.current = null;
+      draggingFogIdRef.current = null;
       lastPaintPosRef.current = null;
+      lastBrushWorldPosRef.current = null;
       if (controlsRef.current) {
         controlsRef.current.enabled = true;
       }
@@ -1382,7 +1935,7 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({
     return () => window.removeEventListener('pointerup', handleGlobalUp);
   }, [commitBakedTextures]);
 
-  // Initialize OrbitControls target once on mount (prevents inline target prop from resetting Top View/pan on re-renders)
+  // Initialize OrbitControls target once on mount
   useEffect(() => {
     if (controlsRef.current) {
       controlsRef.current.target.copy(DEFAULT_TARGET);
@@ -1393,22 +1946,24 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({
   // Camera Reset (3D Perspective) handler
   useEffect(() => {
     if (cameraResetSignal === 0) return;
-    camera.position.copy(DEFAULT_CAMERA_POS);
+    const scale = Math.max(0.85, worldSize / 150);
+    camera.position.set(DEFAULT_CAMERA_POS.x * scale, DEFAULT_CAMERA_POS.y * scale, DEFAULT_CAMERA_POS.z * scale);
     if (controlsRef.current) {
       controlsRef.current.target.copy(DEFAULT_TARGET);
       controlsRef.current.update();
     }
-  }, [cameraResetSignal, camera]);
+  }, [cameraResetSignal, camera, worldSize]);
 
   // Camera Top-Down Whole World View handler
   useEffect(() => {
     if (cameraTopViewSignal === 0) return;
-    camera.position.copy(TOP_CAMERA_POS);
+    const topY = Math.max(148, worldSize * 1.38);
+    camera.position.set(0, topY, 0.01);
     if (controlsRef.current) {
       controlsRef.current.target.copy(TOP_TARGET);
       controlsRef.current.update();
     }
-  }, [cameraTopViewSignal, camera]);
+  }, [cameraTopViewSignal, camera, worldSize]);
 
   // Camera Zoom +/- handler
   useEffect(() => {
@@ -1416,20 +1971,22 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({
     const target = controlsRef.current.target;
     const dir = camera.position.clone().sub(target);
     const factor = cameraZoomSignal.delta > 0 ? 0.8 : 1.25;
-    const nextLen = THREE.MathUtils.clamp(dir.length() * factor, 16, 220);
+    const maxDist = Math.max(240, worldSize * 2.1);
+    const nextLen = THREE.MathUtils.clamp(dir.length() * factor, 12, maxDist);
     dir.setLength(nextLen);
     camera.position.copy(target).add(dir);
     controlsRef.current.update();
-  }, [cameraZoomSignal, camera]);
+  }, [cameraZoomSignal, camera, worldSize]);
 
   // Update dynamic scale bar km + whole-world fog distance smoothly based on camera distance
   const lastKmRef = useRef(40);
   useFrame(() => {
     if (fogRef.current) {
       const camLen = camera.position.length();
-      const topBlend = THREE.MathUtils.smoothstep(camLen, 76, 118);
-      fogRef.current.near = THREE.MathUtils.lerp(68, 240, topBlend);
-      fogRef.current.far = THREE.MathUtils.lerp(138, 460, topBlend);
+      const sizeScale = Math.max(1, worldSize / 100);
+      const topBlend = THREE.MathUtils.smoothstep(camLen, 85 * sizeScale, 155 * sizeScale);
+      fogRef.current.near = THREE.MathUtils.lerp(76 * sizeScale, 280 * sizeScale, topBlend);
+      fogRef.current.far = THREE.MathUtils.lerp(165 * sizeScale, 560 * sizeScale, topBlend);
     }
     if (!controlsRef.current) return;
     const dist = camera.position.distanceTo(controlsRef.current.target);
@@ -1441,10 +1998,32 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({
   });
 
   const isBrushTool = (t: WorldsmithTool) =>
-    t === 'raise' || t === 'valley' || t === 'flatten' || t === 'smooth' || t === 'coast';
+    t === 'raise' ||
+    t === 'valley' ||
+    t === 'flatten' ||
+    t === 'smooth' ||
+    t === 'coast' ||
+    t === 'ridge' ||
+    t === 'noise' ||
+    t === 'terrace' ||
+    t === 'erode';
 
   const applyBrushAtPoint = useCallback(
     (wx: number, wz: number, invert = false) => {
+      let strokeDirX = 0;
+      let strokeDirZ = 0;
+      if (lastBrushWorldPosRef.current) {
+        const dx = wx - lastBrushWorldPosRef.current.x;
+        const dz = wz - lastBrushWorldPosRef.current.z;
+        if (Math.hypot(dx, dz) > 0.15) {
+          strokeDirX = dx;
+          strokeDirZ = dz;
+          lastBrushWorldPosRef.current = { x: wx, z: wz };
+        }
+      } else {
+        lastBrushWorldPosRef.current = { x: wx, z: wz };
+      }
+
       applyTerrainBrush(heightDataRef.current, heightResRef.current, wx, wz, {
         tool: worldsmithTool,
         radius: brushRadius,
@@ -1453,10 +2032,14 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({
         targetHeightNorm: flattenTargetRef.current,
         seaLevelNorm: activeSeaNorm,
         invert,
+        terrainSize: worldSize,
+        terraceSteps,
+        strokeDir:
+          strokeDirX !== 0 || strokeDirZ !== 0 ? { x: strokeDirX, z: strokeDirZ } : null,
       });
       didMutateTerrainRef.current = true;
       const now = performance.now();
-      if (now - lastSculptTsRef.current >= 24) {
+      if (now - lastSculptTsRef.current >= 22) {
         lastSculptTsRef.current = now;
         if (liveHeightTexRef.current) {
           syncLiveHeightDataTexture(liveHeightTexRef.current, heightDataRef.current, heightResRef.current);
@@ -1464,7 +2047,25 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({
         setTerrainVersion((v) => v + 1);
       }
     },
-    [worldsmithTool, brushRadius, brushStrength, brushFalloff, activeSeaNorm]
+    [worldsmithTool, brushRadius, brushStrength, brushFalloff, activeSeaNorm, worldSize, terraceSteps]
+  );
+
+  const applyPaintAtPoint = useCallback(
+    (wx: number, wz: number, erase = false) => {
+      applyBiomePaintBrush(paintDataRef.current, heightResRef.current, wx, wz, {
+        biome: activeBiomePaint,
+        radius: brushRadius,
+        strength: brushStrength,
+        falloff: brushFalloff,
+        terrainSize: worldSize,
+        invert: erase,
+      });
+      didMutateTerrainRef.current = true;
+      if (livePaintTexRef.current) {
+        syncLivePaintDataTexture(livePaintTexRef.current, paintDataRef.current);
+      }
+    },
+    [activeBiomePaint, brushRadius, brushStrength, brushFalloff, worldSize]
   );
 
   const stampFloraAtPoint = useCallback(
@@ -1487,7 +2088,7 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({
           heightResRef.current,
           px,
           pz,
-          TERRAIN_SIZE,
+          worldSize,
           effectiveDisplacementScale
         );
         if (py < seaY + 0.15 && kindToPlace !== 'boulder') continue;
@@ -1501,7 +2102,7 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({
         });
       }
     },
-    [activePropKind, brushRadius, effectiveDisplacementScale, seaY, addMapProp, mapData.id]
+    [activePropKind, brushRadius, worldSize, effectiveDisplacementScale, seaY, addMapProp, mapData.id]
   );
 
   const erasePropsWithinRadius = useCallback(
@@ -1521,7 +2122,6 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({
 
   const handleSurfaceClick = (e: ThreeEvent<MouseEvent>) => {
     if (worldsmithMode) return;
-    // Ignore drag-orbit / drag-pan releases
     if (e.delta > 6) return;
     e.stopPropagation();
 
@@ -1569,6 +2169,7 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({
       setSelectedZoneId(null);
       setSelectedLabelId(null);
       setSelectedPropId(null);
+      setSelectedFogId(null);
     }
   };
 
@@ -1580,13 +2181,45 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({
     setBrushCursor(pt);
 
     if (isBrushTool(worldsmithTool)) {
+      pushUndoSnapshot();
       isSculptingRef.current = true;
       didMutateTerrainRef.current = false;
+      lastBrushWorldPosRef.current = { x: pt.x, z: pt.z };
       if (worldsmithTool === 'flatten') {
         flattenTargetRef.current = e.point.y / Math.max(effectiveDisplacementScale, 0.01);
       }
       lastSculptTsRef.current = 0;
       applyBrushAtPoint(pt.x, pt.z, e.shiftKey);
+    } else if (worldsmithTool === 'stamp') {
+      pushUndoSnapshot();
+      applyTerrainStamp(heightDataRef.current, heightResRef.current, pt.x, pt.z, {
+        stamp: activeStampKind,
+        radius: brushRadius,
+        strength: brushStrength,
+        seaLevelNorm: activeSeaNorm,
+        terrainSize: worldSize,
+        invert: e.shiftKey,
+      });
+      if (liveHeightTexRef.current) {
+        syncLiveHeightDataTexture(liveHeightTexRef.current, heightDataRef.current, heightResRef.current);
+      }
+      setTerrainVersion((v) => v + 1);
+      commitBakedTextures();
+    } else if (worldsmithTool === 'paint-biome') {
+      pushUndoSnapshot();
+      isSculptingRef.current = true;
+      didMutateTerrainRef.current = false;
+      applyPaintAtPoint(pt.x, pt.z, e.shiftKey);
+    } else if (worldsmithTool === 'fog') {
+      addFogVolume(
+        mapData.id,
+        {
+          x: Number(pt.x.toFixed(2)),
+          y: Number(Math.max(seaY, pt.y).toFixed(2)),
+          z: Number(pt.z.toFixed(2)),
+        },
+        activeFogPreset
+      );
     } else if (worldsmithTool === 'river') {
       addRiverPoint(pt);
     } else if (worldsmithTool === 'paint-flora') {
@@ -1613,11 +2246,22 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({
       erasePropsWithinRadius(pt.x, pt.z);
     } else if (worldsmithTool === 'edit-mesh') {
       setSelectedPropId(null);
+      setSelectedFogId(null);
     }
   };
 
   const handleSurfacePointerMove = (e: ThreeEvent<PointerEvent>) => {
     const pt = { x: e.point.x, y: e.point.y, z: e.point.z };
+
+    if (draggingFogIdRef.current) {
+      e.stopPropagation();
+      updateFogVolume(mapData.id, draggingFogIdRef.current, {
+        x: Number(pt.x.toFixed(2)),
+        y: Number(Math.max(seaY, pt.y).toFixed(2)),
+        z: Number(pt.z.toFixed(2)),
+      });
+      return;
+    }
 
     if (draggingLabelIdRef.current) {
       e.stopPropagation();
@@ -1651,6 +2295,8 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({
 
     if (isBrushTool(worldsmithTool)) {
       applyBrushAtPoint(pt.x, pt.z, e.shiftKey);
+    } else if (worldsmithTool === 'paint-biome') {
+      applyPaintAtPoint(pt.x, pt.z, e.shiftKey);
     } else if (worldsmithTool === 'paint-flora') {
       const prev = lastPaintPosRef.current;
       if (!prev || Math.hypot(pt.x - prev.x, pt.z - prev.z) >= Math.max(1.5, brushRadius * 0.45)) {
@@ -1667,6 +2313,9 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({
       if (liveHeightTexRef.current) {
         syncLiveHeightDataTexture(liveHeightTexRef.current, heightDataRef.current, heightResRef.current);
       }
+      if (livePaintTexRef.current) {
+        syncLivePaintDataTexture(livePaintTexRef.current, paintDataRef.current);
+      }
       setTerrainVersion((v) => v + 1);
       didMutateTerrainRef.current = false;
       commitBakedTextures();
@@ -1674,7 +2323,9 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({
     isSculptingRef.current = false;
     draggingPropIdRef.current = null;
     draggingLabelIdRef.current = null;
+    draggingFogIdRef.current = null;
     lastPaintPosRef.current = null;
+    lastBrushWorldPosRef.current = null;
     if (controlsRef.current) {
       controlsRef.current.enabled = true;
     }
@@ -1704,6 +2355,22 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({
       }
     },
     [worldsmithMode, worldsmithTool, mapToolMode, deleteMapProp, mapData.id, setSelectedPropId]
+  );
+
+  const handleSelectFog = useCallback(
+    (fog: FogVolume, e?: ThreeEvent<PointerEvent>) => {
+      setSelectedFogId(fog.id);
+      const isPointerDown = Boolean(e && 'point' in e);
+      if (
+        isPointerDown &&
+        worldsmithMode &&
+        (worldsmithTool === 'fog' || worldsmithTool === 'edit-mesh')
+      ) {
+        draggingFogIdRef.current = fog.id;
+        if (controlsRef.current) controlsRef.current.enabled = false;
+      }
+    },
+    [worldsmithMode, worldsmithTool, setSelectedFogId]
   );
 
   const handleSelectLabel = useCallback(
@@ -1738,15 +2405,21 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({
 
   const showBrushRing =
     worldsmithMode &&
-    (isBrushTool(worldsmithTool) || worldsmithTool === 'paint-flora' || worldsmithTool === 'erase-mesh');
+    (isBrushTool(worldsmithTool) ||
+      worldsmithTool === 'stamp' ||
+      worldsmithTool === 'paint-biome' ||
+      worldsmithTool === 'paint-flora' ||
+      worldsmithTool === 'erase-mesh');
 
   const brushRingColor =
     worldsmithTool === 'erase-mesh'
       ? '#f87171'
-      : worldsmithTool === 'valley' || worldsmithTool === 'coast'
+      : worldsmithTool === 'valley' || worldsmithTool === 'coast' || worldsmithTool === 'erode'
       ? '#38bdf8'
-      : worldsmithTool === 'paint-flora'
+      : worldsmithTool === 'paint-flora' || worldsmithTool === 'paint-biome'
       ? '#4ade80'
+      : worldsmithTool === 'stamp'
+      ? '#c084fc'
       : '#facc15';
 
   const atmosphere =
@@ -1756,11 +2429,13 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({
     mapData.layers && mapData.layers.length > 0 ? mapData.layers : createDefaultWorldLayers();
 
   const isZoneDrawing = mapToolMode === 'zone' || mapToolMode === 'region';
+  const shadowBounds = Math.max(65, worldSize * 0.58);
+  const maxOrbitDist = Math.max(240, worldSize * 2.15);
 
   return (
     <>
       <color attach="background" args={[atmosphere.bg]} />
-      <fog ref={fogRef} attach="fog" args={[atmosphere.fog, 68, 138]} />
+      <fog ref={fogRef} attach="fog" args={[atmosphere.fog, 90, 220]} />
 
       {/* Atmosphere-driven directional & twilight hemisphere lighting */}
       <hemisphereLight args={[atmosphere.hemiSky, atmosphere.hemiGround, atmosphere.hemiIntensity]} />
@@ -1771,12 +2446,12 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({
         castShadow
         shadow-mapSize-width={1024}
         shadow-mapSize-height={1024}
-        shadow-camera-left={-55}
-        shadow-camera-right={55}
-        shadow-camera-top={55}
-        shadow-camera-bottom={-55}
+        shadow-camera-left={-shadowBounds}
+        shadow-camera-right={shadowBounds}
+        shadow-camera-top={shadowBounds}
+        shadow-camera-bottom={-shadowBounds}
         shadow-camera-near={5}
-        shadow-camera-far={165}
+        shadow-camera-far={Math.max(180, worldSize * 1.4)}
         shadow-bias={-0.0005}
       />
       <directionalLight position={[42, 22, -38]} intensity={atmosphere.fillIntensity} color={atmosphere.fillColor} />
@@ -1785,9 +2460,9 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({
         ref={controlsRef}
         enableDamping
         dampingFactor={0.07}
-        minDistance={16}
-        maxDistance={230}
-        maxPolarAngle={Math.PI * 0.45}
+        minDistance={12}
+        maxDistance={maxOrbitDist}
+        maxPolarAngle={Math.PI * 0.46}
         minPolarAngle={0.004}
         mouseButtons={
           worldsmithMode
@@ -1810,14 +2485,18 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({
         }
       />
 
-      {/* CPU-Displaced 3D Terrain Mesh with World-Space Strata, Biome & Wet-Shore PBR */}
+      {/* CPU-Displaced 3D Terrain Mesh with Multi-Biome, Hand-Painted Biomes, Strata & Wet-Shore PBR */}
       <DisplacedTerrainMesh
         heightData={activeHeightData}
         heightRes={activeHeightRes}
+        terrainSize={worldSize}
+        terrainSegments={terrainSegments}
         displacementScale={effectiveDisplacementScale}
         terrainVersion={terrainVersion}
         seaY={seaY}
         albedoTex={albedoTex}
+        paintTex={paintTex}
+        terrainShading={terrainShading}
         showBiome={mapLayers.vegetation}
         wireframe={mapRenderMode === 'terrain'}
         onClick={handleSurfaceClick}
@@ -1830,6 +2509,7 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({
       <TerrainFloraAndProps
         heightData={activeHeightData}
         heightRes={activeHeightRes}
+        terrainSize={worldSize}
         displacementScale={effectiveDisplacementScale}
         seaY={seaY}
         pins={visiblePins}
@@ -1844,6 +2524,7 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({
         displacementScale={effectiveDisplacementScale}
         seaY={seaY}
         terrainVersion={terrainVersion}
+        terrainSize={worldSize}
         visible={mapLayers.vegetation && mapRenderMode === 'map'}
         selectedPropId={selectedPropId}
         interactive={worldsmithMode || mapToolMode === 'select' || mapToolMode === 'element'}
@@ -1858,6 +2539,7 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({
         displacementScale={effectiveDisplacementScale}
         seaY={seaY}
         terrainVersion={terrainVersion}
+        terrainSize={worldSize}
         visible={mapRenderMode === 'map' && mapLayers.rivers}
         previewPoints={riverDrawingPoints}
       />
@@ -1871,6 +2553,7 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({
         displacementScale={effectiveDisplacementScale}
         seaY={seaY}
         terrainVersion={terrainVersion}
+        terrainSize={worldSize}
         gmMode={gmMode}
         showRegionsLayer={mapLayers.regions}
         showLabelsLayer={mapLayers.labels}
@@ -1887,6 +2570,7 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({
         heightRes={activeHeightRes}
         displacementScale={effectiveDisplacementScale}
         seaY={seaY}
+        terrainSize={worldSize}
         gmMode={gmMode}
         visible={mapLayers.labels}
         selectedLabelId={selectedLabelId}
@@ -1902,22 +2586,49 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({
         color={brushRingColor}
       />
 
-      {/* Animated Sea Level Water Shader */}
+      {/* Animated Sea Level Water Shader with 6-Wave Gerstner Swell, Whitecaps & Shore Breakers */}
       <SeaLevelWater
         seaY={seaY}
+        terrainSize={worldSize}
         heightTex={heightTex}
         displacementScale={effectiveDisplacementScale}
+        waterSettings={waterSettings}
         wireframe={mapRenderMode === 'terrain'}
         atmosphereKey={mapData.atmosphere || 'golden-hour'}
         disableRaycast={
           worldsmithMode &&
           (isBrushTool(worldsmithTool) ||
+            worldsmithTool === 'stamp' ||
+            worldsmithTool === 'paint-biome' ||
             worldsmithTool === 'paint-flora' ||
             worldsmithTool === 'erase-mesh')
         }
         onClick={handleSurfaceClick}
+        onPointerDown={handleTerrainPointerDown}
         onPointerMove={handleSurfacePointerMove}
         onPointerUp={handleTerrainPointerUp}
+      />
+
+      {/* Placeable 3D Volumetric Raymarched Fog Volumes */}
+      <FogVolumes3D
+        volumes={mapData.fog_volumes || []}
+        heightTex={heightTex}
+        terrainSize={worldSize}
+        displacementScale={effectiveDisplacementScale}
+        seaY={seaY}
+        sunPos={atmosphere.sunPos}
+        sunColor={atmosphere.sunColor}
+        gmMode={gmMode}
+        visible={mapRenderMode === 'map'}
+        selectedFogId={selectedFogId}
+        showGizmos={
+          worldsmithMode &&
+          (worldsmithTool === 'fog' || worldsmithTool === 'edit-mesh' || selectedFogId !== null)
+        }
+        interactive={
+          worldsmithMode && (worldsmithTool === 'fog' || worldsmithTool === 'edit-mesh')
+        }
+        onSelectFog={handleSelectFog}
       />
 
       {/* Subtle Atmospheric Mist (hidden in crisp whole-world top view) */}
@@ -1930,6 +2641,7 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({
           path={p}
           heightData={activeHeightData}
           resolution={activeHeightRes}
+          terrainSize={worldSize}
           displacement={displacementScale}
         />
       ))}
@@ -2014,6 +2726,7 @@ export const MapViewport3D: React.FC<{ mapId: string }> = ({ mapId }) => {
     addWorldLayer,
     createMapZone,
     setRightInspectorCollapsed,
+    dispatchTerrainCommand,
   } = useVaultStore();
 
   const [layersDropdownOpen, setLayersDropdownOpen] = useState(false);
@@ -2081,11 +2794,21 @@ export const MapViewport3D: React.FC<{ mapId: string }> = ({ mapId }) => {
     [activeMap?.layers]
   );
 
-  // Keyboard shortcuts: T toggles Whole World Top View, Esc exits active Atlas tool
+  // Keyboard shortcuts: T toggles Whole World Top View, Esc exits active Atlas tool, Ctrl+Z/Y undoes/redoes terrain sculpts
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement | null)?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      if (worldsmithMode && (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+        e.preventDefault();
+        dispatchTerrainCommand({ type: e.shiftKey ? 'redo' : 'undo' });
+        return;
+      }
+      if (worldsmithMode && (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') {
+        e.preventDefault();
+        dispatchTerrainCommand({ type: 'redo' });
+        return;
+      }
       if ((e.key === 't' || e.key === 'T') && !e.metaKey && !e.ctrlKey && !e.altKey) {
         e.preventDefault();
         if (mapCameraView === 'top') triggerCameraReset();
@@ -2096,9 +2819,20 @@ export const MapViewport3D: React.FC<{ mapId: string }> = ({ mapId }) => {
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [mapCameraView, triggerCameraReset, triggerTopView, worldsmithMode, mapToolMode, setMapToolMode]);
+  }, [
+    mapCameraView,
+    triggerCameraReset,
+    triggerTopView,
+    worldsmithMode,
+    mapToolMode,
+    setMapToolMode,
+    dispatchTerrainCommand,
+  ]);
 
   if (!activeMap) return null;
+
+  const worldSize = getWorldSize(activeMap);
+  const camScale = Math.max(0.85, worldSize / 150);
 
   const cursorClass = worldsmithMode
     ? worldsmithTool === 'edit-mesh'
@@ -2134,10 +2868,14 @@ export const MapViewport3D: React.FC<{ mapId: string }> = ({ mapId }) => {
         shadows
         dpr={[1, 2]}
         camera={{
-          position: [DEFAULT_CAMERA_POS.x, DEFAULT_CAMERA_POS.y, DEFAULT_CAMERA_POS.z],
+          position: [
+            DEFAULT_CAMERA_POS.x * camScale,
+            DEFAULT_CAMERA_POS.y * camScale,
+            DEFAULT_CAMERA_POS.z * camScale,
+          ],
           fov: 44,
           near: 0.5,
-          far: 450,
+          far: Math.max(650, worldSize * 4.5),
         }}
       >
         <TerrainScene
@@ -2245,17 +2983,24 @@ export const MapViewport3D: React.FC<{ mapId: string }> = ({ mapId }) => {
               {worldsmithTool === 'flatten' && 'Left-drag: Flatten Plateau • Right-drag: Orbit'}
               {worldsmithTool === 'smooth' && 'Left-drag: Smooth Ridges • Right-drag: Orbit'}
               {worldsmithTool === 'coast' && 'Left-drag: Sink Coastline • Right-drag: Orbit'}
+              {worldsmithTool === 'ridge' && 'Left-drag along spine: Sculpt Sharp Mountain Ridge (Shift: Gorge)'}
+              {worldsmithTool === 'noise' && 'Left-drag: Roughen Terrain with Fractal Detail (Shift: Carve Pits)'}
+              {worldsmithTool === 'terrace' && 'Left-drag: Carve Stepped Terraces & Cliffs'}
+              {worldsmithTool === 'erode' && 'Left-drag: Weather & Deposit Talus Slopes'}
+              {worldsmithTool === 'stamp' && 'Click terrain: Stamp Landform (Shift: Invert / Sink) • Pick Stamp in Inspector'}
+              {worldsmithTool === 'paint-biome' && 'Left-drag: Paint Biome Surface Colors (Shift: Erase Paint)'}
+              {worldsmithTool === 'fog' && 'Click terrain/sea to place Fog Volume • Drag existing Fog to move • Tune in Inspector'}
               {worldsmithTool === 'river' && 'Click waypoints down-slope, then Carve River'}
               {worldsmithTool === 'paint-flora' && 'Left-drag: Paint Trees & Boulders • Right-drag: Orbit'}
               {worldsmithTool === 'place-mesh' && 'Click terrain to place active hero mesh'}
-              {worldsmithTool === 'edit-mesh' && 'Drag a 3D mesh to reposition • Tune in Inspector'}
+              {worldsmithTool === 'edit-mesh' && 'Drag a 3D mesh or Fog Volume to reposition • Tune in Inspector'}
               {worldsmithTool === 'erase-mesh' && 'Left-drag to erase meshes & flora inside brush'}
             </span>
             <button
               onClick={() => setRightInspectorCollapsed(false)}
               className="text-[#c9a050] hover:text-white underline text-[10.5px] font-medium"
             >
-              Brush
+              Inspector
             </button>
           </div>
         ) : (
@@ -2584,42 +3329,68 @@ export const MapViewport3D: React.FC<{ mapId: string }> = ({ mapId }) => {
       )}
 
       {/* Option A: Bottom-Center Studio Tool & Layer Dock */}
-      <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1 px-1.5 py-1 rounded-xl dark-glass shadow-glass border border-[#171c26] max-w-[94vw]">
+      <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1 px-1.5 py-1 rounded-xl dark-glass shadow-glass border border-[#171c26] max-w-[96vw]">
         {/* Active Tool Buttons */}
-        <div className="flex items-center gap-0.5">
+        <div className="flex items-center gap-0.5 flex-wrap justify-center">
           {worldsmithMode ? (
-            (
-              [
-                { id: 'raise', icon: ArrowUpFromLine, label: 'Raise Mountain' },
-                { id: 'valley', icon: ArrowDownToLine, label: 'Carve Valley' },
-                { id: 'flatten', icon: Minus, label: 'Flatten Plateau' },
-                { id: 'smooth', icon: Wand2, label: 'Smooth Terrain' },
-                { id: 'coast', icon: Waves, label: 'Lower to Sea / Coast' },
-                { id: 'river', icon: Route, label: 'Carve River Spline' },
-                { id: 'paint-flora', icon: Trees, label: 'Paint Trees & Rocks Brush' },
-                { id: 'place-mesh', icon: Castle, label: 'Place Hero Mesh' },
-                { id: 'edit-mesh', icon: Move, label: 'Select / Move Mesh' },
-                { id: 'erase-mesh', icon: Eraser, label: 'Erase Meshes Brush' },
-              ] as const
-            ).map((tool) => {
-              const Icon = tool.icon;
-              const active = worldsmithTool === tool.id;
-              return (
-                <button
-                  key={tool.id}
-                  title={tool.label}
-                  aria-label={tool.label}
-                  onClick={() => setWorldsmithTool(tool.id)}
-                  className={`p-2 rounded-lg transition-all ${
-                    active
-                      ? 'bg-[#b68d40]/20 text-[#d6b16a] border border-[#b68d40]/55 shadow-gold-sm'
-                      : 'text-[#848d9c] hover:text-[#e8dfd0] hover:bg-[#10141c]'
-                  }`}
-                >
-                  <Icon className="w-4 h-4" />
-                </button>
-              );
-            })
+            <>
+              <button
+                title="Undo Terrain Sculpt (Ctrl+Z)"
+                aria-label="Undo Terrain Sculpt"
+                onClick={() => dispatchTerrainCommand({ type: 'undo' })}
+                className="p-1.5 rounded-lg text-[#848d9c] hover:text-[#e8dfd0] hover:bg-[#10141c] transition-all"
+              >
+                <Undo2 className="w-3.5 h-3.5" />
+              </button>
+              <button
+                title="Redo Terrain Sculpt (Ctrl+Shift+Z)"
+                aria-label="Redo Terrain Sculpt"
+                onClick={() => dispatchTerrainCommand({ type: 'redo' })}
+                className="p-1.5 rounded-lg text-[#848d9c] hover:text-[#e8dfd0] hover:bg-[#10141c] transition-all"
+              >
+                <Redo2 className="w-3.5 h-3.5" />
+              </button>
+              <span className="w-px h-4 bg-[#1d2330] mx-0.5 shrink-0" />
+              {(
+                [
+                  { id: 'raise', icon: ArrowUpFromLine, label: 'Raise Mountain (Shift: Lower)' },
+                  { id: 'valley', icon: ArrowDownToLine, label: 'Carve Valley' },
+                  { id: 'flatten', icon: Minus, label: 'Flatten Plateau' },
+                  { id: 'smooth', icon: Wand2, label: 'Smooth Terrain' },
+                  { id: 'coast', icon: Waves, label: 'Lower to Sea / Coast' },
+                  { id: 'ridge', icon: TrendingUp, label: 'Sculpt Mountain Ridge (Shift: Gorge)' },
+                  { id: 'noise', icon: Sparkles, label: 'Roughen / Fractal Detail' },
+                  { id: 'terrace', icon: Layers, label: 'Terrace / Mesa Steps' },
+                  { id: 'erode', icon: Droplets, label: 'Thermal Erosion Brush' },
+                  { id: 'stamp', icon: Stamp, label: 'Landform Stamp (Mountain, Volcano, Crater...)' },
+                  { id: 'paint-biome', icon: Paintbrush, label: 'Paint Biome Surface Colors' },
+                  { id: 'river', icon: Route, label: 'Carve River Spline' },
+                  { id: 'fog', icon: Cloud, label: 'Place / Move Fog Volume' },
+                  { id: 'paint-flora', icon: Trees, label: 'Paint Trees & Rocks Brush' },
+                  { id: 'place-mesh', icon: Castle, label: 'Place Hero Mesh' },
+                  { id: 'edit-mesh', icon: Move, label: 'Select / Move Mesh or Fog' },
+                  { id: 'erase-mesh', icon: Eraser, label: 'Erase Meshes Brush' },
+                ] as const
+              ).map((tool) => {
+                const Icon = tool.icon;
+                const active = worldsmithTool === tool.id;
+                return (
+                  <button
+                    key={tool.id}
+                    title={tool.label}
+                    aria-label={tool.label}
+                    onClick={() => setWorldsmithTool(tool.id)}
+                    className={`p-1.5 rounded-lg transition-all ${
+                      active
+                        ? 'bg-[#b68d40]/20 text-[#d6b16a] border border-[#b68d40]/55 shadow-gold-sm'
+                        : 'text-[#848d9c] hover:text-[#e8dfd0] hover:bg-[#10141c]'
+                    }`}
+                  >
+                    <Icon className="w-3.5 h-3.5" />
+                  </button>
+                );
+              })}
+            </>
           ) : (
             (
               [
