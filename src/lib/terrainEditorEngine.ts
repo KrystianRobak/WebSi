@@ -194,29 +194,38 @@ export function buildTexturesFromHeightData(
   const hCtx = hCanvas.getContext('2d')!;
   const hImg = hCtx.createImageData(resolution, resolution);
 
+  for (let i = 0; i < resolution * resolution; i++) {
+    const h = clamp(heightData[i], 0, 1);
+    const byte = Math.round(h * 255);
+    const pIdx = i * 4;
+    hImg.data[pIdx] = byte;
+    hImg.data[pIdx + 1] = byte;
+    hImg.data[pIdx + 2] = byte;
+    hImg.data[pIdx + 3] = 255;
+  }
+
+  // Cap baked albedo texture at 512x512; shader supplies full-res micro-detail in world space
+  const albedoRes = Math.min(512, resolution);
   const aCanvas = document.createElement('canvas');
-  aCanvas.width = resolution;
-  aCanvas.height = resolution;
+  aCanvas.width = albedoRes;
+  aCanvas.height = albedoRes;
   const aCtx = aCanvas.getContext('2d')!;
-  const aImg = aCtx.createImageData(resolution, resolution);
+  const aImg = aCtx.createImageData(albedoRes, albedoRes);
+  const hasPaint = Boolean(paintData && paintData.length === paintRes * paintRes * 4);
 
-  for (let py = 0; py < resolution; py++) {
-    const v = py / (resolution - 1);
-    for (let px = 0; px < resolution; px++) {
-      const u = px / (resolution - 1);
-      const idx = py * resolution + px;
-      const h = clamp(heightData[idx], 0, 1);
+  for (let py = 0; py < albedoRes; py++) {
+    const v = py / (albedoRes - 1);
+    const hy = Math.min(resolution - 1, Math.round(v * (resolution - 1)));
+    const qy = hasPaint ? Math.min(paintRes - 1, Math.floor(v * (paintRes - 1))) : 0;
+    for (let px = 0; px < albedoRes; px++) {
+      const u = px / (albedoRes - 1);
+      const hx = Math.min(resolution - 1, Math.round(u * (resolution - 1)));
+      const h = clamp(heightData[hy * resolution + hx], 0, 1);
+      const pIdx = (py * albedoRes + px) * 4;
 
-      const byte = Math.round(h * 255);
-      const pIdx = idx * 4;
-      hImg.data[pIdx] = byte;
-      hImg.data[pIdx + 1] = byte;
-      hImg.data[pIdx + 2] = byte;
-      hImg.data[pIdx + 3] = 255;
-
-      const micro = fbmSeed(u * 24, v * 24, 17, 3);
-      const autumn = fbmSeed(u * 9 + 4.1, v * 9 + 1.3, 41, 3);
-      const moisture = fbmSeed(u * 3.6 + 8.1, v * 3.6 + 2.3, 73, 3);
+      const micro = fbmSeed(u * 24, v * 24, 17, 2);
+      const autumn = fbmSeed(u * 9 + 4.1, v * 9 + 1.3, 41, 2);
+      const moisture = fbmSeed(u * 3.6 + 8.1, v * 3.6 + 2.3, 73, 2);
 
       let r = 52;
       let g = 88;
@@ -260,9 +269,8 @@ export function buildTexturesFromHeightData(
         b = Math.round(mix(104, 240, t));
       }
 
-      if (paintData && paintData.length === paintRes * paintRes * 4) {
+      if (hasPaint && paintData) {
         const qx = Math.min(paintRes - 1, Math.floor(u * (paintRes - 1)));
-        const qy = Math.min(paintRes - 1, Math.floor(v * (paintRes - 1)));
         const qIdx = (qy * paintRes + qx) * 4;
         const pa = paintData[qIdx + 3] / 255;
         if (pa > 0.01) {

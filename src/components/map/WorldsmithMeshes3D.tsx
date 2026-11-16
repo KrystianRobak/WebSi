@@ -23,21 +23,45 @@ const noopRaycast = () => null;
 const meshRaycast = THREE.Mesh.prototype.raycast;
 
 interface BrushCursorRingProps {
-  position: { x: number; y: number; z: number } | null;
+  position?: { x: number; y: number; z: number } | null;
+  cursorRef?: React.MutableRefObject<{ x: number; y: number; z: number } | null>;
   radius: number;
   visible: boolean;
   color?: string;
 }
 
-export const BrushCursorRing: React.FC<BrushCursorRingProps> = ({
-  position,
+export const BrushCursorRing: React.FC<BrushCursorRingProps> = React.memo(({
+  position = null,
+  cursorRef,
   radius,
   visible,
   color = '#facc15',
 }) => {
-  if (!visible || !position) return null;
+  const groupRef = useRef<THREE.Group>(null);
+
+  useFrame(() => {
+    const g = groupRef.current;
+    if (!g) return;
+    if (!visible) {
+      g.visible = false;
+      return;
+    }
+    const pos = cursorRef ? cursorRef.current : position;
+    if (!pos) {
+      g.visible = false;
+      return;
+    }
+    g.visible = true;
+    g.position.set(pos.x, pos.y + 0.16, pos.z);
+  });
+
+  if (!visible) return null;
+  const initPos: [number, number, number] = position
+    ? [position.x, position.y + 0.16, position.z]
+    : [0, -9999, 0];
+
   return (
-    <group position={[position.x, position.y + 0.16, position.z]}>
+    <group ref={groupRef} position={initPos} visible={Boolean(position)}>
       <mesh rotation={[-Math.PI / 2, 0, 0]} raycast={noopRaycast}>
         <ringGeometry args={[Math.max(0.2, radius - 0.14), radius, 48]} />
         <meshBasicMaterial color={color} transparent opacity={0.9} side={THREE.DoubleSide} depthWrite={false} />
@@ -48,7 +72,7 @@ export const BrushCursorRing: React.FC<BrushCursorRingProps> = ({
       </mesh>
     </group>
   );
-};
+});
 
 interface RiverRibbonProps {
   river: MapRiver;
@@ -60,7 +84,7 @@ interface RiverRibbonProps {
   terrainSize: number;
 }
 
-const SingleRiverRibbon: React.FC<RiverRibbonProps> = ({
+const SingleRiverRibbon: React.FC<RiverRibbonProps> = React.memo(({
   river,
   heightData,
   heightRes,
@@ -213,7 +237,7 @@ const SingleRiverRibbon: React.FC<RiverRibbonProps> = ({
       />
     </mesh>
   );
-};
+});
 
 interface TerrainRivers3DProps {
   rivers: MapRiver[];
@@ -227,7 +251,7 @@ interface TerrainRivers3DProps {
   previewPoints: Array<{ x: number; y: number; z: number }>;
 }
 
-export const TerrainRivers3D: React.FC<TerrainRivers3DProps> = ({
+export const TerrainRivers3D: React.FC<TerrainRivers3DProps> = React.memo(({
   rivers,
   heightData,
   heightRes,
@@ -275,7 +299,7 @@ export const TerrainRivers3D: React.FC<TerrainRivers3DProps> = ({
       )}
     </group>
   );
-};
+});
 
 interface TerrainProps3DProps {
   propsList: MapProp[];
@@ -297,7 +321,7 @@ const HeroPropMesh: React.FC<{
   isSelected: boolean;
   interactive: boolean;
   onSelectProp: (prop: MapProp, e: ThreeEvent<PointerEvent>) => void;
-}> = ({ prop, y, isSelected, interactive, onSelectProp }) => {
+}> = React.memo(({ prop, y, isSelected, interactive, onSelectProp }) => {
   const handleDown = (e: ThreeEvent<PointerEvent>) => {
     if (!interactive) return;
     e.stopPropagation();
@@ -627,9 +651,9 @@ const HeroPropMesh: React.FC<{
       )}
     </group>
   );
-};
+});
 
-export const TerrainProps3D: React.FC<TerrainProps3DProps> = ({
+export const TerrainProps3D: React.FC<TerrainProps3DProps> = React.memo(({
   propsList,
   heightData,
   heightRes,
@@ -941,7 +965,7 @@ export const TerrainProps3D: React.FC<TerrainProps3DProps> = ({
         )}
     </group>
   );
-};
+});
 
 export type ZoneGizmoDragMode = 'move-xz' | 'move-x' | 'move-z';
 
@@ -957,7 +981,7 @@ interface SingleZoneMeshProps {
   showLabel: boolean;
   isSelected: boolean;
   interactive: boolean;
-  onSelect: () => void;
+  onSelect: (zoneId: string) => void;
   onStartGizmoDrag?: (
     zone: WorldMapZone,
     mode: ZoneGizmoDragMode,
@@ -977,7 +1001,7 @@ interface SingleZoneMeshProps {
   onRemoveVertex?: (zone: WorldMapZone, vertexIndex: number) => void;
 }
 
-const SingleZoneMesh: React.FC<SingleZoneMeshProps> = ({
+const SingleZoneMesh: React.FC<SingleZoneMeshProps> = React.memo(({
   zone,
   layer,
   heightData,
@@ -1162,7 +1186,7 @@ const SingleZoneMesh: React.FC<SingleZoneMeshProps> = ({
           onClick={(e) => {
             if (!interactive || e.delta > 6) return;
             e.stopPropagation();
-            onSelect();
+            onSelect(zone.id);
           }}
         >
           <meshBasicMaterial
@@ -1462,7 +1486,7 @@ const SingleZoneMesh: React.FC<SingleZoneMeshProps> = ({
       )}
     </group>
   );
-};
+});
 
 interface TerrainZones3DProps {
   zones: WorldMapZone[];
@@ -1498,7 +1522,7 @@ interface TerrainZones3DProps {
   onRemoveVertex?: (zone: WorldMapZone, vertexIndex: number) => void;
 }
 
-export const TerrainZones3D: React.FC<TerrainZones3DProps> = ({
+export const TerrainZones3D: React.FC<TerrainZones3DProps> = React.memo(({
   zones,
   layers,
   heightData,
@@ -1542,7 +1566,7 @@ export const TerrainZones3D: React.FC<TerrainZones3DProps> = ({
             showLabel={showLabelsLayer}
             isSelected={selectedZoneId === zone.id}
             interactive={interactive}
-            onSelect={() => onSelectZone(zone.id)}
+            onSelect={onSelectZone}
             onStartGizmoDrag={onStartGizmoDrag}
             onStartVertexDrag={onStartVertexDrag}
             onInsertVertexAndDrag={onInsertVertexAndDrag}
@@ -1552,7 +1576,7 @@ export const TerrainZones3D: React.FC<TerrainZones3DProps> = ({
       })}
     </group>
   );
-};
+});
 
 interface TerrainLabels3DProps {
   labels: WorldMapLabel[];
@@ -1569,7 +1593,7 @@ interface TerrainLabels3DProps {
   onSelectLabel: (label: WorldMapLabel, e: ThreeEvent<PointerEvent>) => void;
 }
 
-export const TerrainLabels3D: React.FC<TerrainLabels3DProps> = ({
+export const TerrainLabels3D: React.FC<TerrainLabels3DProps> = React.memo(({
   labels,
   layers,
   heightData,
@@ -1691,7 +1715,7 @@ export const TerrainLabels3D: React.FC<TerrainLabels3DProps> = ({
       })}
     </group>
   );
-};
+});
 
 /* -------------------------------------------------------------------------- */
 /*                       Raymarched 3D Fog Volumes                            */
@@ -1760,10 +1784,9 @@ const FOG_VOLUME_FRAG = `
     return mix(nxy.x, nxy.y, f.z);
   }
 
-  float fbm3(vec3 p) {
-    float v = 0.55 * vnoise3(p);
-    v += 0.30 * vnoise3(p * 2.07 + vec3(17.1, 9.3, 23.7));
-    v += 0.15 * vnoise3(p * 4.21 + vec3(3.7, 31.4, 11.2));
+  float fbm2(vec3 p) {
+    float v = 0.64 * vnoise3(p);
+    v += 0.36 * vnoise3(p * 2.13 + vec3(17.1, 9.3, 23.7));
     return v;
   }
 
@@ -1798,11 +1821,11 @@ const FOG_VOLUME_FRAG = `
     float tExit = min(tMaxV.x, min(tMaxV.y, tMaxV.z));
     if (tExit <= tEnter) discard;
 
-    const int STEPS = 10;
+    const int STEPS = 6;
     float marchLen = tExit - tEnter;
     float dt = marchLen / float(STEPS);
 
-    // Per-pixel blue-noise-like jitter to soften banding
+    // Per-pixel blue-noise-like jitter to keep fewer raymarch steps smooth
     float jitter = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453);
     float t = tEnter + dt * jitter;
 
@@ -1816,12 +1839,11 @@ const FOG_VOLUME_FRAG = `
     scatterCol += uColor * uGlow * 0.65;
 
     float soft = max(0.04, uEdgeSoftness * 0.85);
+    vec3 windOffset = vec3(uWindVel.x, 0.08, uWindVel.y) * uTime;
+    float heightPow = mix(0.25, 2.8, uHeightFalloff);
 
     for (int i = 0; i < STEPS; i++) {
       vec3 lp = ro + rd * t;
-      vec3 wp = cameraPosition + rdWorld * t;
-
-      // Normalized local coordinates in [-1..1]
       vec3 q = lp / max(uHalfExtents, vec3(0.01));
 
       float shapeDist = 0.0;
@@ -1835,34 +1857,35 @@ const FOG_VOLUME_FRAG = `
       }
 
       float edgeMask = 1.0 - smoothstep(1.0 - soft, 1.0, shapeDist);
-
-      // Height falloff inside volume (q.y in [-1..1] -> h01 in [0..1])
       float h01 = clamp(q.y * 0.5 + 0.5, 0.0, 1.0);
-      float heightMask = pow(1.0 - h01, mix(0.25, 2.8, uHeightFalloff)) * smoothstep(0.0, 0.14, h01);
+      float heightMask = pow(1.0 - h01, heightPow) * smoothstep(0.0, 0.14, h01);
 
-      // Terrain occlusion & ground-hugging boost
-      float groundMask = 1.0;
-      if (uHasHeightMap > 0.5) {
-        vec2 tUv = vec2(wp.x / uTerrainSize + 0.5, wp.z / uTerrainSize + 0.5);
-        float terrH = texture2D(uHeightMap, clamp(tUv, 0.002, 0.998)).r * uDisplacementScale;
-        float surfH = max(terrH, uSeaY - 0.25);
-        float aboveGround = wp.y - surfH;
-        groundMask = smoothstep(-0.35, 0.45, aboveGround);
-        float hug = exp(-max(0.0, aboveGround) * (0.18 * uHeightFalloff));
-        heightMask = mix(heightMask, hug, uHeightFalloff * 0.55);
-      }
+      if (edgeMask * heightMask > 0.008) {
+        vec3 wp = cameraPosition + rdWorld * t;
 
-      if (edgeMask * heightMask * groundMask > 0.005) {
-        vec3 windOffset = vec3(uWindVel.x, 0.08, uWindVel.y) * uTime;
-        float n = fbm3(wp * (0.18 * uNoiseScale) + windOffset);
-        float billow = mix(1.0, smoothstep(0.22, 0.78, n), uNoiseStrength);
-        float sampleDensity = edgeMask * heightMask * groundMask * billow * uDensity * 0.26;
-        if (sampleDensity > 0.001) {
-          float stepAlpha = 1.0 - exp(-sampleDensity * dt);
-          vec3 stepCol = scatterCol * mix(0.72, 1.18, h01);
-          accumLight += transmittance * stepAlpha * stepCol;
-          transmittance *= (1.0 - stepAlpha);
-          if (transmittance < 0.03) break;
+        // Terrain occlusion & ground-hugging boost (only evaluated inside active volume)
+        float groundMask = 1.0;
+        if (uHasHeightMap > 0.5) {
+          vec2 tUv = vec2(wp.x / uTerrainSize + 0.5, wp.z / uTerrainSize + 0.5);
+          float terrH = texture2D(uHeightMap, clamp(tUv, 0.002, 0.998)).r * uDisplacementScale;
+          float surfH = max(terrH, uSeaY - 0.25);
+          float aboveGround = wp.y - surfH;
+          groundMask = smoothstep(-0.35, 0.45, aboveGround);
+          float hug = exp(-max(0.0, aboveGround) * (0.18 * uHeightFalloff));
+          heightMask = mix(heightMask, hug, uHeightFalloff * 0.55);
+        }
+
+        if (groundMask > 0.01) {
+          float n = uNoiseStrength > 0.01 ? fbm2(wp * (0.18 * uNoiseScale) + windOffset) : 0.5;
+          float billow = mix(1.0, smoothstep(0.22, 0.78, n), uNoiseStrength);
+          float sampleDensity = edgeMask * heightMask * groundMask * billow * uDensity * 0.26;
+          if (sampleDensity > 0.001) {
+            float stepAlpha = 1.0 - exp(-sampleDensity * dt);
+            vec3 stepCol = scatterCol * mix(0.72, 1.18, h01);
+            accumLight += transmittance * stepAlpha * stepCol;
+            transmittance *= (1.0 - stepAlpha);
+            if (transmittance < 0.03) break;
+          }
         }
       }
       t += dt;
@@ -1889,7 +1912,7 @@ interface SingleFogVolumeProps {
   onSelect: (volume: FogVolume, e: ThreeEvent<PointerEvent>) => void;
 }
 
-const SingleFogVolumeMesh: React.FC<SingleFogVolumeProps> = ({
+const SingleFogVolumeMesh: React.FC<SingleFogVolumeProps> = React.memo(({
   volume,
   heightTex,
   terrainSize,
@@ -2031,7 +2054,7 @@ const SingleFogVolumeMesh: React.FC<SingleFogVolumeProps> = ({
       )}
     </group>
   );
-};
+});
 
 export interface FogVolumes3DProps {
   volumes: FogVolume[];
@@ -2049,7 +2072,7 @@ export interface FogVolumes3DProps {
   onSelectFog: (volume: FogVolume, e: ThreeEvent<PointerEvent>) => void;
 }
 
-export const FogVolumes3D: React.FC<FogVolumes3DProps> = ({
+export const FogVolumes3D: React.FC<FogVolumes3DProps> = React.memo(({
   volumes,
   heightTex,
   terrainSize,
@@ -2091,6 +2114,6 @@ export const FogVolumes3D: React.FC<FogVolumes3DProps> = ({
       })}
     </group>
   );
-};
+});
 
 

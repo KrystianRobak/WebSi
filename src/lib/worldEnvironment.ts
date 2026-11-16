@@ -36,16 +36,16 @@ export function getSeaLevelNorm(
   return map?.generation_config?.seaLevel ?? SEA_LEVEL_NORM;
 }
 
-/** Heightfield resolution for a given world size (~5 samples per unit, capped at 1024). */
+/** Heightfield resolution for a given world size (balanced precision vs GPU/CPU cost). */
 export function heightResForWorldSize(size: number): number {
-  if (size <= 100) return 512;
-  if (size <= 150) return 768;
-  return 1024;
+  if (size <= 120) return 512;
+  if (size <= 220) return 640;
+  return 768;
 }
 
-/** Terrain mesh segment count for a given world size (keeps ~2.4 verts / unit, capped). */
+/** Terrain mesh segment count for a given world size (balanced triangle density vs sculpt/shadow speed). */
 export function terrainSegmentsForWorldSize(size: number): number {
-  return Math.min(512, Math.max(240, Math.round(size * 2.4)));
+  return Math.min(320, Math.max(160, Math.round(size * 1.25)));
 }
 
 /* -------------------------------------------------------------------------- */
