@@ -1,6 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels';
-import { PanelRightOpen } from 'lucide-react';
 import { NoteEditorPane } from './components/editor/NoteEditorPane';
 import { AssetViewerPane } from './components/assets/AssetViewerPane';
 import { TemplateEditorPane } from './components/templates/TemplateEditorPane';
@@ -52,18 +51,21 @@ export function App() {
     undo,
     redo,
     isAuthenticated,
+    leftNavOpen,
+    setLeftNavOpen,
+    toggleLeftNav,
     rightInspectorCollapsed,
-    setRightInspectorCollapsed,
+    toggleRightInspector,
   } = useVaultStore();
 
-  const [inspectorWidth, setInspectorWidth] = useState(320);
+  const [inspectorWidth, setInspectorWidth] = useState(330);
   const resizingInspectorRef = useRef<{ startX: number; startW: number } | null>(null);
 
   useEffect(() => {
     const onMouseMove = (e: MouseEvent) => {
       const drag = resizingInspectorRef.current;
       if (!drag) return;
-      const next = Math.max(260, Math.min(500, drag.startW + (drag.startX - e.clientX)));
+      const next = Math.max(270, Math.min(520, drag.startW + (drag.startX - e.clientX)));
       setInspectorWidth(next);
     };
     const onMouseUp = () => {
@@ -98,6 +100,16 @@ export function App() {
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === '\\') {
+        e.preventDefault();
+        toggleLeftNav();
+        return;
+      }
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'i') {
+        e.preventDefault();
+        toggleRightInspector();
+        return;
+      }
       if (!(e.ctrlKey || e.metaKey)) return;
       const target = e.target as HTMLElement | null;
       if (
@@ -121,7 +133,7 @@ export function App() {
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [undo, redo]);
+  }, [undo, redo, toggleLeftNav, toggleRightInspector]);
 
   const activeTab = tabs.find((t) => t.id === activeTabId) || tabs[0];
   const activeMapId = activeTab?.kind === 'map' ? activeTab.targetId : maps[0]?.id;
@@ -140,80 +152,54 @@ export function App() {
 
   return (
     <div className="w-screen h-screen bg-[#0b0d10] text-[#e7e2d8] flex flex-col overflow-hidden">
-      {/* Zone 1: Top Header & Multi-Tab Strip */}
+      {/* Zone 1: Single 42px Unified Header + Tabs */}
       <TopHeader />
 
-      {/* Zones 2, 3, 4: Resizable 3-Column Workspace */}
-      <div className="flex-1 min-h-0">
-        <PanelGroup direction="horizontal" autoSaveId="aethelgard-layout-v1">
-          {/* Zone 2: Left Vault Navigation Sidebar (240px default) */}
-          <Panel defaultSize={17} minSize={13} maxSize={28} className="min-w-[200px]">
-            <LeftSidebar />
-          </Panel>
+      {/* Zones 2, 3, 4: 44px Left Rail + Full-Bleed Workspace + Floating Drawers */}
+      <div className="flex-1 min-h-0 flex relative overflow-hidden">
+        <LeftSidebar />
 
-          <PanelResizeHandle className="w-[1px] bg-[#1d222b] hover:bg-[#d4a853]/70 transition-colors cursor-col-resize" />
+        {/* Center Full-Bleed Canvas / Note Split */}
+        <div
+          className="flex-1 min-w-0 h-full relative overflow-hidden"
+          onClick={() => {
+            if (leftNavOpen) setLeftNavOpen(false);
+          }}
+        >
+          {splitTab && splitTab.id !== activeTab?.id ? (
+            <PanelGroup direction="horizontal">
+              <Panel defaultSize={55} minSize={25}>
+                {renderTabContent(activeTab)}
+              </Panel>
+              <PanelResizeHandle className="w-[2px] bg-[#1d222b] hover:bg-[#d4a853]/70 transition-colors cursor-col-resize" />
+              <Panel defaultSize={45} minSize={25}>
+                {renderTabContent(splitTab)}
+              </Panel>
+            </PanelGroup>
+          ) : (
+            renderTabContent(activeTab)
+          )}
+        </div>
 
-          {/* Zone 3 + Zone 4: Center Interactive Viewport / Note Editor + Retractable Inspector Drawer */}
-          <Panel defaultSize={83} minSize={45}>
-            <div className="relative h-full w-full flex overflow-hidden">
-              <div className="flex-1 min-w-0 h-full transition-all duration-300 ease-out">
-                {splitTab && splitTab.id !== activeTab?.id ? (
-                  <PanelGroup direction="horizontal">
-                    <Panel defaultSize={55} minSize={25}>
-                      {renderTabContent(activeTab)}
-                    </Panel>
-                    <PanelResizeHandle className="w-[2px] bg-[#1d222b] hover:bg-[#d4a853]/70 transition-colors cursor-col-resize" />
-                    <Panel defaultSize={45} minSize={25}>
-                      {renderTabContent(splitTab)}
-                    </Panel>
-                  </PanelGroup>
-                ) : (
-                  renderTabContent(activeTab)
-                )}
-              </div>
-
-              {/* Floating Reopen Rail when Right Inspector is retracted */}
-              {rightInspectorCollapsed && (
-                <button
-                  onClick={() => setRightInspectorCollapsed(false)}
-                  title="Expand Inspector Panel"
-                  aria-label="Expand Inspector Panel"
-                  className="shrink-0 w-7 h-full bg-[#0c0f14] hover:bg-[#141922] border-l border-[#1d222b] hover:border-[#d4a853]/45 flex flex-col items-center justify-center gap-2 text-[#858d9b] hover:text-[#f0cf85] transition-colors z-20"
-                >
-                  <PanelRightOpen className="w-3.5 h-3.5" />
-                  <span className="[writing-mode:vertical-rl] rotate-180 text-[10px] font-mono uppercase tracking-[0.2em]">
-                    Inspector
-                  </span>
-                </button>
-              )}
-
-              {/* Drag Handle for Right Inspector */}
-              {!rightInspectorCollapsed && (
-                <div
-                  onMouseDown={(e) => {
-                    e.preventDefault();
-                    resizingInspectorRef.current = { startX: e.clientX, startW: inspectorWidth };
-                  }}
-                  title="Drag to resize Inspector"
-                  className="w-[3px] h-full bg-[#1d222b] hover:bg-[#d4a853]/75 transition-colors cursor-col-resize shrink-0"
-                />
-              )}
-
-              {/* Zone 4: Retractable Right Contextual Inspector Drawer */}
-              <div
-                style={{ width: rightInspectorCollapsed ? 0 : inspectorWidth }}
-                aria-hidden={rightInspectorCollapsed}
-                className={`h-full shrink-0 overflow-hidden transition-[width] duration-300 ease-out ${
-                  rightInspectorCollapsed ? 'pointer-events-none opacity-0' : 'opacity-100'
-                }`}
-              >
-                <div style={{ width: inspectorWidth }} className="h-full">
-                  <RightInspector />
-                </div>
-              </div>
+        {/* Floating Overlay Right Contextual Inspector Drawer */}
+        {!rightInspectorCollapsed && (
+          <div
+            style={{ width: inspectorWidth }}
+            className="absolute right-0 inset-y-0 z-30 flex bg-[#0b0e14]/96 backdrop-blur-md border-l border-[#212836] shadow-[-16px_0_40px_rgba(0,0,0,0.65)] max-w-[92vw]"
+          >
+            <div
+              onMouseDown={(e) => {
+                e.preventDefault();
+                resizingInspectorRef.current = { startX: e.clientX, startW: inspectorWidth };
+              }}
+              title="Drag to resize Inspector"
+              className="w-[4px] h-full bg-transparent hover:bg-[#d4a853]/75 transition-colors cursor-col-resize shrink-0"
+            />
+            <div className="flex-1 min-w-0 h-full">
+              <RightInspector />
             </div>
-          </Panel>
-        </PanelGroup>
+          </div>
+        )}
       </div>
 
       {/* Global Modals */}
@@ -228,3 +214,4 @@ export function App() {
 }
 
 export default App;
+

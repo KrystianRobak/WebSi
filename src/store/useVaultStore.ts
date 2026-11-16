@@ -95,6 +95,8 @@ interface VaultState {
   splitPaneTabId: string | null;
   editorMode: EditorMode;
   inspectorSubTab: InspectorSubTab;
+  leftNavOpen: boolean;
+  leftNavSection: 'vault' | 'assets' | 'templates';
   rightInspectorCollapsed: boolean;
   gmMode: boolean;
   leftFilterQuery: string;
@@ -155,6 +157,9 @@ interface VaultState {
   setGmMode: (val: boolean) => void;
   setEditorMode: (mode: EditorMode) => void;
   setInspectorSubTab: (tab: InspectorSubTab) => void;
+  setLeftNavOpen: (open: boolean) => void;
+  toggleLeftNav: () => void;
+  setLeftNavSection: (section: 'vault' | 'assets' | 'templates') => void;
   setRightInspectorCollapsed: (collapsed: boolean) => void;
   toggleRightInspector: () => void;
   setMapRenderMode: (mode: MapRenderMode) => void;
@@ -727,7 +732,9 @@ export const useVaultStore = create<VaultState>((set, get) => ({
   splitPaneTabId: null,
   editorMode: 'preview',
   inspectorSubTab: 'details',
-  rightInspectorCollapsed: false,
+  leftNavOpen: false,
+  leftNavSection: 'vault',
+  rightInspectorCollapsed: true,
   gmMode: true,
   leftFilterQuery: '',
   selectedSidebarFilter: null,
@@ -797,6 +804,9 @@ export const useVaultStore = create<VaultState>((set, get) => ({
 
   setEditorMode: (mode) => set({ editorMode: mode }),
   setInspectorSubTab: (tab) => set({ inspectorSubTab: tab }),
+  setLeftNavOpen: (open) => set({ leftNavOpen: open }),
+  toggleLeftNav: () => set((s) => ({ leftNavOpen: !s.leftNavOpen })),
+  setLeftNavSection: (section) => set({ leftNavSection: section, leftNavOpen: true }),
   setRightInspectorCollapsed: (collapsed) => set({ rightInspectorCollapsed: collapsed }),
   toggleRightInspector: () =>
     set((s) => ({ rightInspectorCollapsed: !s.rightInspectorCollapsed })),

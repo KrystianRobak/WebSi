@@ -124,7 +124,7 @@ export const NoteEditorPane: React.FC<{ entityId: string }> = ({ entityId }) => 
   const [showPropertiesDrawer, setShowPropertiesDrawer] = useState(false);
 
   // Toolbar popovers
-  const [openMenu, setOpenMenu] = useState<'style' | 'columns' | 'elements' | null>(null);
+  const [openMenu, setOpenMenu] = useState<'style' | 'insert' | null>(null);
   const [customTextColor, setCustomTextColor] = useState('#d4a853');
   const [customBgColor, setCustomBgColor] = useState('#2b2417');
 
@@ -152,13 +152,14 @@ export const NoteEditorPane: React.FC<{ entityId: string }> = ({ entityId }) => 
   const [embedWidth, setEmbedWidth] = useState('');
   const [uploadingEmbed, setUploadingEmbed] = useState(false);
 
-  // Raw textarea autocomplete for [[Notes]] and ![[Assets/Entries]]
+  // Raw textarea autocomplete for [[Notes]], ![[Assets/Entries]], and / slash commands
   const [rawTrigger, setRawTrigger] = useState<{
-    kind: 'note' | 'asset';
+    kind: 'note' | 'asset' | 'slash';
     query: string;
     startIdx: number;
     endIdx: number;
   } | null>(null);
+  const [hasSelection, setHasSelection] = useState(false);
 
   const rawTextareaRef = useRef<HTMLTextAreaElement>(null);
   const livePreviewScrollRef = useRef<HTMLDivElement>(null);
@@ -572,6 +573,30 @@ export const NoteEditorPane: React.FC<{ entityId: string }> = ({ entityId }) => 
     insertImageIntoContent(`asset://${created.slug}`, created.url, created.name, 1);
   };
 
+  const slashCommands = useMemo(
+    () => [
+      { id: 'cols2', label: '2 Equal Columns', hint: ':::columns 2', token: '\n\n:::columns 2\n### Left\nNotes...\n:::col\n### Right\nNotes...\n:::\n\n' },
+      { id: 'cols3', label: '3 Equal Columns', hint: ':::columns 3', token: '\n\n:::columns 3\n### First\nNotes...\n:::col\n### Second\nNotes...\n:::col\n### Third\nNotes...\n:::\n\n' },
+      { id: 'table', label: 'Markdown Table', hint: '| col | col |', token: '\n\n| Column 1 | Column 2 | Value |\n| :--- | :---: | ---: |\n| Entry A | Detail | 100 |\n| Entry B | Detail | 250 |\n\n' },
+      { id: 'split', label: 'Page Split / Divider', hint: ':::page-break', token: '\n\n:::page-break New Section\n\n' },
+      { id: 'lore', label: 'Lore Callout', hint: '> [!lore]', token: '\n\n> [!lore] Lore Chronicle\n> Ancient whispers tell of...\n\n' },
+      { id: 'warn', label: 'Warning Callout', hint: '> [!warning]', token: '\n\n> [!warning] Danger / Hazard\n> Beware the wardens...\n\n' },
+      { id: 'stat', label: 'Statblock Box', hint: ':::statblock', token: '\n\n:::statblock Creature / Artifact\n- **Armor Class:** 16\n- **Hit Points:** 92\n- **Trait:** Arcane Resilience\n:::\n\n' },
+      { id: 'card', label: 'Highlight Card', hint: ':::card', token: '\n\n:::card Highlight Card\nStyled container card content.\n:::\n\n' },
+      { id: 'details', label: 'Collapsible Toggle', hint: ':::details', token: '\n\n:::details Click to Expand\nHidden details revealed on click.\n:::\n\n' },
+      { id: 'embed', label: 'Embed Image / Entry', hint: '![[...]]', token: '__OPEN_EMBED__' },
+    ],
+    []
+  );
+
+  const filteredSlashCommands = useMemo(() => {
+    if (rawTrigger?.kind !== 'slash') return [];
+    const q = rawTrigger.query.toLowerCase();
+    return slashCommands.filter(
+      (c) => c.label.toLowerCase().includes(q) || c.hint.toLowerCase().includes(q)
+    );
+  }, [rawTrigger, slashCommands]);
+
   const handleRawMarkdownChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const val = e.target.value;
     const cursor = e.target.selectionStart || 0;
@@ -602,12 +627,37 @@ export const NoteEditorPane: React.FC<{ entityId: string }> = ({ entityId }) => 
       });
       return;
     }
+    const slashMatch = before.match(/(?:^|\s)\/([a-z0-9-]*)$/i);
+    if (slashMatch) {
+      const tokenLen = slashMatch[1].length + 1;
+      setRawTrigger({
+        kind: 'slash',
+        query: slashMatch[1],
+        startIdx: cursor - tokenLen,
+        endIdx: cursor,
+      });
+      return;
+    }
     setRawTrigger(null);
   };
 
   const handleRawKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Escape' && rawTrigger) {
       setRawTrigger(null);
+      return;
+    }
+    if (e.key === 'Enter' && rawTrigger?.kind === 'slash' && filteredSlashCommands.length > 0) {
+      e.preventDefault();
+      const chosen = filteredSlashCommands[0];
+      if (chosen.token === '__OPEN_EMBED__') {
+        const nextMd = rawMarkdown.slice(0, rawTrigger.startIdx) + rawMarkdown.slice(rawTrigger.endIdx);
+        setRawTrigger(null);
+        commitMarkdown(nextMd, rawTrigger.startIdx);
+        setEmbedTab('asset');
+        setEmbedModalOpen(true);
+      } else {
+        applyRawAutocomplete(chosen.token);
+      }
       return;
     }
     if (e.key === 'Tab') {
@@ -832,15 +882,16 @@ export const NoteEditorPane: React.FC<{ entityId: string }> = ({ entityId }) => 
         </div>
       ) : (
         /* ===================================================================== */
-        /* OBSIDIAN UNIFIED WORKSPACE: Header + Ribbon + Shared Split Workspace  */
+        /* OPTION A OBSIDIAN WORKSPACE: Single 40px Bar + Clean Shared Workspace */
         /* ===================================================================== */
-        <div className="relative z-10 flex-1 flex flex-col min-h-0 overflow-hidden">
-          {/* 1. Compact Note Title & Workspace View Bar */}
-          <div className="h-[44px] px-4 border-b border-[#1a202a] bg-[#0c0f14]/95 flex items-center justify-between gap-3 shrink-0">
-            <div className="flex items-center gap-2.5 min-w-0 flex-1">
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider bg-[#151922] text-[#d4a853] border border-[#d4a853]/30 shrink-0">
+        <div className="relative z-10 flex-1 flex flex-col min-h-0">
+          {/* 1. Single Unified 40px Note Header & Tool Bar */}
+          <div className="relative z-30 h-[40px] px-3 border-b border-[#1a202a] bg-[#0c0f14]/95 flex items-center justify-between gap-2 shrink-0">
+            {/* Left: Type Pill + Inline Title + Linked Map + Properties Drawer */}
+            <div className="flex items-center gap-2 min-w-0 flex-1">
+              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider bg-[#151922] text-[#d4a853] border border-[#d4a853]/30 shrink-0">
                 <EntityIcon type={entity.type} className="w-3 h-3" />
-                {entity.type}
+                <span className="hidden sm:inline">{entity.type}</span>
               </span>
               <input
                 value={titleDraft}
@@ -849,9 +900,9 @@ export const NoteEditorPane: React.FC<{ entityId: string }> = ({ entityId }) => 
                   updateEntity(entity.id, { title: e.target.value });
                 }}
                 placeholder="Untitled Entry..."
-                className="flex-1 min-w-0 bg-transparent font-serif text-[17px] font-semibold text-[#f5efe2] focus:outline-none truncate"
+                className="flex-1 min-w-0 bg-transparent font-serif text-[16px] font-semibold text-[#f5efe2] focus:outline-none truncate"
               />
-              {linkedPins.slice(0, 2).map((pin) => {
+              {linkedPins.slice(0, 1).map((pin) => {
                 const mapObj = maps.find((m) => m.id === pin.map_id);
                 return (
                   <button
@@ -862,68 +913,17 @@ export const NoteEditorPane: React.FC<{ entityId: string }> = ({ entityId }) => 
                         setSelectedPinId(pin.id);
                       }
                     }}
-                    className="hidden xl:inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono bg-[#131720] text-[#d4a853] border border-[#242b38] hover:border-[#d4a853]/60 shrink-0"
+                    className="hidden 2xl:inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono bg-[#131720] text-[#d4a853] border border-[#242b38] hover:border-[#d4a853]/60 shrink-0"
+                    title={`Open ${mapObj?.name || 'Map'} pin`}
                   >
                     <MapPin className="w-2.5 h-2.5" />
                     <span>{mapObj?.name || 'Map'}</span>
                   </button>
                 );
               })}
-            </div>
-
-            <div className="flex items-center gap-1.5 shrink-0">
-              {/* Workspace View Switcher: Live Split | Source | Visual | Reading */}
-              <div className="flex items-center bg-[#090b0f] p-0.5 rounded-md border border-[#1c222d]">
-                <button
-                  onClick={() => setCodeSubMode('split')}
-                  title="Obsidian Side-by-Side Live Preview + Code"
-                  className={`flex items-center gap-1 px-2 py-1 rounded text-[11px] font-medium transition-all ${
-                    codeSubMode === 'split'
-                      ? 'bg-[#1c222e] text-[#f3d488] border border-[#d4a853]/40'
-                      : 'text-[#848d9c] hover:text-[#e7e2d8] border border-transparent'
-                  }`}
-                >
-                  <Columns2 className="w-3 h-3" />
-                  <span>Live Split</span>
-                </button>
-                <button
-                  onClick={() => setCodeSubMode('raw')}
-                  title="Markdown & HTML Source Only"
-                  className={`flex items-center gap-1 px-2 py-1 rounded text-[11px] font-medium transition-all ${
-                    codeSubMode === 'raw'
-                      ? 'bg-[#1c222e] text-[#f3d488] border border-[#d4a853]/40'
-                      : 'text-[#848d9c] hover:text-[#e7e2d8] border border-transparent'
-                  }`}
-                >
-                  <Code2 className="w-3 h-3" />
-                  <span className="hidden md:inline">Source</span>
-                </button>
-                <button
-                  onClick={() => setCodeSubMode('visual')}
-                  title="Rich Visual Editor"
-                  className={`flex items-center gap-1 px-2 py-1 rounded text-[11px] font-medium transition-all ${
-                    codeSubMode === 'visual'
-                      ? 'bg-[#1c222e] text-[#f3d488] border border-[#d4a853]/40'
-                      : 'text-[#848d9c] hover:text-[#e7e2d8] border border-transparent'
-                  }`}
-                >
-                  <Sparkles className="w-3 h-3" />
-                  <span className="hidden md:inline">Visual</span>
-                </button>
-                <button
-                  onClick={() => setEditorMode('preview')}
-                  title="Full Reading View"
-                  className="flex items-center gap-1 px-2 py-1 rounded text-[11px] font-medium text-[#848d9c] hover:text-[#f3d488] border border-transparent transition-all"
-                >
-                  <BookOpen className="w-3 h-3" />
-                  <span className="hidden lg:inline">Read</span>
-                </button>
-              </div>
-
-              {/* Properties, Art, BG & CSS Drawer Toggle */}
               <button
                 onClick={() => setShowPropertiesDrawer((v) => !v)}
-                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-medium border transition-colors ${
+                className={`flex items-center gap-1 px-2 py-1 rounded text-[11px] font-medium border transition-colors shrink-0 ${
                   showPropertiesDrawer
                     ? 'bg-[#d4a853]/15 border-[#d4a853]/50 text-[#f3d488]'
                     : 'bg-[#12161e] border-[#1f2531] text-[#9aa3b2] hover:text-[#f3ead8] hover:border-[#2d3546]'
@@ -931,19 +931,521 @@ export const NoteEditorPane: React.FC<{ entityId: string }> = ({ entityId }) => 
                 title="Properties, Cover Art, Background, Tags, Custom CSS & GM Secrets"
               >
                 <SlidersHorizontal className="w-3 h-3 text-[#d4a853]" />
-                <span className="hidden sm:inline">Properties &amp; Style</span>
+                <span className="hidden lg:inline">Properties</span>
               </button>
+            </div>
+
+            {/* Right: + Insert ▾, Aa Style ▾, Sync, Mode Switcher, Word Count, Star, Delete */}
+            <div className="flex items-center gap-1.5 shrink-0">
+              {/* + Insert Popover (Columns, Table, Split Page, Callouts, Statblock, Card, Details, Embed) */}
+              <div className="relative">
+                <button
+                  onClick={() => setOpenMenu((m) => (m === 'insert' ? null : 'insert'))}
+                  className={`flex items-center gap-1 px-2 py-1 rounded text-[11px] font-medium border transition-colors ${
+                    openMenu === 'insert'
+                      ? 'bg-[#222938] border-[#d4a853]/60 text-[#f3d488]'
+                      : 'bg-[#131822] border-[#222938] text-[#e7e2d8] hover:border-[#d4a853]/45'
+                  }`}
+                  title="Insert Columns, Tables, Splits, Callouts, Blocks or Embeds (or type / in Markdown)"
+                >
+                  <Plus className="w-3 h-3 text-[#d4a853]" />
+                  <span>Insert</span>
+                </button>
+                {openMenu === 'insert' && (
+                  <div className="absolute right-0 mt-1.5 w-72 rounded-lg dark-glass shadow-glass p-2 space-y-2 z-50 border border-[#d4a853]/35">
+                    <div className="flex items-center justify-between px-1">
+                      <span className="text-[10px] font-mono uppercase tracking-wider text-[#d4a853]">
+                        Insert Layout &amp; Blocks
+                      </span>
+                      <button
+                        onClick={() => setOpenMenu(null)}
+                        className="text-[#7c8594] hover:text-white"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </div>
+
+                    {/* Columns Grid */}
+                    <div className="space-y-1">
+                      <span className="px-1 text-[10px] text-[#8b93a1] flex items-center gap-1">
+                        <Columns3 className="w-3 h-3 text-[#d4a853]" /> Multi-Column Grid
+                      </span>
+                      <div className="grid grid-cols-2 gap-1">
+                        <button
+                          onClick={() => {
+                            insertTokenAtCursor(
+                              '\n\n:::columns 2\n### Column One\nLeft column notes.\n:::col\n### Column Two\nRight column notes.\n:::\n\n'
+                            );
+                            setOpenMenu(null);
+                          }}
+                          className="text-left px-2 py-1 rounded text-[11px] bg-[#11151d] hover:bg-[#d4a853]/15 text-[#e7e2d8] border border-[#1d232e]"
+                        >
+                          2 Equal Columns
+                        </button>
+                        <button
+                          onClick={() => {
+                            insertTokenAtCursor(
+                              '\n\n:::columns 3\n### First\nNotes...\n:::col\n### Second\nNotes...\n:::col\n### Third\nNotes...\n:::\n\n'
+                            );
+                            setOpenMenu(null);
+                          }}
+                          className="text-left px-2 py-1 rounded text-[11px] bg-[#11151d] hover:bg-[#d4a853]/15 text-[#e7e2d8] border border-[#1d232e]"
+                        >
+                          3 Equal Columns
+                        </button>
+                        <button
+                          onClick={() => {
+                            insertTokenAtCursor(
+                              '\n\n:::columns 1:2\n:::card Sidebar\nQuick facts or portrait here.\n:::\n:::col\n## Main Chronicle\nPrimary narrative details.\n:::\n\n'
+                            );
+                            setOpenMenu(null);
+                          }}
+                          className="text-left px-2 py-1 rounded text-[11px] bg-[#11151d] hover:bg-[#d4a853]/15 text-[#e7e2d8] border border-[#1d232e]"
+                        >
+                          Sidebar + Main (1:2)
+                        </button>
+                        <button
+                          onClick={() => {
+                            insertTokenAtCursor(
+                              '\n\n:::columns 2:1\n## Main Section\nPrimary prose...\n:::col\n:::statblock Quick Stats\n- **CR:** 5\n- **HP:** 78\n:::\n:::\n\n'
+                            );
+                            setOpenMenu(null);
+                          }}
+                          className="text-left px-2 py-1 rounded text-[11px] bg-[#11151d] hover:bg-[#d4a853]/15 text-[#e7e2d8] border border-[#1d232e]"
+                        >
+                          Main + Stats (2:1)
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Structure & Tables */}
+                    <div className="grid grid-cols-2 gap-1 pt-1.5 border-t border-[#1e2430]">
+                      <button
+                        onClick={() => {
+                          insertTokenAtCursor(
+                            '\n\n| Column 1 | Column 2 | Value |\n| :--- | :---: | ---: |\n| Entry A | Detail | 100 |\n| Entry B | Detail | 250 |\n\n'
+                          );
+                          setOpenMenu(null);
+                        }}
+                        className="flex items-center gap-1.5 px-2 py-1.5 rounded text-[11px] text-[#e7e2d8] bg-[#11151d] hover:bg-[#d4a853]/15 border border-[#1d232e]"
+                      >
+                        <Table2 className="w-3.5 h-3.5 text-[#d4a853]" />
+                        <span>Table</span>
+                      </button>
+                      <button
+                        onClick={() => {
+                          insertTokenAtCursor('\n\n:::page-break New Section\n\n');
+                          setOpenMenu(null);
+                        }}
+                        className="flex items-center gap-1.5 px-2 py-1.5 rounded text-[11px] text-[#e7e2d8] bg-[#11151d] hover:bg-[#d4a853]/15 border border-[#1d232e]"
+                      >
+                        <SeparatorHorizontal className="w-3.5 h-3.5 text-[#d4a853]" />
+                        <span>Split Page</span>
+                      </button>
+                    </div>
+
+                    {/* Callouts & Containers */}
+                    <div className="space-y-0.5 pt-1.5 border-t border-[#1e2430]">
+                      <button
+                        onClick={() => {
+                          insertTokenAtCursor('\n\n> [!lore] Lore Chronicle\n> Ancient whispers tell of...\n\n');
+                          setOpenMenu(null);
+                        }}
+                        className="w-full text-left px-2 py-1 rounded text-xs text-[#f3d488] hover:bg-[#d4a853]/15 flex items-center justify-between"
+                      >
+                        <span>Lore Callout</span>
+                        <span className="font-mono text-[10px] text-[#6d7686]">[!lore]</span>
+                      </button>
+                      <button
+                        onClick={() => {
+                          insertTokenAtCursor('\n\n> [!warning] Danger / Hazard\n> Beware the wardens...\n\n');
+                          setOpenMenu(null);
+                        }}
+                        className="w-full text-left px-2 py-1 rounded text-xs text-amber-300 hover:bg-[#d4a853]/15 flex items-center justify-between"
+                      >
+                        <span>Warning Callout</span>
+                        <span className="font-mono text-[10px] text-[#6d7686]">[!warning]</span>
+                      </button>
+                      <button
+                        onClick={() => {
+                          insertTokenAtCursor('\n\n> [!tip] GM Note\n> Helpful reminder...\n\n');
+                          setOpenMenu(null);
+                        }}
+                        className="w-full text-left px-2 py-1 rounded text-xs text-emerald-300 hover:bg-[#d4a853]/15 flex items-center justify-between"
+                      >
+                        <span>Tip Callout</span>
+                        <span className="font-mono text-[10px] text-[#6d7686]">[!tip]</span>
+                      </button>
+                      <button
+                        onClick={() => {
+                          insertTokenAtCursor(
+                            '\n\n:::statblock Creature / Artifact\n- **Armor Class:** 16\n- **Hit Points:** 92\n- **Trait:** Arcane Resilience\n:::\n\n'
+                          );
+                          setOpenMenu(null);
+                        }}
+                        className="w-full text-left px-2 py-1 rounded text-xs text-[#e7e2d8] hover:bg-[#d4a853]/15 flex items-center justify-between"
+                      >
+                        <span>Statblock Box</span>
+                        <span className="font-mono text-[10px] text-[#6d7686]">:::statblock</span>
+                      </button>
+                      <button
+                        onClick={() => {
+                          insertTokenAtCursor('\n\n:::card Highlight Card\nStyled container card content.\n:::\n\n');
+                          setOpenMenu(null);
+                        }}
+                        className="w-full text-left px-2 py-1 rounded text-xs text-[#e7e2d8] hover:bg-[#d4a853]/15 flex items-center justify-between"
+                      >
+                        <span>Container Card</span>
+                        <span className="font-mono text-[10px] text-[#6d7686]">:::card</span>
+                      </button>
+                      <button
+                        onClick={() => {
+                          insertTokenAtCursor('\n\n:::details Click to Expand Spoiler\nHidden details revealed on click.\n:::\n\n');
+                          setOpenMenu(null);
+                        }}
+                        className="w-full text-left px-2 py-1 rounded text-xs text-[#e7e2d8] hover:bg-[#d4a853]/15 flex items-center justify-between"
+                      >
+                        <span>Collapsible Spoiler</span>
+                        <span className="font-mono text-[10px] text-[#6d7686]">:::details</span>
+                      </button>
+                    </div>
+
+                    {/* Embed Modal Trigger */}
+                    <div className="pt-1.5 border-t border-[#1e2430]">
+                      <button
+                        onClick={() => {
+                          setOpenMenu(null);
+                          setEmbedTab('asset');
+                          setEmbedRef('');
+                          setEmbedPreviewUrl('');
+                          setEmbedAlt('');
+                          setEmbedOpacity(1);
+                          setEmbedAlign('none');
+                          setEmbedWidth('');
+                          setEmbedModalOpen(true);
+                        }}
+                        className="w-full flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded text-xs font-medium bg-[#181e29] border border-[#d4a853]/40 text-[#f3d488] hover:border-[#eab308]"
+                      >
+                        <ImagePlus className="w-3.5 h-3.5" />
+                        <span>Embed Image, Asset or Entry ![[...]]</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Aa Style Popover (Inline Markdown + Font Family + Size + Color + Highlight BG + Alignment) */}
+              <div className="relative">
+                <button
+                  onClick={() => setOpenMenu((m) => (m === 'style' ? null : 'style'))}
+                  className={`flex items-center gap-1 px-2 py-1 rounded text-[11px] font-medium border transition-colors ${
+                    openMenu === 'style'
+                      ? 'bg-[#222938] border-[#d4a853]/60 text-[#f3d488]'
+                      : 'bg-[#131822] border-[#222938] text-[#c2c9d4] hover:text-[#f3ead8] hover:border-[#d4a853]/45'
+                  }`}
+                  title="Formatting, Fonts, Sizes, Colors & Alignment"
+                >
+                  <Palette className="w-3 h-3 text-[#d4a853]" />
+                  <span>Aa Style</span>
+                </button>
+                {openMenu === 'style' && (
+                  <div className="absolute right-0 mt-1.5 w-76 rounded-lg dark-glass shadow-glass p-3 space-y-3 z-50 border border-[#d4a853]/35">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-mono uppercase tracking-wider text-[#d4a853]">
+                        Format &amp; Typography
+                      </span>
+                      <button
+                        onClick={() => setOpenMenu(null)}
+                        className="text-[#7c8594] hover:text-white"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </div>
+
+                    {/* Quick Inline Format Row */}
+                    <div className="flex items-center justify-between gap-0.5 p-1 rounded-md bg-[#0b0d10] border border-[#1d222b]">
+                      <button
+                        onClick={() => wrapSelection('**', '**', 'bold')}
+                        title="Bold"
+                        className="p-1.5 rounded text-[#9aa3b2] hover:text-[#f3ead8] hover:bg-[#19202c]"
+                      >
+                        <Bold className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        onClick={() => wrapSelection('*', '*', 'italic')}
+                        title="Italic"
+                        className="p-1.5 rounded text-[#9aa3b2] hover:text-[#f3ead8] hover:bg-[#19202c]"
+                      >
+                        <Italic className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        onClick={() => wrapSelection('==', '==', 'highlight')}
+                        title="Highlight (==text==)"
+                        className="p-1.5 rounded text-[#9aa3b2] hover:text-[#f3d488] hover:bg-[#19202c]"
+                      >
+                        <Highlighter className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        onClick={() => {
+                          if (codeSubMode === 'visual' && editor) {
+                            editor.chain().focus().toggleHeading({ level: 2 }).run();
+                          } else {
+                            insertTokenAtCursor('\n## ');
+                          }
+                          setOpenMenu(null);
+                        }}
+                        title="Heading 2"
+                        className="p-1.5 rounded text-[#9aa3b2] hover:text-[#f3ead8] hover:bg-[#19202c]"
+                      >
+                        <Heading2 className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        onClick={() => {
+                          if (codeSubMode === 'visual' && editor) {
+                            editor.chain().focus().toggleBulletList().run();
+                          } else {
+                            insertTokenAtCursor('\n- ');
+                          }
+                          setOpenMenu(null);
+                        }}
+                        title="Bullet List"
+                        className="p-1.5 rounded text-[#9aa3b2] hover:text-[#f3ead8] hover:bg-[#19202c]"
+                      >
+                        <List className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        onClick={() => {
+                          insertTokenAtCursor('\n- [ ] Task item\n');
+                          setOpenMenu(null);
+                        }}
+                        title="Checklist Item"
+                        className="p-1.5 rounded text-[#9aa3b2] hover:text-[#f3ead8] hover:bg-[#19202c]"
+                      >
+                        <CheckSquare className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        onClick={() => {
+                          if (codeSubMode === 'visual' && editor) {
+                            editor.chain().focus().toggleBlockquote().run();
+                          } else {
+                            insertTokenAtCursor('\n> ');
+                          }
+                          setOpenMenu(null);
+                        }}
+                        title="Blockquote"
+                        className="p-1.5 rounded text-[#9aa3b2] hover:text-[#f3ead8] hover:bg-[#19202c]"
+                      >
+                        <Quote className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+
+                    <p className="text-[10px] text-[#848d9c]">
+                      Select text to style inline <code className="text-[#d4a853]">[text]{'{...}'}</code>, or leave unselected to style the whole note.
+                    </p>
+
+                    <div className="grid grid-cols-2 gap-2">
+                      <label className="space-y-1">
+                        <span className="text-[10px] text-[#9aa3b2] flex items-center gap-1">
+                          <Type className="w-3 h-3 text-[#d4a853]" /> Font Family
+                        </span>
+                        <select
+                          defaultValue=""
+                          onChange={(e) => {
+                            applyStyleProperty('font', e.target.value);
+                            setOpenMenu(null);
+                          }}
+                          className="w-full bg-[#0b0d10] border border-[#242b38] rounded px-1.5 py-1 text-[11px] text-[#e7e2d8]"
+                        >
+                          {FONT_OPTIONS.map((f) => (
+                            <option key={f.label} value={f.value}>
+                              {f.label}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="space-y-1">
+                        <span className="text-[10px] text-[#9aa3b2]">Font Size</span>
+                        <select
+                          defaultValue=""
+                          onChange={(e) => {
+                            if (e.target.value) applyStyleProperty('size', e.target.value);
+                            setOpenMenu(null);
+                          }}
+                          className="w-full bg-[#0b0d10] border border-[#242b38] rounded px-1.5 py-1 text-[11px] text-[#e7e2d8]"
+                        >
+                          <option value="" disabled>
+                            Choose size...
+                          </option>
+                          {SIZE_OPTIONS.map((s) => (
+                            <option key={s.value} value={s.value}>
+                              {s.label} ({s.value})
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <span className="text-[10px] text-[#9aa3b2]">Text Color</span>
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        {COLOR_SWATCHES.map((sw) => (
+                          <button
+                            key={sw.value}
+                            type="button"
+                            title={sw.label}
+                            onClick={() => {
+                              applyStyleProperty('color', sw.value);
+                              setOpenMenu(null);
+                            }}
+                            className="w-5 h-5 rounded-full border border-white/25 hover:scale-110 transition-transform"
+                            style={{ backgroundColor: sw.value }}
+                          />
+                        ))}
+                        <label
+                          title="Custom Text Color"
+                          className="ml-auto flex items-center gap-1 px-1.5 py-0.5 rounded bg-[#0b0d10] border border-[#242b38] text-[10px] text-[#c9c3b8] cursor-pointer"
+                        >
+                          <input
+                            type="color"
+                            value={customTextColor}
+                            onChange={(e) => {
+                              setCustomTextColor(e.target.value);
+                              applyStyleProperty('color', e.target.value);
+                            }}
+                            className="w-4 h-4 bg-transparent border-0 cursor-pointer"
+                          />
+                          <span>Pick</span>
+                        </label>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between gap-2 pt-1.5 border-t border-[#1e2532]">
+                      <label className="flex items-center gap-1.5 text-[10.5px] text-[#9aa3b2] cursor-pointer">
+                        <input
+                          type="color"
+                          value={customBgColor}
+                          onChange={(e) => {
+                            setCustomBgColor(e.target.value);
+                            applyStyleProperty('bg', e.target.value);
+                          }}
+                          className="w-4 h-4 bg-transparent border-0 cursor-pointer"
+                        />
+                        <span>Text Highlight BG</span>
+                      </label>
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => {
+                            applyBlockAlign('left');
+                            setOpenMenu(null);
+                          }}
+                          className="p-1 rounded bg-[#151a24] text-[#9aa3b2] hover:text-white"
+                          title="Align Left"
+                        >
+                          <AlignLeft className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={() => {
+                            applyBlockAlign('center');
+                            setOpenMenu(null);
+                          }}
+                          className="p-1 rounded bg-[#151a24] text-[#9aa3b2] hover:text-white"
+                          title="Align Center"
+                        >
+                          <AlignCenter className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={() => {
+                            applyBlockAlign('right');
+                            setOpenMenu(null);
+                          }}
+                          className="p-1 rounded bg-[#151a24] text-[#9aa3b2] hover:text-white"
+                          title="Align Right"
+                        >
+                          <AlignRight className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Scroll Sync (in Split mode) */}
+              {codeSubMode === 'split' && (
+                <button
+                  onClick={() => setSyncScroll((v) => !v)}
+                  className={`p-1 rounded border transition-colors ${
+                    syncScroll
+                      ? 'bg-[#19202c] border-[#d4a853]/35 text-[#d4a853]'
+                      : 'border-transparent text-[#6f7887] hover:text-[#cfd6e2]'
+                  }`}
+                  title={syncScroll ? 'Scroll Sync On' : 'Scroll Sync Off'}
+                >
+                  <Link2 className="w-3.5 h-3.5" />
+                </button>
+              )}
+
+              {/* Workspace View Switcher: Split | Source | Visual | Read */}
+              <div className="flex items-center bg-[#090b0f] p-0.5 rounded-md border border-[#1c222d]">
+                <button
+                  onClick={() => setCodeSubMode('split')}
+                  title="Obsidian Side-by-Side Live Preview + Code"
+                  className={`flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium transition-all ${
+                    codeSubMode === 'split'
+                      ? 'bg-[#1c222e] text-[#f3d488] border border-[#d4a853]/40'
+                      : 'text-[#848d9c] hover:text-[#e7e2d8] border border-transparent'
+                  }`}
+                >
+                  <Columns2 className="w-3 h-3" />
+                  <span className="hidden md:inline">Split</span>
+                </button>
+                <button
+                  onClick={() => setCodeSubMode('raw')}
+                  title="Markdown & HTML Source Only"
+                  className={`flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium transition-all ${
+                    codeSubMode === 'raw'
+                      ? 'bg-[#1c222e] text-[#f3d488] border border-[#d4a853]/40'
+                      : 'text-[#848d9c] hover:text-[#e7e2d8] border border-transparent'
+                  }`}
+                >
+                  <Code2 className="w-3 h-3" />
+                  <span className="hidden lg:inline">Source</span>
+                </button>
+                <button
+                  onClick={() => setCodeSubMode('visual')}
+                  title="Rich Visual Editor"
+                  className={`flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium transition-all ${
+                    codeSubMode === 'visual'
+                      ? 'bg-[#1c222e] text-[#f3d488] border border-[#d4a853]/40'
+                      : 'text-[#848d9c] hover:text-[#e7e2d8] border border-transparent'
+                  }`}
+                >
+                  <Sparkles className="w-3 h-3" />
+                  <span className="hidden lg:inline">Visual</span>
+                </button>
+                <button
+                  onClick={() => setEditorMode('preview')}
+                  title="Full Reading View"
+                  className="flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium text-[#848d9c] hover:text-[#f3d488] border border-transparent transition-all"
+                >
+                  <BookOpen className="w-3 h-3" />
+                  <span className="hidden md:inline">Read</span>
+                </button>
+              </div>
+
+              <span className="hidden xl:inline text-[10px] font-mono text-[#646e7e] px-1">
+                {wordCount}w
+              </span>
 
               <button
                 onClick={() => toggleFavorite(entity.id)}
-                className="p-1.5 rounded-md bg-[#12161e] border border-[#1f2531] text-[#d4a853] hover:border-[#d4a853]/50"
+                className="p-1 rounded bg-[#12161e] border border-[#1f2531] text-[#d4a853] hover:border-[#d4a853]/50"
                 title="Favorite Entry"
               >
                 <Star className={`w-3.5 h-3.5 ${entity.is_favorite ? 'fill-[#d4a853]' : ''}`} />
               </button>
               <button
                 onClick={() => deleteEntity(entity.id)}
-                className="p-1.5 rounded-md bg-[#12161e] border border-[#1f2531] text-[#7c8594] hover:text-red-400 hover:border-red-500/40"
+                className="p-1 rounded bg-[#12161e] border border-[#1f2531] text-[#7c8594] hover:text-red-400 hover:border-red-500/40"
                 title="Delete Entry"
               >
                 <Trash2 className="w-3.5 h-3.5" />
@@ -953,7 +1455,7 @@ export const NoteEditorPane: React.FC<{ entityId: string }> = ({ entityId }) => 
 
           {/* 2. Collapsible Obsidian Properties, Art, Background & CSS Drawer */}
           {showPropertiesDrawer && (
-            <div className="border-b border-[#1d222b] bg-[#0b0e13]/95 px-4 py-3 max-h-[46vh] overflow-y-auto shrink-0">
+            <div className="border-b border-[#1d222b] bg-[#0b0e13]/95 px-4 py-3 max-h-[46vh] overflow-y-auto shrink-0 z-20">
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
                 {/* Summary, Tags & Attributes */}
                 <div className="rounded-lg bg-[#12161f] border border-[#1e2430] p-3 space-y-2.5">
@@ -1243,456 +1745,11 @@ export const NoteEditorPane: React.FC<{ entityId: string }> = ({ entityId }) => 
             </div>
           )}
 
-          {/* 3. Obsidian Markdown & Typography Formatting Ribbon */}
-          <div className="px-3 py-1.5 border-b border-[#181e28] bg-[#10141c] flex flex-wrap items-center justify-between gap-2 shrink-0">
-            <div className="flex items-center gap-0.5 flex-wrap">
-              {/* Inline Markdown controls */}
-              <button
-                onClick={() => wrapSelection('**', '**', 'bold')}
-                title="Bold"
-                className="p-1.5 rounded text-[#9aa3b2] hover:text-[#f3ead8] hover:bg-[#19202c]"
-              >
-                <Bold className="w-3.5 h-3.5" />
-              </button>
-              <button
-                onClick={() => wrapSelection('*', '*', 'italic')}
-                title="Italic"
-                className="p-1.5 rounded text-[#9aa3b2] hover:text-[#f3ead8] hover:bg-[#19202c]"
-              >
-                <Italic className="w-3.5 h-3.5" />
-              </button>
-              <button
-                onClick={() => wrapSelection('==', '==', 'highlight')}
-                title="Highlight (==text==)"
-                className="p-1.5 rounded text-[#9aa3b2] hover:text-[#f3d488] hover:bg-[#19202c]"
-              >
-                <Highlighter className="w-3.5 h-3.5" />
-              </button>
-              <button
-                onClick={() => {
-                  if (codeSubMode === 'visual' && editor) {
-                    editor.chain().focus().toggleHeading({ level: 2 }).run();
-                  } else {
-                    insertTokenAtCursor('\n## ');
-                  }
-                }}
-                title="Heading 2"
-                className="p-1.5 rounded text-[#9aa3b2] hover:text-[#f3ead8] hover:bg-[#19202c]"
-              >
-                <Heading2 className="w-3.5 h-3.5" />
-              </button>
-              <button
-                onClick={() => {
-                  if (codeSubMode === 'visual' && editor) {
-                    editor.chain().focus().toggleBulletList().run();
-                  } else {
-                    insertTokenAtCursor('\n- ');
-                  }
-                }}
-                title="Bullet List"
-                className="p-1.5 rounded text-[#9aa3b2] hover:text-[#f3ead8] hover:bg-[#19202c]"
-              >
-                <List className="w-3.5 h-3.5" />
-              </button>
-              <button
-                onClick={() => insertTokenAtCursor('\n- [ ] Task item\n')}
-                title="Checklist Item"
-                className="p-1.5 rounded text-[#9aa3b2] hover:text-[#f3ead8] hover:bg-[#19202c]"
-              >
-                <CheckSquare className="w-3.5 h-3.5" />
-              </button>
-              <button
-                onClick={() => {
-                  if (codeSubMode === 'visual' && editor) {
-                    editor.chain().focus().toggleBlockquote().run();
-                  } else {
-                    insertTokenAtCursor('\n> ');
-                  }
-                }}
-                title="Blockquote"
-                className="p-1.5 rounded text-[#9aa3b2] hover:text-[#f3ead8] hover:bg-[#19202c]"
-              >
-                <Quote className="w-3.5 h-3.5" />
-              </button>
-
-              <span className="w-px h-4 bg-[#1f2633] mx-1" />
-
-              {/* Fonts, Size & Color Styling Popover */}
-              <div className="relative">
-                <button
-                  onClick={() => setOpenMenu((m) => (m === 'style' ? null : 'style'))}
-                  className={`flex items-center gap-1 px-2 py-1 rounded text-[11px] font-medium transition-colors ${
-                    openMenu === 'style'
-                      ? 'bg-[#222938] text-[#f3d488]'
-                      : 'text-[#c2c9d4] hover:bg-[#19202c]'
-                  }`}
-                  title="Manipulate Fonts, Sizes, Colors & Alignment"
-                >
-                  <Palette className="w-3.5 h-3.5 text-[#d4a853]" />
-                  <span>Font &amp; Color</span>
-                </button>
-                {openMenu === 'style' && (
-                  <div className="absolute left-0 mt-1.5 w-72 rounded-lg dark-glass shadow-glass p-3 space-y-3 z-40 border border-[#d4a853]/35">
-                    <div className="flex items-center justify-between">
-                      <span className="text-[10px] font-mono uppercase tracking-wider text-[#d4a853]">
-                        Typography &amp; Color
-                      </span>
-                      <button
-                        onClick={() => setOpenMenu(null)}
-                        className="text-[#7c8594] hover:text-white"
-                      >
-                        <X className="w-3 h-3" />
-                      </button>
-                    </div>
-                    <p className="text-[10px] text-[#848d9c]">
-                      Select text to style inline <code className="text-[#d4a853]">[text]{'{...}'}</code>, or leave unselected to style the whole note.
-                    </p>
-
-                    <div className="grid grid-cols-2 gap-2">
-                      <label className="space-y-1">
-                        <span className="text-[10px] text-[#9aa3b2] flex items-center gap-1">
-                          <Type className="w-3 h-3 text-[#d4a853]" /> Font Family
-                        </span>
-                        <select
-                          defaultValue=""
-                          onChange={(e) => {
-                            applyStyleProperty('font', e.target.value);
-                            setOpenMenu(null);
-                          }}
-                          className="w-full bg-[#0b0d10] border border-[#242b38] rounded px-1.5 py-1 text-[11px] text-[#e7e2d8]"
-                        >
-                          {FONT_OPTIONS.map((f) => (
-                            <option key={f.label} value={f.value}>
-                              {f.label}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                      <label className="space-y-1">
-                        <span className="text-[10px] text-[#9aa3b2]">Font Size</span>
-                        <select
-                          defaultValue=""
-                          onChange={(e) => {
-                            if (e.target.value) applyStyleProperty('size', e.target.value);
-                            setOpenMenu(null);
-                          }}
-                          className="w-full bg-[#0b0d10] border border-[#242b38] rounded px-1.5 py-1 text-[11px] text-[#e7e2d8]"
-                        >
-                          <option value="" disabled>
-                            Choose size...
-                          </option>
-                          {SIZE_OPTIONS.map((s) => (
-                            <option key={s.value} value={s.value}>
-                              {s.label} ({s.value})
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                    </div>
-
-                    <div className="space-y-1.5">
-                      <span className="text-[10px] text-[#9aa3b2]">Text Color</span>
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        {COLOR_SWATCHES.map((sw) => (
-                          <button
-                            key={sw.value}
-                            type="button"
-                            title={sw.label}
-                            onClick={() => {
-                              applyStyleProperty('color', sw.value);
-                              setOpenMenu(null);
-                            }}
-                            className="w-5 h-5 rounded-full border border-white/25 hover:scale-110 transition-transform"
-                            style={{ backgroundColor: sw.value }}
-                          />
-                        ))}
-                        <label
-                          title="Custom Text Color"
-                          className="ml-auto flex items-center gap-1 px-1.5 py-0.5 rounded bg-[#0b0d10] border border-[#242b38] text-[10px] text-[#c9c3b8] cursor-pointer"
-                        >
-                          <input
-                            type="color"
-                            value={customTextColor}
-                            onChange={(e) => {
-                              setCustomTextColor(e.target.value);
-                              applyStyleProperty('color', e.target.value);
-                            }}
-                            className="w-4 h-4 bg-transparent border-0 cursor-pointer"
-                          />
-                          <span>Pick</span>
-                        </label>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center justify-between gap-2 pt-1.5 border-t border-[#1e2532]">
-                      <label className="flex items-center gap-1.5 text-[10.5px] text-[#9aa3b2] cursor-pointer">
-                        <input
-                          type="color"
-                          value={customBgColor}
-                          onChange={(e) => {
-                            setCustomBgColor(e.target.value);
-                            applyStyleProperty('bg', e.target.value);
-                          }}
-                          className="w-4 h-4 bg-transparent border-0 cursor-pointer"
-                        />
-                        <span>Text Highlight BG</span>
-                      </label>
-                      <div className="flex items-center gap-1">
-                        <button
-                          onClick={() => {
-                            applyBlockAlign('left');
-                            setOpenMenu(null);
-                          }}
-                          className="p-1 rounded bg-[#151a24] text-[#9aa3b2] hover:text-white"
-                          title="Align Left"
-                        >
-                          <AlignLeft className="w-3.5 h-3.5" />
-                        </button>
-                        <button
-                          onClick={() => {
-                            applyBlockAlign('center');
-                            setOpenMenu(null);
-                          }}
-                          className="p-1 rounded bg-[#151a24] text-[#9aa3b2] hover:text-white"
-                          title="Align Center"
-                        >
-                          <AlignCenter className="w-3.5 h-3.5" />
-                        </button>
-                        <button
-                          onClick={() => {
-                            applyBlockAlign('right');
-                            setOpenMenu(null);
-                          }}
-                          className="p-1 rounded bg-[#151a24] text-[#9aa3b2] hover:text-white"
-                          title="Align Right"
-                        >
-                          <AlignRight className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* Columns Layout Popover */}
-              <div className="relative">
-                <button
-                  onClick={() => setOpenMenu((m) => (m === 'columns' ? null : 'columns'))}
-                  className={`flex items-center gap-1 px-2 py-1 rounded text-[11px] font-medium transition-colors ${
-                    openMenu === 'columns'
-                      ? 'bg-[#222938] text-[#f3d488]'
-                      : 'text-[#c2c9d4] hover:bg-[#19202c]'
-                  }`}
-                  title="Insert Multi-Column Grid"
-                >
-                  <Columns3 className="w-3.5 h-3.5 text-[#d4a853]" />
-                  <span>Columns</span>
-                </button>
-                {openMenu === 'columns' && (
-                  <div className="absolute left-0 mt-1.5 w-52 rounded-lg dark-glass shadow-glass p-1.5 space-y-0.5 z-40 border border-[#d4a853]/35">
-                    <button
-                      onClick={() => {
-                        insertTokenAtCursor(
-                          '\n\n:::columns 2\n### Column One\nLeft column notes.\n:::col\n### Column Two\nRight column notes.\n:::\n\n'
-                        );
-                        setOpenMenu(null);
-                      }}
-                      className="w-full text-left px-2.5 py-1.5 rounded text-xs text-[#e7e2d8] hover:bg-[#d4a853]/15"
-                    >
-                      2 Equal Columns
-                    </button>
-                    <button
-                      onClick={() => {
-                        insertTokenAtCursor(
-                          '\n\n:::columns 3\n### First\nNotes...\n:::col\n### Second\nNotes...\n:::col\n### Third\nNotes...\n:::\n\n'
-                        );
-                        setOpenMenu(null);
-                      }}
-                      className="w-full text-left px-2.5 py-1.5 rounded text-xs text-[#e7e2d8] hover:bg-[#d4a853]/15"
-                    >
-                      3 Equal Columns
-                    </button>
-                    <button
-                      onClick={() => {
-                        insertTokenAtCursor(
-                          '\n\n:::columns 1:2\n:::card Sidebar\nQuick facts or portrait here.\n:::\n:::col\n## Main Chronicle\nPrimary narrative details.\n:::\n\n'
-                        );
-                        setOpenMenu(null);
-                      }}
-                      className="w-full text-left px-2.5 py-1.5 rounded text-xs text-[#e7e2d8] hover:bg-[#d4a853]/15"
-                    >
-                      Sidebar + Main (1:2)
-                    </button>
-                    <button
-                      onClick={() => {
-                        insertTokenAtCursor(
-                          '\n\n:::columns 2:1\n## Main Section\nPrimary prose...\n:::col\n:::statblock Quick Stats\n- **CR:** 5\n- **HP:** 78\n:::\n:::\n\n'
-                        );
-                        setOpenMenu(null);
-                      }}
-                      className="w-full text-left px-2.5 py-1.5 rounded text-xs text-[#e7e2d8] hover:bg-[#d4a853]/15"
-                    >
-                      Main + Statblock (2:1)
-                    </button>
-                  </div>
-                )}
-              </div>
-
-              {/* Table Button */}
-              <button
-                onClick={() =>
-                  insertTokenAtCursor(
-                    '\n\n| Column 1 | Column 2 | Value |\n| :--- | :---: | ---: |\n| Entry A | Detail | 100 |\n| Entry B | Detail | 250 |\n\n'
-                  )
-                }
-                className="flex items-center gap-1 px-2 py-1 rounded text-[11px] font-medium text-[#c2c9d4] hover:bg-[#19202c]"
-                title="Insert Markdown Table"
-              >
-                <Table2 className="w-3.5 h-3.5 text-[#d4a853]" />
-                <span>Table</span>
-              </button>
-
-              {/* Page Split Button */}
-              <button
-                onClick={() => insertTokenAtCursor('\n\n:::page-break New Section\n\n')}
-                className="flex items-center gap-1 px-2 py-1 rounded text-[11px] font-medium text-[#c2c9d4] hover:bg-[#19202c]"
-                title="Insert Page Split / Section Break (=== or :::page-break)"
-              >
-                <SeparatorHorizontal className="w-3.5 h-3.5 text-[#d4a853]" />
-                <span>Split Page</span>
-              </button>
-
-              {/* Callouts & Container Blocks Popover */}
-              <div className="relative">
-                <button
-                  onClick={() => setOpenMenu((m) => (m === 'elements' ? null : 'elements'))}
-                  className={`flex items-center gap-1 px-2 py-1 rounded text-[11px] font-medium transition-colors ${
-                    openMenu === 'elements'
-                      ? 'bg-[#222938] text-[#f3d488]'
-                      : 'text-[#c2c9d4] hover:bg-[#19202c]'
-                  }`}
-                  title="Insert Callouts, Cards, Statblocks & Spoilers"
-                >
-                  <PanelLeft className="w-3.5 h-3.5 text-[#d4a853]" />
-                  <span>Blocks</span>
-                </button>
-                {openMenu === 'elements' && (
-                  <div className="absolute left-0 mt-1.5 w-56 rounded-lg dark-glass shadow-glass p-1.5 space-y-0.5 z-40 border border-[#d4a853]/35">
-                    <button
-                      onClick={() => {
-                        insertTokenAtCursor('\n\n> [!lore] Lore Chronicle\n> Ancient whispers tell of...\n\n');
-                        setOpenMenu(null);
-                      }}
-                      className="w-full text-left px-2.5 py-1.5 rounded text-xs text-[#f3d488] hover:bg-[#d4a853]/15"
-                    >
-                      Lore Callout ([!lore])
-                    </button>
-                    <button
-                      onClick={() => {
-                        insertTokenAtCursor('\n\n> [!warning] Danger / Hazard\n> Beware the wardens...\n\n');
-                        setOpenMenu(null);
-                      }}
-                      className="w-full text-left px-2.5 py-1.5 rounded text-xs text-amber-300 hover:bg-[#d4a853]/15"
-                    >
-                      Warning Callout ([!warning])
-                    </button>
-                    <button
-                      onClick={() => {
-                        insertTokenAtCursor('\n\n> [!tip] GM Note\n> Helpful reminder...\n\n');
-                        setOpenMenu(null);
-                      }}
-                      className="w-full text-left px-2.5 py-1.5 rounded text-xs text-emerald-300 hover:bg-[#d4a853]/15"
-                    >
-                      Tip Callout ([!tip])
-                    </button>
-                    <button
-                      onClick={() => {
-                        insertTokenAtCursor(
-                          '\n\n:::statblock Creature / Artifact\n- **Armor Class:** 16\n- **Hit Points:** 92\n- **Trait:** Arcane Resilience\n:::\n\n'
-                        );
-                        setOpenMenu(null);
-                      }}
-                      className="w-full text-left px-2.5 py-1.5 rounded text-xs text-[#e7e2d8] hover:bg-[#d4a853]/15"
-                    >
-                      Statblock Box (:::statblock)
-                    </button>
-                    <button
-                      onClick={() => {
-                        insertTokenAtCursor(
-                          '\n\n:::card Highlight Card\nStyled container card content.\n:::\n\n'
-                        );
-                        setOpenMenu(null);
-                      }}
-                      className="w-full text-left px-2.5 py-1.5 rounded text-xs text-[#e7e2d8] hover:bg-[#d4a853]/15"
-                    >
-                      Container Card (:::card)
-                    </button>
-                    <button
-                      onClick={() => {
-                        insertTokenAtCursor(
-                          '\n\n:::details Click to Expand Spoiler\nHidden details revealed on click.\n:::\n\n'
-                        );
-                        setOpenMenu(null);
-                      }}
-                      className="w-full text-left px-2.5 py-1.5 rounded text-xs text-[#e7e2d8] hover:bg-[#d4a853]/15"
-                    >
-                      Collapsible Toggle (:::details)
-                    </button>
-                  </div>
-                )}
-              </div>
-
-              {/* Embed Asset or Entry */}
-              <button
-                onClick={() => {
-                  setEmbedTab('asset');
-                  setEmbedRef('');
-                  setEmbedPreviewUrl('');
-                  setEmbedAlt('');
-                  setEmbedOpacity(1);
-                  setEmbedAlign('none');
-                  setEmbedWidth('');
-                  setEmbedModalOpen(true);
-                }}
-                className="flex items-center gap-1 px-2 py-1 rounded text-[11px] font-medium bg-[#181e29] border border-[#d4a853]/35 text-[#f0cf85] hover:border-[#eab308]"
-                title="Embed Image, Asset, or Transcluded Note Card ![[...]]"
-              >
-                <ImagePlus className="w-3.5 h-3.5" />
-                <span>Embed</span>
-              </button>
-            </div>
-
-            {/* Right Status & Scroll Sync */}
-            <div className="flex items-center gap-2 text-[10.5px] font-mono text-[#737c8c]">
-              {codeSubMode === 'split' && (
-                <button
-                  onClick={() => setSyncScroll((v) => !v)}
-                  className={`flex items-center gap-1 px-2 py-0.5 rounded border transition-colors ${
-                    syncScroll
-                      ? 'bg-[#19202c] border-[#d4a853]/35 text-[#d4a853]'
-                      : 'border-transparent text-[#6f7887] hover:text-[#cfd6e2]'
-                  }`}
-                  title="Synchronize Code & Live Preview scrolling"
-                >
-                  <Link2 className="w-3 h-3" />
-                  <span className="hidden xl:inline">Sync</span>
-                </button>
-              )}
-              <span className="hidden sm:inline">{wordCount} words</span>
-              <span className="hidden md:inline text-[#4c5564]">·</span>
-              <span className="hidden md:inline text-emerald-400/80">Saved</span>
-            </div>
-          </div>
-
-          {/* 4. Main Shared Working Space */}
+          {/* 3. Main Shared Working Space (Zero Redundant Sub-bars) */}
           {codeSubMode === 'visual' ? (
             /* Rich TipTap Visual Mode */
             <div className="flex-1 overflow-y-auto p-6">
-              <div
-                className={`mx-auto rounded-xl bg-[#11151d]/92 border border-[#1d222b] overflow-hidden ${
-                  rightInspectorCollapsed ? 'max-w-5xl' : 'max-w-4xl'
-                }`}
-              >
+              <div className="max-w-4xl mx-auto rounded-xl bg-[#11151d]/92 border border-[#1d222b] overflow-hidden">
                 <div
                   className="min-h-[420px] p-6"
                   style={noteVars as React.CSSProperties}
@@ -1739,16 +1796,11 @@ export const NoteEditorPane: React.FC<{ entityId: string }> = ({ entityId }) => 
                 }}
                 className="relative h-full flex flex-col min-w-0 bg-[#0b0e13]/95"
               >
-                <div className="h-7 px-3.5 border-b border-[#161b24] bg-[#0d1016] flex items-center justify-between text-[10px] font-mono text-[#737c8c] shrink-0">
-                  <span className="uppercase tracking-wider text-[#d4a853]/85">Markdown Source</span>
-                  <span>[[Link]] · ![[Embed]] · :::columns · === split</span>
-                </div>
-
                 <div className="relative flex-1 flex min-h-0 overflow-hidden">
                   {/* Subtle Line Gutter */}
                   <div
                     aria-hidden
-                    className="hidden sm:block w-10 py-4 pr-2 text-right font-mono text-[11px] leading-[1.65] text-[#3f4857] select-none overflow-hidden bg-[#0a0c11] border-r border-[#141922]"
+                    className="hidden sm:block w-10 py-4 pr-2 text-right font-mono text-[11px] leading-[1.65] text-[#3a4250] select-none overflow-hidden bg-[#0a0c11] border-r border-[#141922]"
                   >
                     {Array.from({ length: Math.min(lineCount, 400) }, (_, idx) => (
                       <div key={idx}>{idx + 1}</div>
@@ -1761,14 +1813,131 @@ export const NoteEditorPane: React.FC<{ entityId: string }> = ({ entityId }) => 
                     onChange={handleRawMarkdownChange}
                     onKeyDown={handleRawKeyDown}
                     onScroll={handleRawScroll}
+                    onSelect={() => {
+                      const ta = rawTextareaRef.current;
+                      setHasSelection(Boolean(ta && ta.selectionEnd > ta.selectionStart));
+                    }}
+                    onMouseUp={() => {
+                      const ta = rawTextareaRef.current;
+                      setHasSelection(Boolean(ta && ta.selectionEnd > ta.selectionStart));
+                    }}
+                    onKeyUp={() => {
+                      const ta = rawTextareaRef.current;
+                      setHasSelection(Boolean(ta && ta.selectionEnd > ta.selectionStart));
+                    }}
                     spellCheck={false}
-                    placeholder="Start writing in Obsidian Markdown... Try :::columns 2, | tables |, === page splits, [styled text]{color=#d4a853 font=cinzel}, > [!lore], or ![[Entry/Asset]]."
+                    placeholder="Type / for blocks (columns, tables, page splits, callouts, embeds), [[ to link notes, or [text]{color=#d4a853 font=cinzel}..."
                     className="flex-1 h-full w-full bg-transparent px-4 py-4 font-mono text-[13px] leading-[1.65] text-[#e4ded1] placeholder:text-[#4c5566] focus:outline-none resize-none overflow-y-auto"
                   />
                 </div>
 
-                {/* Inline [[ / ![[ Autocomplete Popover */}
-                {rawTrigger && rawMatches.length > 0 && (
+                {/* Floating Selection Formatting Bubble */}
+                {hasSelection && !rawTrigger && (
+                  <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-30 flex items-center gap-0.5 px-2 py-1 rounded-full dark-glass shadow-glass border border-[#d4a853]/45">
+                    <button
+                      type="button"
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        wrapSelection('**', '**', 'bold');
+                      }}
+                      className="p-1 rounded-full text-[#d8d3c8] hover:text-white hover:bg-[#1d2330]"
+                      title="Bold"
+                    >
+                      <Bold className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        wrapSelection('*', '*', 'italic');
+                      }}
+                      className="p-1 rounded-full text-[#d8d3c8] hover:text-white hover:bg-[#1d2330]"
+                      title="Italic"
+                    >
+                      <Italic className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        wrapSelection('==', '==', 'highlight');
+                      }}
+                      className="p-1 rounded-full text-[#f3d488] hover:bg-[#1d2330]"
+                      title="Highlight (==text==)"
+                    >
+                      <Highlighter className="w-3.5 h-3.5" />
+                    </button>
+                    <span className="w-px h-3.5 bg-[#252c3b] mx-0.5" />
+                    {[
+                      { label: 'Gold', color: '#d4a853' },
+                      { label: 'Crimson', color: '#f87171' },
+                      { label: 'Azure', color: '#60a5fa' },
+                    ].map((sw) => (
+                      <button
+                        key={sw.color}
+                        type="button"
+                        onMouseDown={(e) => {
+                          e.preventDefault();
+                          applyStyleProperty('color', sw.color);
+                        }}
+                        title={`Color: ${sw.label}`}
+                        className="w-4 h-4 mx-0.5 rounded-full border border-white/30 hover:scale-110 transition-transform"
+                        style={{ backgroundColor: sw.color }}
+                      />
+                    ))}
+                    <button
+                      type="button"
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        applyStyleProperty('font', 'cinzel');
+                      }}
+                      title="Cinzel Display Font"
+                      className="px-1.5 py-0.5 rounded-full text-[10px] font-serif font-semibold text-[#f3d488] hover:bg-[#1d2330]"
+                    >
+                      Cinzel
+                    </button>
+                  </div>
+                )}
+
+                {/* Inline /, [[, and ![[ Autocomplete Popover */}
+                {rawTrigger?.kind === 'slash' && filteredSlashCommands.length > 0 && (
+                  <div className="absolute left-12 bottom-4 z-40 w-80 rounded-lg dark-glass shadow-glass py-1.5 border border-[#d4a853]/45">
+                    <div className="px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-[#d4a853] border-b border-[#1d222b]">
+                      Obsidian Slash Commands (/...)
+                    </div>
+                    <div className="max-h-60 overflow-y-auto">
+                      {filteredSlashCommands.map((cmd, idx) => (
+                        <button
+                          key={cmd.id}
+                          type="button"
+                          onClick={() => {
+                            if (cmd.token === '__OPEN_EMBED__') {
+                              const nextMd =
+                                rawMarkdown.slice(0, rawTrigger.startIdx) +
+                                rawMarkdown.slice(rawTrigger.endIdx);
+                              setRawTrigger(null);
+                              commitMarkdown(nextMd, rawTrigger.startIdx);
+                              setEmbedTab('asset');
+                              setEmbedModalOpen(true);
+                            } else {
+                              applyRawAutocomplete(cmd.token);
+                            }
+                          }}
+                          className={`w-full px-2.5 py-1.5 text-left flex items-center justify-between gap-2 text-xs transition-colors ${
+                            idx === 0
+                              ? 'bg-[#d4a853]/15 text-[#f7ecc9]'
+                              : 'text-[#e7e2d8] hover:bg-[#d4a853]/15'
+                          }`}
+                        >
+                          <span>{cmd.label}</span>
+                          <span className="font-mono text-[10px] text-[#7c8594]">{cmd.hint}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {rawTrigger && rawTrigger.kind !== 'slash' && rawMatches.length > 0 && (
                   <div className="absolute left-12 bottom-4 z-40 w-80 rounded-lg dark-glass shadow-glass py-1.5 border border-[#d4a853]/45">
                     <div className="px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-[#d4a853] border-b border-[#1d222b]">
                       {rawTrigger.kind === 'asset'
@@ -1828,7 +1997,7 @@ export const NoteEditorPane: React.FC<{ entityId: string }> = ({ entityId }) => 
                       isResizingSplitRef.current = true;
                     }}
                     title="Drag to resize Code / Live Preview split"
-                    className="w-[5px] bg-[#141821] hover:bg-[#d4a853]/50 border-x border-[#1c222d] cursor-col-resize transition-colors shrink-0 flex items-center justify-center group"
+                    className="w-[4px] bg-[#141821] hover:bg-[#d4a853]/50 border-x border-[#1c222d] cursor-col-resize transition-colors shrink-0 flex items-center justify-center group"
                   >
                     <span className="w-[1px] h-8 bg-[#2c3445] group-hover:bg-[#f3d488]" />
                   </div>
@@ -1837,18 +2006,6 @@ export const NoteEditorPane: React.FC<{ entityId: string }> = ({ entityId }) => 
                     ref={livePreviewScrollRef}
                     className={`flex-1 h-full overflow-y-auto bg-[#0f1319]/92 ${scopeClass}`}
                   >
-                    <div className="sticky top-0 z-10 h-7 px-4 border-b border-[#161b24] bg-[#0d1118]/90 backdrop-blur-sm flex items-center justify-between text-[10px] font-mono text-[#7c8594]">
-                      <span className="flex items-center gap-1.5 uppercase tracking-wider text-[#d4a853]/90">
-                        <Eye className="w-3 h-3" /> Live Preview
-                      </span>
-                      <button
-                        onClick={() => setEditorMode('preview')}
-                        className="text-[#8e97a6] hover:text-[#f3d488]"
-                      >
-                        Full Reading View →
-                      </button>
-                    </div>
-
                     <div className="px-6 py-5 max-w-4xl mx-auto">
                       {entity.cover_image_url && (
                         <div className="mb-4 h-28 rounded-lg overflow-hidden border border-[#1f2633] relative">
