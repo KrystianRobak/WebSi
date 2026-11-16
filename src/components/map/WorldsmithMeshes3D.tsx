@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { ThreeEvent, useFrame } from '@react-three/fiber';
 import { Html, Line, Text } from '@react-three/drei';
 import * as THREE from 'three';
@@ -19,6 +19,9 @@ import {
   WorldMapZone,
 } from '../../types/vault';
 
+const noopRaycast = () => null;
+const meshRaycast = THREE.Mesh.prototype.raycast;
+
 interface BrushCursorRingProps {
   position: { x: number; y: number; z: number } | null;
   radius: number;
@@ -35,11 +38,11 @@ export const BrushCursorRing: React.FC<BrushCursorRingProps> = ({
   if (!visible || !position) return null;
   return (
     <group position={[position.x, position.y + 0.16, position.z]}>
-      <mesh rotation={[-Math.PI / 2, 0, 0]}>
+      <mesh rotation={[-Math.PI / 2, 0, 0]} raycast={noopRaycast}>
         <ringGeometry args={[Math.max(0.2, radius - 0.14), radius, 48]} />
         <meshBasicMaterial color={color} transparent opacity={0.9} side={THREE.DoubleSide} depthWrite={false} />
       </mesh>
-      <mesh rotation={[-Math.PI / 2, 0, 0]}>
+      <mesh rotation={[-Math.PI / 2, 0, 0]} raycast={noopRaycast}>
         <ringGeometry args={[0.05, 0.16, 16]} />
         <meshBasicMaterial color={color} transparent opacity={0.95} side={THREE.DoubleSide} depthWrite={false} />
       </mesh>
@@ -152,7 +155,7 @@ const SingleRiverRibbon: React.FC<RiverRibbonProps> = ({
   if (!geometry) return null;
 
   return (
-    <mesh geometry={geometry} renderOrder={2}>
+    <mesh geometry={geometry} renderOrder={2} raycast={noopRaycast}>
       <shaderMaterial
         ref={matRef}
         uniforms={uniforms}
@@ -307,6 +310,9 @@ const HeroPropMesh: React.FC<{
       rotation={[0, prop.rotY, 0]}
       scale={prop.scale}
       onPointerDown={handleDown}
+      onClick={(e) => {
+        if (interactive) e.stopPropagation();
+      }}
     >
       {isSelected && (
         <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.16, 0]}>
@@ -764,6 +770,9 @@ export const TerrainProps3D: React.FC<TerrainProps3DProps> = ({
                 onSelectProp(prop, e);
               }
             }}
+            onClick={(e) => {
+              if (interactive) e.stopPropagation();
+            }}
           >
             <cylinderGeometry args={[0.045, 0.075, 0.36, 5]} />
             <meshStandardMaterial color="#3b281c" roughness={0.95} />
@@ -781,6 +790,9 @@ export const TerrainProps3D: React.FC<TerrainProps3DProps> = ({
                 e.stopPropagation();
                 onSelectProp(prop, e);
               }
+            }}
+            onClick={(e) => {
+              if (interactive) e.stopPropagation();
             }}
           >
             <coneGeometry args={[0.3, 0.92, 6]} />
@@ -815,6 +827,9 @@ export const TerrainProps3D: React.FC<TerrainProps3DProps> = ({
                 onSelectProp(prop, e);
               }
             }}
+            onClick={(e) => {
+              if (interactive) e.stopPropagation();
+            }}
           >
             <dodecahedronGeometry args={[0.36, 0]} />
             <meshStandardMaterial color="#395226" roughness={0.84} />
@@ -837,6 +852,9 @@ export const TerrainProps3D: React.FC<TerrainProps3DProps> = ({
               onSelectProp(prop, e);
             }
           }}
+          onClick={(e) => {
+            if (interactive) e.stopPropagation();
+          }}
         >
           <cylinderGeometry args={[0.03, 0.08, 0.72, 5]} />
           <meshStandardMaterial color="#51463c" roughness={0.94} />
@@ -858,6 +876,9 @@ export const TerrainProps3D: React.FC<TerrainProps3DProps> = ({
               e.stopPropagation();
               onSelectProp(prop, e);
             }
+          }}
+          onClick={(e) => {
+            if (interactive) e.stopPropagation();
           }}
         >
           <dodecahedronGeometry args={[1, 0]} />
@@ -956,8 +977,6 @@ interface SingleZoneMeshProps {
   onRemoveVertex?: (zone: WorldMapZone, vertexIndex: number) => void;
 }
 
-const noopRaycast = () => null;
-
 const SingleZoneMesh: React.FC<SingleZoneMeshProps> = ({
   zone,
   layer,
@@ -978,6 +997,14 @@ const SingleZoneMesh: React.FC<SingleZoneMeshProps> = ({
 }) => {
   const [hoveredHandle, setHoveredHandle] = useState<string | null>(null);
   const layerOffset = (layer?.order ?? 1) * 0.035;
+
+  useEffect(() => {
+    if (!hoveredHandle) return;
+    document.body.style.cursor = 'grab';
+    return () => {
+      document.body.style.cursor = '';
+    };
+  }, [hoveredHandle]);
 
   const fillGeom = useMemo(() => {
     return buildTerrainConformingPolygonGeometry(
@@ -1115,8 +1142,8 @@ const SingleZoneMesh: React.FC<SingleZoneMeshProps> = ({
     layerOffset,
   ]);
 
-  const gizmoScale = Math.max(0.95, terrainSize / 120);
-  const gizmoY = centroid.surfaceY + 1.15 * gizmoScale + layerOffset;
+  const gizmoScale = Math.max(1.25, terrainSize / 90);
+  const gizmoY = centroid.surfaceY + 2.25 * gizmoScale + layerOffset;
 
   const fillOpacity = Math.min(
     0.85,
@@ -1131,7 +1158,7 @@ const SingleZoneMesh: React.FC<SingleZoneMeshProps> = ({
         <mesh
           geometry={fillGeom}
           renderOrder={3}
-          raycast={interactive ? undefined : noopRaycast}
+          raycast={interactive ? meshRaycast : noopRaycast}
           onClick={(e) => {
             if (!interactive || e.delta > 6) return;
             e.stopPropagation();
@@ -1174,20 +1201,23 @@ const SingleZoneMesh: React.FC<SingleZoneMeshProps> = ({
       )}
 
       {showLabel && zone.showLabel && (
-        <Text
-          position={[centroid.x, centroid.y, centroid.z]}
-          rotation={[-Math.PI / 2, 0, 0]}
-          fontSize={1.25 * (zone.labelScale ?? 1)}
-          letterSpacing={0.18}
-          color={isSelected ? '#fef08a' : '#f5eedc'}
-          outlineWidth={0.08}
-          outlineColor="#090b0e"
-          fillOpacity={0.92}
-          anchorX="center"
-          anchorY="middle"
-        >
-          {zone.name.toUpperCase()}
-        </Text>
+        <Suspense fallback={null}>
+          <Text
+            position={[centroid.x, centroid.y, centroid.z]}
+            rotation={[-Math.PI / 2, 0, 0]}
+            fontSize={1.25 * (zone.labelScale ?? 1)}
+            letterSpacing={0.18}
+            color={isSelected ? '#fef08a' : '#f5eedc'}
+            outlineWidth={0.08}
+            outlineColor="#090b0e"
+            fillOpacity={0.92}
+            anchorX="center"
+            anchorY="middle"
+            raycast={noopRaycast}
+          >
+            {zone.name.toUpperCase()}
+          </Text>
+        </Suspense>
       )}
 
       {/* Selected Zone 3D Move Gizmo + Corner Vertex & Edge Midpoint Handles */}
@@ -1224,8 +1254,7 @@ const SingleZoneMesh: React.FC<SingleZoneMeshProps> = ({
           {/* 3D Move Gizmo Hub at Centroid (Drag XZ free, +X red arrow, +Z cyan arrow) */}
           <group position={[centroid.x, gizmoY, centroid.z]} scale={gizmoScale}>
             {/* Center Free-Move XZ Handle */}
-            <mesh
-              renderOrder={12}
+            <group
               onPointerOver={(e) => {
                 e.stopPropagation();
                 setHoveredHandle('gizmo-xz');
@@ -1236,16 +1265,24 @@ const SingleZoneMesh: React.FC<SingleZoneMeshProps> = ({
                 e.stopPropagation();
                 onStartGizmoDrag?.(zone, 'move-xz', e);
               }}
+              onClick={(e) => e.stopPropagation()}
             >
-              <octahedronGeometry args={[0.62, 0]} />
-              <meshStandardMaterial
-                color={hoveredHandle === 'gizmo-xz' ? '#fef08a' : '#facc15'}
-                emissive={hoveredHandle === 'gizmo-xz' ? '#facc15' : '#b45309'}
-                emissiveIntensity={hoveredHandle === 'gizmo-xz' ? 1.1 : 0.6}
-                roughness={0.25}
-                metalness={0.5}
-              />
-            </mesh>
+              <mesh renderOrder={12}>
+                <octahedronGeometry args={[0.62, 0]} />
+                <meshStandardMaterial
+                  color={hoveredHandle === 'gizmo-xz' ? '#fef08a' : '#facc15'}
+                  emissive={hoveredHandle === 'gizmo-xz' ? '#facc15' : '#b45309'}
+                  emissiveIntensity={hoveredHandle === 'gizmo-xz' ? 1.1 : 0.6}
+                  roughness={0.25}
+                  metalness={0.5}
+                />
+              </mesh>
+              {/* Invisible wider hit sphere for reliable mouse grabbing */}
+              <mesh>
+                <sphereGeometry args={[1.05, 8, 8]} />
+                <meshBasicMaterial transparent opacity={0} depthWrite={false} />
+              </mesh>
+            </group>
             <mesh rotation={[-Math.PI / 2, 0, 0]} renderOrder={12} raycast={noopRaycast}>
               <ringGeometry args={[0.78, 0.98, 24]} />
               <meshBasicMaterial
@@ -1268,6 +1305,7 @@ const SingleZoneMesh: React.FC<SingleZoneMeshProps> = ({
                 e.stopPropagation();
                 onStartGizmoDrag?.(zone, 'move-x', e);
               }}
+              onClick={(e) => e.stopPropagation()}
             >
               <mesh position={[1.9, 0, 0]} rotation={[0, 0, -Math.PI / 2]} renderOrder={12}>
                 <cylinderGeometry args={[0.1, 0.1, 2.2, 10]} />
@@ -1279,7 +1317,7 @@ const SingleZoneMesh: React.FC<SingleZoneMeshProps> = ({
               </mesh>
               {/* Invisible wider hit cylinder for easy grabbing */}
               <mesh position={[2.2, 0, 0]} rotation={[0, 0, -Math.PI / 2]}>
-                <cylinderGeometry args={[0.48, 0.48, 3.0, 8]} />
+                <cylinderGeometry args={[0.62, 0.62, 3.2, 8]} />
                 <meshBasicMaterial transparent opacity={0} depthWrite={false} />
               </mesh>
             </group>
@@ -1296,6 +1334,7 @@ const SingleZoneMesh: React.FC<SingleZoneMeshProps> = ({
                 e.stopPropagation();
                 onStartGizmoDrag?.(zone, 'move-z', e);
               }}
+              onClick={(e) => e.stopPropagation()}
             >
               <mesh position={[0, 0, 1.9]} rotation={[Math.PI / 2, 0, 0]} renderOrder={12}>
                 <cylinderGeometry args={[0.1, 0.1, 2.2, 10]} />
@@ -1307,7 +1346,7 @@ const SingleZoneMesh: React.FC<SingleZoneMeshProps> = ({
               </mesh>
               {/* Invisible wider hit cylinder for easy grabbing */}
               <mesh position={[0, 0, 2.2]} rotation={[Math.PI / 2, 0, 0]}>
-                <cylinderGeometry args={[0.48, 0.48, 3.0, 8]} />
+                <cylinderGeometry args={[0.62, 0.62, 3.2, 8]} />
                 <meshBasicMaterial transparent opacity={0} depthWrite={false} />
               </mesh>
             </group>
@@ -1335,6 +1374,7 @@ const SingleZoneMesh: React.FC<SingleZoneMeshProps> = ({
                       onStartVertexDrag?.(zone, vh.idx, e);
                     }
                   }}
+                  onClick={(e) => e.stopPropagation()}
                   onContextMenu={(e) => {
                     if (zone.points.length > 3) {
                       e.stopPropagation();
@@ -1367,6 +1407,7 @@ const SingleZoneMesh: React.FC<SingleZoneMeshProps> = ({
                       onStartVertexDrag?.(zone, vh.idx, e);
                     }
                   }}
+                  onClick={(e) => e.stopPropagation()}
                   onContextMenu={(e) => {
                     if (zone.points.length > 3) {
                       e.stopPropagation();
@@ -1375,7 +1416,7 @@ const SingleZoneMesh: React.FC<SingleZoneMeshProps> = ({
                     }
                   }}
                 >
-                  <sphereGeometry args={[0.78 * gizmoScale, 8, 8]} />
+                  <sphereGeometry args={[0.85 * gizmoScale, 8, 8]} />
                   <meshBasicMaterial transparent opacity={0} depthWrite={false} />
                 </mesh>
               </group>
@@ -1406,8 +1447,9 @@ const SingleZoneMesh: React.FC<SingleZoneMeshProps> = ({
                     e
                   );
                 }}
+                onClick={(e) => e.stopPropagation()}
               >
-                <octahedronGeometry args={[(isHot ? 0.36 : 0.26) * gizmoScale, 0]} />
+                <octahedronGeometry args={[(isHot ? 0.42 : 0.32) * gizmoScale, 0]} />
                 <meshBasicMaterial
                   color={isHot ? '#6ee7b7' : '#34d399'}
                   transparent
@@ -1593,9 +1635,12 @@ export const TerrainLabels3D: React.FC<TerrainLabels3DProps> = ({
               e.stopPropagation();
               onSelectLabel(label, e);
             }}
+            onClick={(e) => {
+              if (interactive) e.stopPropagation();
+            }}
           >
             {/* Transparent hit plane so dragging/clicking text is reliable */}
-            <mesh position={[0, 0, -0.02]} raycast={interactive ? undefined : noopRaycast}>
+            <mesh position={[0, 0, -0.02]} raycast={interactive ? meshRaycast : noopRaycast}>
               <planeGeometry args={[approxWidth, approxHeight]} />
               <meshBasicMaterial transparent opacity={0} depthWrite={false} side={THREE.DoubleSide} />
             </mesh>
@@ -1625,19 +1670,22 @@ export const TerrainLabels3D: React.FC<TerrainLabels3DProps> = ({
               </mesh>
             )}
 
-            <Text
-              fontSize={label.fontSize}
-              letterSpacing={letterSpacing}
-              fontStyle={label.style === 'sea' ? 'italic' : 'normal'}
-              color={isSelected ? '#fef08a' : label.color}
-              fillOpacity={label.opacity ?? 0.9}
-              outlineWidth={label.style === 'title' ? 0.11 : 0.075}
-              outlineColor="#080a0d"
-              anchorX="center"
-              anchorY="middle"
-            >
-              {displayText}
-            </Text>
+            <Suspense fallback={null}>
+              <Text
+                fontSize={label.fontSize}
+                letterSpacing={letterSpacing}
+                fontStyle={label.style === 'sea' ? 'italic' : 'normal'}
+                color={isSelected ? '#fef08a' : label.color}
+                fillOpacity={label.opacity ?? 0.9}
+                outlineWidth={label.style === 'title' ? 0.11 : 0.075}
+                outlineColor="#080a0d"
+                anchorX="center"
+                anchorY="middle"
+                raycast={noopRaycast}
+              >
+                {displayText}
+              </Text>
+            </Suspense>
           </group>
         );
       })}
@@ -1940,11 +1988,14 @@ const SingleFogVolumeMesh: React.FC<SingleFogVolumeProps> = ({
           <mesh
             position={[0, -volume.height * 0.5 + 0.18, 0]}
             rotation={[-Math.PI / 2, 0, 0]}
-            raycast={interactive ? undefined : noopRaycast}
+            raycast={interactive ? meshRaycast : noopRaycast}
             onPointerDown={(e) => {
               if (!interactive || e.button !== 0) return;
               e.stopPropagation();
               onSelect(volume, e);
+            }}
+            onClick={(e) => {
+              if (interactive) e.stopPropagation();
             }}
           >
             <planeGeometry args={[Math.min(volume.width, 10), Math.min(volume.depth, 10)]} />

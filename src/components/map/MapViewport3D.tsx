@@ -293,6 +293,8 @@ function extractRgbaDataFromImage(img: HTMLImageElement | HTMLCanvasElement, res
 const DEFAULT_CAMERA_POS = new THREE.Vector3(-6, 54, 78);
 const DEFAULT_TARGET = new THREE.Vector3(0, 3.2, 2);
 const TOP_TARGET = new THREE.Vector3(0, 0, 0);
+const noopRaycast = () => null;
+const meshRaycast = THREE.Mesh.prototype.raycast;
 
 interface SeaLevelWaterProps {
   seaY: number;
@@ -415,7 +417,7 @@ const SeaLevelWater: React.FC<SeaLevelWaterProps> = ({
     <mesh
       position={[0, seaY, 0]}
       rotation={[-Math.PI / 2, 0, 0]}
-      raycast={disableRaycast ? () => null : undefined}
+      raycast={disableRaycast ? noopRaycast : meshRaycast}
       onClick={onClick}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
@@ -1236,18 +1238,18 @@ const TerrainFloraAndProps: React.FC<TerrainFloraProps> = ({
     <group>
       {trees.length > 0 && (
         <>
-          <instancedMesh ref={trunkRef} args={[undefined, undefined, trees.length]} castShadow receiveShadow>
+          <instancedMesh ref={trunkRef} args={[undefined, undefined, trees.length]} castShadow receiveShadow raycast={noopRaycast}>
             <cylinderGeometry args={[0.045, 0.08, 0.45, 5]} />
             <meshStandardMaterial color="#3b2c20" roughness={0.95} />
           </instancedMesh>
-          <instancedMesh ref={crownRef} args={[undefined, undefined, trees.length]} castShadow receiveShadow>
+          <instancedMesh ref={crownRef} args={[undefined, undefined, trees.length]} castShadow receiveShadow raycast={noopRaycast}>
             <coneGeometry args={[0.34, 1.05, 6]} />
             <meshStandardMaterial roughness={0.88} metalness={0.02} />
           </instancedMesh>
         </>
       )}
       {rocks.length > 0 && (
-        <instancedMesh ref={rockRef} args={[undefined, undefined, rocks.length]} castShadow receiveShadow>
+        <instancedMesh ref={rockRef} args={[undefined, undefined, rocks.length]} castShadow receiveShadow raycast={noopRaycast}>
           <dodecahedronGeometry args={[1, 0]} />
           <meshStandardMaterial color="#3d434e" roughness={0.86} metalness={0.08} />
         </instancedMesh>
@@ -1307,7 +1309,7 @@ const AtmosphericMist: React.FC = () => {
   return (
     <group ref={groupRef}>
       {clouds.map((c, idx) => (
-        <mesh key={idx} position={c.pos} rotation={[-Math.PI / 2, 0, 0]}>
+        <mesh key={idx} position={c.pos} rotation={[-Math.PI / 2, 0, 0]} raycast={noopRaycast}>
           <planeGeometry args={[c.scale, c.scale * 0.65]} />
           <meshBasicMaterial
             map={cloudTex}
@@ -1439,14 +1441,10 @@ const MapPin3D: React.FC<{
         position={[0, 3.85, 0]}
         center
         distanceFactor={isTopView ? 115 : 48}
-        zIndexRange={[20, 0]}
-        style={{ pointerEvents: 'auto' }}
+        zIndexRange={[18, 0]}
+        style={{ pointerEvents: 'none' }}
       >
-        <div
-          className="relative flex flex-col items-center select-none"
-          onMouseEnter={() => onHover(true)}
-          onMouseLeave={() => onHover(false)}
-        >
+        <div className="relative flex flex-col items-center select-none pointer-events-none">
           {/* Hover Tooltip Preview Card */}
           {isHovered && !isSelected && (
             <div className="mb-2 w-[250px] rounded-lg dark-glass shadow-glass p-2.5 text-left pointer-events-none animate-in fade-in zoom-in-95 duration-100">
@@ -1480,11 +1478,13 @@ const MapPin3D: React.FC<{
 
           {/* Pill Label Badge */}
           <button
+            onMouseEnter={() => onHover(true)}
+            onMouseLeave={() => onHover(false)}
             onClick={(e) => {
               e.stopPropagation();
               onSelect();
             }}
-            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[12px] font-medium whitespace-nowrap transition-all cursor-pointer shadow-lg ${
+            className={`pointer-events-auto flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[12px] font-medium whitespace-nowrap transition-all cursor-pointer shadow-lg ${
               isSelected
                 ? 'bg-[#2a2214] text-[#f9e7b2] border border-[#eab308] shadow-gold-glow scale-105'
                 : pin.is_gm_only
@@ -1636,6 +1636,7 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({
     didMove: boolean;
   } | null>(null);
   const justFinishedZoneDragRef = useRef(false);
+  const zoneDragTimerRef = useRef<number | null>(null);
   const undoStackRef = useRef<TerrainHistorySnapshot[]>([]);
   const redoStackRef = useRef<TerrainHistorySnapshot[]>([]);
   const lastProcessedCmdSeqRef = useRef<number>(0);
@@ -2177,10 +2178,11 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({
         const seaPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -seaY);
         const seaHit = new THREE.Vector3();
         const hasSeaHit = raycaster.ray.intersectPlane(seaPlane, seaHit) !== null;
+        const seaDist = hasSeaHit ? camera.position.distanceTo(seaHit) : Infinity;
 
         if (terrainMeshRef.current && mapLayers.terrain) {
           const hits = raycaster.intersectObject(terrainMeshRef.current, false);
-          if (hits.length > 0 && hits[0].point.y >= seaY - 0.02) {
+          if (hits.length > 0 && hits[0].point.y >= seaY - 0.02 && hits[0].distance <= seaDist + 0.05) {
             return { x: hits[0].point.x, z: hits[0].point.z };
           }
         }
@@ -2306,9 +2308,36 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({
   );
 
   useEffect(() => {
+    const finishZoneDrag = () => {
+      const drag = zoneDragRef.current;
+      if (!drag) return;
+      zoneDragRef.current = null;
+      const committed = liveZoneOverrideRef.current;
+      liveZoneOverrideRef.current = null;
+      setLiveZoneOverride(null);
+      if (controlsRef.current) {
+        controlsRef.current.enabled = true;
+      }
+      if (drag.didMove && committed && committed.id === drag.zoneId) {
+        updateMapZone(mapData.id, drag.zoneId, { points: committed.points });
+      }
+      justFinishedZoneDragRef.current = true;
+      if (zoneDragTimerRef.current !== null) {
+        window.clearTimeout(zoneDragTimerRef.current);
+      }
+      zoneDragTimerRef.current = window.setTimeout(() => {
+        justFinishedZoneDragRef.current = false;
+        zoneDragTimerRef.current = null;
+      }, 90);
+    };
+
     const onWindowPointerMove = (ev: PointerEvent) => {
       const drag = zoneDragRef.current;
       if (!drag) return;
+      if ((ev.buttons & 1) === 0) {
+        finishZoneDrag();
+        return;
+      }
       const curXZ = raycastScreenToXZ(ev.clientX, ev.clientY, drag.mode, drag.dragPlaneY);
       if (!curXZ) return;
 
@@ -2354,25 +2383,6 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({
       setLiveZoneOverride(nextOverride);
     };
 
-    const finishZoneDrag = () => {
-      const drag = zoneDragRef.current;
-      if (!drag) return;
-      zoneDragRef.current = null;
-      const committed = liveZoneOverrideRef.current;
-      liveZoneOverrideRef.current = null;
-      setLiveZoneOverride(null);
-      if (controlsRef.current) {
-        controlsRef.current.enabled = true;
-      }
-      if (drag.didMove && committed && committed.id === drag.zoneId) {
-        updateMapZone(mapData.id, drag.zoneId, { points: committed.points });
-      }
-      justFinishedZoneDragRef.current = true;
-      requestAnimationFrame(() => {
-        justFinishedZoneDragRef.current = false;
-      });
-    };
-
     window.addEventListener('pointermove', onWindowPointerMove);
     window.addEventListener('pointerup', finishZoneDrag);
     window.addEventListener('pointercancel', finishZoneDrag);
@@ -2380,6 +2390,10 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({
       window.removeEventListener('pointermove', onWindowPointerMove);
       window.removeEventListener('pointerup', finishZoneDrag);
       window.removeEventListener('pointercancel', finishZoneDrag);
+      if (zoneDragTimerRef.current !== null) {
+        window.clearTimeout(zoneDragTimerRef.current);
+        zoneDragTimerRef.current = null;
+      }
     };
   }, [raycastScreenToXZ, effectiveDisplacementScale, seaY, worldSize, updateMapZone, mapData.id]);
 
@@ -2446,55 +2460,7 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({
     if (e.delta > 6) return;
     e.stopPropagation();
 
-    const pt = {
-      x: Number(e.point.x.toFixed(2)),
-      y: Number(e.point.y.toFixed(2)),
-      z: Number(e.point.z.toFixed(2)),
-    };
-
-    if (mapToolMode === 'pin') {
-      setPendingPinCoord(pt);
-    } else if (mapToolMode === 'text') {
-      const draft = labelDraftRef.current;
-      createMapLabel(mapData.id, {
-        text: draft.text.trim() || 'New Label',
-        x: pt.x,
-        y: pt.y,
-        z: pt.z,
-        yOffset: 0.9,
-        fontSize: draft.fontSize,
-        color: draft.color,
-        rotationY: 0,
-        style: draft.style,
-        layerId: draft.layerId || null,
-        opacity: 0.92,
-        is_gm_only: false,
-      });
-      setMapToolMode('select');
-    } else if (mapToolMode === 'path' || mapToolMode === 'region' || mapToolMode === 'zone') {
-      const snappedPt = snapPointToLandOrSea(
-        e.point.x,
-        e.point.z,
-        heightDataRef.current,
-        heightResRef.current,
-        effectiveDisplacementScale,
-        seaY,
-        worldSize
-      );
-      addDrawingPoint(snappedPt);
-    } else if (mapToolMode === 'element') {
-      const draft = elementDraftRef.current;
-      const created = addMapProp(mapData.id, {
-        kind: draft.kind,
-        name: draft.name.trim() || undefined,
-        x: pt.x,
-        y: pt.y,
-        z: pt.z,
-        rotY: 0,
-        scale: draft.scale,
-      });
-      setSelectedPropId(created.id);
-    } else if (mapToolMode === 'select') {
+    if (mapToolMode === 'select') {
       setSelectedPinId(null);
       setSelectedZoneId(null);
       setSelectedLabelId(null);
@@ -2504,7 +2470,63 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({
   };
 
   const handleTerrainPointerDown = (e: ThreeEvent<PointerEvent>) => {
-    if (!worldsmithMode || e.button !== 0) return;
+    if (e.button !== 0) return;
+
+    if (!worldsmithMode) {
+      if (mapToolMode === 'select' || mapToolMode === 'link') return;
+      e.stopPropagation();
+      const pt = {
+        x: Number(e.point.x.toFixed(2)),
+        y: Number(e.point.y.toFixed(2)),
+        z: Number(e.point.z.toFixed(2)),
+      };
+
+      if (mapToolMode === 'pin') {
+        setPendingPinCoord(pt);
+      } else if (mapToolMode === 'text') {
+        const draft = labelDraftRef.current;
+        createMapLabel(mapData.id, {
+          text: draft.text.trim() || 'New Label',
+          x: pt.x,
+          y: pt.y,
+          z: pt.z,
+          yOffset: 0.9,
+          fontSize: draft.fontSize,
+          color: draft.color,
+          rotationY: 0,
+          style: draft.style,
+          layerId: draft.layerId || null,
+          opacity: 0.92,
+          is_gm_only: false,
+        });
+        setMapToolMode('select');
+      } else if (mapToolMode === 'path' || mapToolMode === 'region' || mapToolMode === 'zone') {
+        const snappedPt = snapPointToLandOrSea(
+          e.point.x,
+          e.point.z,
+          heightDataRef.current,
+          heightResRef.current,
+          effectiveDisplacementScale,
+          seaY,
+          worldSize
+        );
+        addDrawingPoint(snappedPt);
+      } else if (mapToolMode === 'element') {
+        const draft = elementDraftRef.current;
+        const created = addMapProp(mapData.id, {
+          kind: draft.kind,
+          name: draft.name.trim() || undefined,
+          x: pt.x,
+          y: pt.y,
+          z: pt.z,
+          rotY: 0,
+          scale: draft.scale,
+        });
+        setSelectedPropId(created.id);
+      }
+      return;
+    }
+
     e.stopPropagation();
 
     const pt = { x: e.point.x, y: e.point.y, z: e.point.z };
@@ -2638,7 +2660,7 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({
     }
   };
 
-  const handleTerrainPointerUp = () => {
+  const handleTerrainPointerUp = useCallback(() => {
     if (isSculptingRef.current && didMutateTerrainRef.current) {
       if (liveHeightTexRef.current) {
         syncLiveHeightDataTexture(liveHeightTexRef.current, heightDataRef.current, heightResRef.current);
@@ -2656,10 +2678,19 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({
     draggingFogIdRef.current = null;
     lastPaintPosRef.current = null;
     lastBrushWorldPosRef.current = null;
-    if (controlsRef.current) {
+    if (controlsRef.current && !zoneDragRef.current) {
       controlsRef.current.enabled = true;
     }
-  };
+  }, [commitBakedTextures]);
+
+  useEffect(() => {
+    window.addEventListener('pointerup', handleTerrainPointerUp);
+    window.addEventListener('pointercancel', handleTerrainPointerUp);
+    return () => {
+      window.removeEventListener('pointerup', handleTerrainPointerUp);
+      window.removeEventListener('pointercancel', handleTerrainPointerUp);
+    };
+  }, [handleTerrainPointerUp]);
 
   const handleSelectProp = useCallback(
     (prop: MapProp) => {
@@ -2668,20 +2699,18 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({
           deleteMapProp(mapData.id, prop.id);
           return;
         }
-        setSelectedPropId(prop.id);
         if (worldsmithTool === 'edit-mesh') {
+          setSelectedPropId(prop.id);
           draggingPropIdRef.current = prop.id;
           if (controlsRef.current) controlsRef.current.enabled = false;
         }
         return;
       }
 
-      if (mapToolMode === 'select' || mapToolMode === 'element') {
+      if (mapToolMode === 'select') {
         setSelectedPropId(prop.id);
-        if (mapToolMode === 'select') {
-          draggingPropIdRef.current = prop.id;
-          if (controlsRef.current) controlsRef.current.enabled = false;
-        }
+        draggingPropIdRef.current = prop.id;
+        if (controlsRef.current) controlsRef.current.enabled = false;
       }
     },
     [worldsmithMode, worldsmithTool, mapToolMode, deleteMapProp, mapData.id, setSelectedPropId]
@@ -2803,7 +2832,7 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({
         maxPolarAngle={Math.PI * 0.46}
         minPolarAngle={0.004}
         mouseButtons={
-          worldsmithMode
+          worldsmithMode || (mapToolMode !== 'select' && mapToolMode !== 'link')
             ? {
                 LEFT: undefined as unknown as THREE.MOUSE,
                 MIDDLE: THREE.MOUSE.DOLLY,
@@ -2866,7 +2895,10 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({
         terrainSize={worldSize}
         visible={mapLayers.vegetation && mapRenderMode === 'map'}
         selectedPropId={selectedPropId}
-        interactive={worldsmithMode || mapToolMode === 'select' || mapToolMode === 'element'}
+        interactive={
+          (worldsmithMode && (worldsmithTool === 'edit-mesh' || worldsmithTool === 'erase-mesh')) ||
+          (!worldsmithMode && mapToolMode === 'select')
+        }
         onSelectProp={handleSelectProp}
       />
 
@@ -3352,12 +3384,12 @@ export const MapViewport3D: React.FC<{ mapId: string }> = ({ mapId }) => {
         ) : mapToolMode !== 'select' ? (
           <div className="px-3 py-1 rounded-full bg-[#100d07]/92 border border-[#b68d40]/45 text-[11px] text-[#d6b16a] flex items-center gap-2 shadow-gold-sm pointer-events-auto">
             <span>
-              {mapToolMode === 'pin' && 'Click terrain or sea to drop a Location Pin'}
-              {mapToolMode === 'text' && 'Configure label below, then click the world to place text'}
+              {mapToolMode === 'pin' && 'Click terrain or sea to drop a Location Pin • Right-drag: Orbit'}
+              {mapToolMode === 'text' && 'Configure label below, then click the world to place text • Right-drag: Orbit'}
               {(mapToolMode === 'zone' || mapToolMode === 'region') &&
-                'Click boundary points (min 3), choose Layer & Save Zone'}
-              {mapToolMode === 'path' && 'Click terrain points to trace a route, then Save'}
-              {mapToolMode === 'element' && 'Select a 3D element below and click to place it'}
+                'Click boundary points (min 3), choose Layer & Save Zone • Right-drag: Orbit'}
+              {mapToolMode === 'path' && 'Click terrain points to trace a route, then Save • Right-drag: Orbit'}
+              {mapToolMode === 'element' && 'Select a 3D element below and click terrain or sea to place it • Right-drag: Orbit'}
               {mapToolMode === 'link' && 'Click a pin or create a new linked grimoire note'}
             </span>
             <button
