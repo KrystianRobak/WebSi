@@ -94,39 +94,39 @@ export const TopHeader: React.FC = () => {
       case 'syncing':
       case 'connecting':
         return {
-          dot: 'bg-[#d4a853]',
-          icon: <RefreshCw className="w-3 h-3 text-[#d4a853] animate-spin" />,
+          dot: 'bg-[#b68d40]',
+          icon: <RefreshCw className="w-3 h-3 text-[#b68d40] animate-spin" />,
           label: 'Syncing...',
         };
       case 'error':
         return { dot: 'bg-red-400', icon: <CloudOff className="w-3 h-3 text-red-400" />, label: 'Sync Error' };
       default:
-        return { dot: 'bg-[#6c7584]', icon: <Cloud className="w-3 h-3 text-[#8b93a1]" />, label: 'Local Demo Vault' };
+        return { dot: 'bg-[#5c6473]', icon: <Cloud className="w-3 h-3 text-[#7a8291]" />, label: 'Local Demo Vault' };
     }
   })();
 
   return (
-    <header className="h-[42px] select-none bg-[#080a0e] border-b border-[#181e28] px-2.5 flex items-center justify-between gap-2 shrink-0 z-30">
+    <header className="h-[42px] select-none bg-[#050608] border-b border-[#11151d] px-2.5 flex items-center justify-between gap-2 shrink-0 z-30">
       {/* Left: Brand + Sync Dot + Undo/Redo */}
       <div className="flex items-center gap-1.5 shrink-0">
         <button
           onClick={() => setSettingsModalOpen(true)}
           title={`Aethelgard Vault — ${syncDot.label}`}
-          className="flex items-center gap-1.5 px-1.5 py-1 rounded-md hover:bg-[#131720] transition-colors"
+          className="flex items-center gap-1.5 px-1.5 py-1 rounded-md hover:bg-[#0d1016] transition-colors"
         >
           <AethelgardCrest className="w-4 h-4" />
-          <span className="hidden lg:inline font-serif text-[12.5px] font-semibold tracking-wider text-[#f3ead8]">
+          <span className="hidden lg:inline font-serif text-[12.5px] font-semibold tracking-wider text-[#e8dfd0]">
             Aethelgard
           </span>
           <span className={`w-1.5 h-1.5 rounded-full ${syncDot.dot}`} />
         </button>
 
-        <div className="hidden sm:flex items-center gap-0.5 border-l border-[#181d27] pl-1.5">
+        <div className="hidden sm:flex items-center gap-0.5 border-l border-[#12161f] pl-1.5">
           <button
             onClick={undo}
             disabled={past.length === 0}
             title="Undo (Ctrl+Z)"
-            className="p-1 rounded text-[#7e8796] hover:text-[#f0e9db] hover:bg-[#151922] disabled:opacity-25 disabled:pointer-events-none transition-colors"
+            className="p-1 rounded text-[#6f7887] hover:text-[#e5ded0] hover:bg-[#0e1218] disabled:opacity-25 disabled:pointer-events-none transition-colors"
           >
             <Undo2 className="w-3.5 h-3.5" />
           </button>
@@ -134,7 +134,7 @@ export const TopHeader: React.FC = () => {
             onClick={redo}
             disabled={future.length === 0}
             title="Redo (Ctrl+Y)"
-            className="p-1 rounded text-[#7e8796] hover:text-[#f0e9db] hover:bg-[#151922] disabled:opacity-25 disabled:pointer-events-none transition-colors"
+            className="p-1 rounded text-[#6f7887] hover:text-[#e5ded0] hover:bg-[#0e1218] disabled:opacity-25 disabled:pointer-events-none transition-colors"
           >
             <Redo2 className="w-3.5 h-3.5" />
           </button>
@@ -153,16 +153,16 @@ export const TopHeader: React.FC = () => {
                 onClick={() => setActiveTab(tab.id)}
                 className={`group relative h-[28px] px-2.5 flex items-center gap-1.5 rounded-md cursor-pointer text-[11px] shrink-0 min-w-[84px] max-w-[168px] border transition-all ${
                   isActive
-                    ? 'bg-[#12161f] text-[#f5efe4] border-[#293140] shadow-[inset_0_-2px_0_#d4a853]'
+                    ? 'bg-[#0c0f15] text-[#ede5d6] border-[#1d2330] shadow-[inset_0_-2px_0_#b68d40]'
                     : isSplit
-                    ? 'bg-[#10141c]/80 text-[#d4a853] border-[#262d3b]'
-                    : 'bg-transparent text-[#7d8594] border-transparent hover:bg-[#10141c] hover:text-[#d5d0c5]'
+                    ? 'bg-[#090c11]/90 text-[#c9a050] border-[#181e29]'
+                    : 'bg-transparent text-[#6f7786] border-transparent hover:bg-[#0a0d12] hover:text-[#ccc6ba]'
                 }`}
               >
                 <EntityIcon
                   type={tab.iconType}
                   className={`w-3 h-3 shrink-0 transition-colors ${
-                    isActive ? 'text-[#e5be58]' : 'text-[#6c7584] group-hover:text-[#b79652]'
+                    isActive ? 'text-[#c9a050]' : 'text-[#5b6473] group-hover:text-[#9c7c3e]'
                   }`}
                 />
                 <span className="truncate font-medium">{tab.title}</span>
@@ -172,7 +172,7 @@ export const TopHeader: React.FC = () => {
                       e.stopPropagation();
                       closeTab(tab.id);
                     }}
-                    className="ml-auto p-0.5 rounded opacity-25 group-hover:opacity-100 hover:bg-[#242a36] text-[#8b93a1] hover:text-[#f3ead8] transition-opacity"
+                    className="ml-auto p-0.5 rounded opacity-25 group-hover:opacity-100 hover:bg-[#1a1f29] text-[#7c8493] hover:text-[#ede5d6] transition-opacity"
                   >
                     <X className="w-2.5 h-2.5" />
                   </button>
@@ -185,7 +185,7 @@ export const TopHeader: React.FC = () => {
         <button
           onClick={() => openNewEntryModal('Location', 'encyclopedia')}
           title="New Entry"
-          className="p-1 rounded-md text-[#8b93a1] hover:text-[#d4a853] hover:bg-[#151922] shrink-0 transition-colors"
+          className="p-1 rounded-md text-[#7a8291] hover:text-[#c9a050] hover:bg-[#0e1218] shrink-0 transition-colors"
         >
           <Plus className="w-3.5 h-3.5" />
         </button>
@@ -194,8 +194,8 @@ export const TopHeader: React.FC = () => {
           title={splitPaneTabId ? 'Close Dual Tab Split' : 'Split Tab View'}
           className={`p-1 rounded-md shrink-0 transition-colors ${
             splitPaneTabId
-              ? 'bg-[#d4a853]/20 text-[#d4a853]'
-              : 'text-[#8b93a1] hover:text-[#e7e2d8] hover:bg-[#151922]'
+              ? 'bg-[#b68d40]/18 text-[#caa257]'
+              : 'text-[#7a8291] hover:text-[#ded8cc] hover:bg-[#0e1218]'
           }`}
         >
           <Columns2 className="w-3.5 h-3.5" />
@@ -207,11 +207,11 @@ export const TopHeader: React.FC = () => {
         <button
           onClick={() => setCommandPaletteOpen(true)}
           title="Search Vault (Ctrl+K)"
-          className="h-[26px] px-2 rounded-md bg-[#0f131a] border border-[#1c222e] hover:border-[#d4a853]/45 flex items-center gap-1.5 text-[11px] text-[#8b93a1] hover:text-[#f3ead8] transition-colors"
+          className="h-[26px] px-2 rounded-md bg-[#090b0f] border border-[#141821] hover:border-[#b68d40]/45 flex items-center gap-1.5 text-[11px] text-[#7e8796] hover:text-[#e8dfd0] transition-colors"
         >
-          <Search className="w-3 h-3 text-[#d4a853]" />
+          <Search className="w-3 h-3 text-[#b68d40]" />
           <span className="hidden md:inline">Search</span>
-          <kbd className="hidden sm:inline font-mono text-[9.5px] px-1 rounded bg-[#080a0e] border border-[#222834] text-[#7d8696]">
+          <kbd className="hidden sm:inline font-mono text-[9.5px] px-1 rounded bg-[#040507] border border-[#181d27] text-[#6d7686]">
             ⌘K
           </kbd>
         </button>
@@ -226,14 +226,14 @@ export const TopHeader: React.FC = () => {
           }
           className={`h-[26px] flex items-center gap-1 px-2 rounded-md text-[11px] font-medium border transition-all ${
             gmMode
-              ? 'bg-[#2a1216] border-red-500/45 text-red-200'
-              : 'bg-[#11151b] border-[#1c222d] text-[#8b93a1] hover:text-[#e7e2d8]'
+              ? 'bg-[#1c0b0e] border-red-500/35 text-red-200/90'
+              : 'bg-[#090b0f] border-[#141821] text-[#7e8796] hover:text-[#ded8cc]'
           }`}
         >
           {gmMode ? (
             <Eye className="w-3 h-3 text-red-400" />
           ) : (
-            <EyeOff className="w-3 h-3 text-[#6b7280]" />
+            <EyeOff className="w-3 h-3 text-[#5c6473]" />
           )}
           <span className="hidden xl:inline">{gmMode ? 'GM' : 'Player'}</span>
         </button>
@@ -243,9 +243,9 @@ export const TopHeader: React.FC = () => {
           <button
             onClick={() => setExportOpen((v) => !v)}
             title="Export Vault"
-            className="h-[26px] px-1.5 rounded-md bg-[#0f131a] border border-[#1c222e] hover:border-[#d4a853]/40 text-[#c7c2b8] flex items-center gap-1 text-[11px] transition-colors"
+            className="h-[26px] px-1.5 rounded-md bg-[#090b0f] border border-[#141821] hover:border-[#b68d40]/40 text-[#bdb7ac] flex items-center gap-1 text-[11px] transition-colors"
           >
-            <Download className="w-3.5 h-3.5 text-[#d4a853]" />
+            <Download className="w-3.5 h-3.5 text-[#b68d40]" />
           </button>
           {exportOpen && (
             <div
@@ -254,17 +254,17 @@ export const TopHeader: React.FC = () => {
             >
               <button
                 onClick={handleExportJson}
-                className="w-full text-left px-3 py-1.5 text-xs text-[#e7e2d8] hover:bg-[#d4a853]/15 flex items-center justify-between"
+                className="w-full text-left px-3 py-1.5 text-xs text-[#ded8cc] hover:bg-[#b68d40]/15 flex items-center justify-between"
               >
                 <span>Export Vault JSON</span>
-                <span className="font-mono text-[10px] text-[#8b93a1]">.json</span>
+                <span className="font-mono text-[10px] text-[#7a8291]">.json</span>
               </button>
               <button
                 onClick={handleExportMarkdown}
-                className="w-full text-left px-3 py-1.5 text-xs text-[#e7e2d8] hover:bg-[#d4a853]/15 flex items-center justify-between"
+                className="w-full text-left px-3 py-1.5 text-xs text-[#ded8cc] hover:bg-[#b68d40]/15 flex items-center justify-between"
               >
                 <span>Export Grimoire MD</span>
-                <span className="font-mono text-[10px] text-[#8b93a1]">.md</span>
+                <span className="font-mono text-[10px] text-[#7a8291]">.md</span>
               </button>
             </div>
           )}
@@ -277,8 +277,8 @@ export const TopHeader: React.FC = () => {
           aria-label={rightInspectorCollapsed ? 'Open Inspector Drawer' : 'Close Inspector Drawer'}
           className={`h-[26px] px-2 rounded-md border flex items-center gap-1 text-[11px] font-medium transition-colors ${
             !rightInspectorCollapsed
-              ? 'bg-[#d4a853]/20 border-[#d4a853]/50 text-[#f3d488]'
-              : 'bg-[#0f131a] border-[#1c222e] text-[#9aa3b2] hover:text-[#e7e2d8] hover:border-[#2a3242]'
+              ? 'bg-[#b68d40]/16 border-[#b68d40]/45 text-[#d6b16a]'
+              : 'bg-[#090b0f] border-[#141821] text-[#848d9c] hover:text-[#ded8cc] hover:border-[#202633]'
           }`}
         >
           {rightInspectorCollapsed ? (
@@ -293,7 +293,7 @@ export const TopHeader: React.FC = () => {
         <button
           onClick={() => setSettingsModalOpen(true)}
           title="Vault & Supabase Settings"
-          className="p-1.5 rounded-md text-[#8b93a1] hover:text-[#d4a853] hover:bg-[#171b22] transition-colors"
+          className="p-1.5 rounded-md text-[#7a8291] hover:text-[#c9a050] hover:bg-[#0e1218] transition-colors"
         >
           <Settings className="w-3.5 h-3.5" />
         </button>
@@ -303,7 +303,7 @@ export const TopHeader: React.FC = () => {
           <button
             onClick={signOutVault}
             title="Lock Vault (Sign out)"
-            className="p-1.5 rounded-md bg-[#12151a] border border-[#1d222b] text-[#c7c2b8] hover:border-red-500/40 hover:text-red-300 transition-colors"
+            className="p-1.5 rounded-md bg-[#090b0f] border border-[#141821] text-[#bdb7ac] hover:border-red-500/40 hover:text-red-300 transition-colors"
           >
             <LogOut className="w-3.5 h-3.5" />
           </button>
@@ -311,7 +311,7 @@ export const TopHeader: React.FC = () => {
           <button
             onClick={() => setAuthModalOpen(true)}
             title="Unlock Campaign Token (Supabase Login)"
-            className="h-[26px] flex items-center gap-1 px-2 rounded-md text-[11px] bg-[#161a22] border border-[#d4a853]/35 text-[#e5be58] hover:bg-[#d4a853]/15 transition-colors"
+            className="h-[26px] flex items-center gap-1 px-2 rounded-md text-[11px] bg-[#0b0e14] border border-[#b68d40]/35 text-[#c9a050] hover:bg-[#b68d40]/15 transition-colors"
           >
             <Lock className="w-3 h-3" />
           </button>

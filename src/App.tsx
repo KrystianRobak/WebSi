@@ -151,7 +151,7 @@ export function App() {
   }
 
   return (
-    <div className="w-screen h-screen bg-[#0b0d10] text-[#e7e2d8] flex flex-col overflow-hidden">
+    <div className="w-screen h-screen bg-[#050608] text-[#ded8cc] flex flex-col overflow-hidden">
       {/* Zone 1: Single 42px Unified Header + Tabs */}
       <TopHeader />
 
@@ -171,7 +171,7 @@ export function App() {
               <Panel defaultSize={55} minSize={25}>
                 {renderTabContent(activeTab)}
               </Panel>
-              <PanelResizeHandle className="w-[2px] bg-[#1d222b] hover:bg-[#d4a853]/70 transition-colors cursor-col-resize" />
+              <PanelResizeHandle className="w-[2px] bg-[#131720] hover:bg-[#b68d40]/70 transition-colors cursor-col-resize" />
               <Panel defaultSize={45} minSize={25}>
                 {renderTabContent(splitTab)}
               </Panel>
@@ -185,7 +185,7 @@ export function App() {
         {!rightInspectorCollapsed && (
           <div
             style={{ width: inspectorWidth }}
-            className="absolute right-0 inset-y-0 z-30 flex bg-[#0b0e14]/96 backdrop-blur-md border-l border-[#212836] shadow-[-16px_0_40px_rgba(0,0,0,0.65)] max-w-[92vw]"
+            className="absolute right-0 inset-y-0 z-30 flex bg-[#06080b]/98 backdrop-blur-md border-l border-[#141821] shadow-[-18px_0_44px_rgba(0,0,0,0.82)] max-w-[92vw]"
           >
             <div
               onMouseDown={(e) => {
@@ -193,7 +193,7 @@ export function App() {
                 resizingInspectorRef.current = { startX: e.clientX, startW: inspectorWidth };
               }}
               title="Drag to resize Inspector"
-              className="w-[4px] h-full bg-transparent hover:bg-[#d4a853]/75 transition-colors cursor-col-resize shrink-0"
+              className="w-[4px] h-full bg-transparent hover:bg-[#b68d40]/75 transition-colors cursor-col-resize shrink-0"
             />
             <div className="flex-1 min-w-0 h-full">
               <RightInspector />

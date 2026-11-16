@@ -2128,7 +2128,7 @@ export const MapViewport3D: React.FC<{ mapId: string }> = ({ mapId }) => {
   };
 
   return (
-    <div className={`relative w-full h-full bg-[#090b0e] overflow-hidden select-none ${cursorClass}`}>
+    <div className={`relative w-full h-full bg-[#040507] overflow-hidden select-none ${cursorClass}`}>
       {/* Three.js R3F Canvas */}
       <Canvas
         shadows
@@ -2150,15 +2150,15 @@ export const MapViewport3D: React.FC<{ mapId: string }> = ({ mapId }) => {
 
       {/* Option A: Single Centered Top Mode Pill + Clean Drawing Prompt */}
       <div className="absolute top-3 left-1/2 -translate-x-1/2 z-20 flex flex-col items-center gap-1.5 pointer-events-none max-w-[95vw]">
-        <div className="flex items-center gap-1.5 p-1 rounded-xl dark-glass shadow-glass border border-[#2a3140]/85 pointer-events-auto">
+        <div className="flex items-center gap-1.5 p-1 rounded-xl dark-glass shadow-glass border border-[#171c26] pointer-events-auto">
           {/* Map | Terrain */}
-          <div className="flex items-center p-0.5 rounded-lg bg-[#090b0f]/80">
+          <div className="flex items-center p-0.5 rounded-lg bg-[#050608]/90">
             <button
               onClick={() => setMapRenderMode('map')}
               className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-[11.5px] font-medium transition-all ${
                 mapRenderMode === 'map'
                   ? 'btn-gold-metallic font-semibold'
-                  : 'text-[#a8a296] hover:text-white'
+                  : 'text-[#8e96a3] hover:text-white'
               }`}
             >
               <MapIcon className="w-3 h-3" />
@@ -2169,7 +2169,7 @@ export const MapViewport3D: React.FC<{ mapId: string }> = ({ mapId }) => {
               className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-[11.5px] font-medium transition-all ${
                 mapRenderMode === 'terrain'
                   ? 'btn-gold-metallic font-semibold'
-                  : 'text-[#a8a296] hover:text-white'
+                  : 'text-[#8e96a3] hover:text-white'
               }`}
             >
               <Mountain className="w-3 h-3" />
@@ -2177,16 +2177,16 @@ export const MapViewport3D: React.FC<{ mapId: string }> = ({ mapId }) => {
             </button>
           </div>
 
-          <span className="w-px h-4 bg-[#252c3b]" />
+          <span className="w-px h-4 bg-[#171c26]" />
 
           {/* Atlas | Worldsmith */}
-          <div className="flex items-center p-0.5 rounded-lg bg-[#090b0f]/80">
+          <div className="flex items-center p-0.5 rounded-lg bg-[#050608]/90">
             <button
               onClick={() => setWorldsmithMode(false)}
               className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-[11.5px] font-medium transition-all ${
                 !worldsmithMode
-                  ? 'bg-[#232934] text-[#f5df9d] border border-[#d4a853]/45 font-semibold'
-                  : 'text-[#a8a296] hover:text-white'
+                  ? 'bg-[#12161f] text-[#d6b16a] border border-[#b68d40]/45 font-semibold'
+                  : 'text-[#8e96a3] hover:text-white'
               }`}
             >
               <Compass className="w-3 h-3" />
@@ -2197,7 +2197,7 @@ export const MapViewport3D: React.FC<{ mapId: string }> = ({ mapId }) => {
               className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-[11.5px] font-medium transition-all ${
                 worldsmithMode
                   ? 'btn-gold-metallic font-semibold'
-                  : 'text-[#a8a296] hover:text-white'
+                  : 'text-[#8e96a3] hover:text-white'
               }`}
             >
               <Hammer className="w-3 h-3" />
@@ -2205,17 +2205,17 @@ export const MapViewport3D: React.FC<{ mapId: string }> = ({ mapId }) => {
             </button>
           </div>
 
-          <span className="w-px h-4 bg-[#252c3b]" />
+          <span className="w-px h-4 bg-[#171c26]" />
 
           {/* 3D | Top View */}
-          <div className="flex items-center p-0.5 rounded-lg bg-[#090b0f]/80">
+          <div className="flex items-center p-0.5 rounded-lg bg-[#050608]/90">
             <button
               onClick={() => triggerCameraReset()}
               title="3D Perspective Camera"
               className={`flex items-center gap-1 px-2 py-1 rounded-md text-[11.5px] font-medium transition-all ${
                 mapCameraView === 'perspective'
-                  ? 'bg-[#232934] text-[#f5df9d] border border-[#d4a853]/45 font-semibold'
-                  : 'text-[#a8a296] hover:text-white'
+                  ? 'bg-[#12161f] text-[#d6b16a] border border-[#b68d40]/45 font-semibold'
+                  : 'text-[#8e96a3] hover:text-white'
               }`}
             >
               <Compass className="w-3 h-3" />
@@ -2227,7 +2227,7 @@ export const MapViewport3D: React.FC<{ mapId: string }> = ({ mapId }) => {
               className={`flex items-center gap-1 px-2 py-1 rounded-md text-[11.5px] font-medium transition-all ${
                 mapCameraView === 'top'
                   ? 'btn-gold-metallic font-semibold'
-                  : 'text-[#a8a296] hover:text-white'
+                  : 'text-[#8e96a3] hover:text-white'
               }`}
             >
               <Globe className="w-3 h-3" />
@@ -2238,7 +2238,7 @@ export const MapViewport3D: React.FC<{ mapId: string }> = ({ mapId }) => {
 
         {/* Contextual Instruction Prompt Below Top Pill (Only When Sculpting or Drawing) */}
         {worldsmithMode ? (
-          <div className="px-3 py-1 rounded-full bg-[#241d11]/90 border border-[#d4a853]/50 text-[11px] text-[#f5df9d] flex items-center gap-2 shadow-gold-sm pointer-events-auto">
+          <div className="px-3 py-1 rounded-full bg-[#100d07]/92 border border-[#b68d40]/45 text-[11px] text-[#d6b16a] flex items-center gap-2 shadow-gold-sm pointer-events-auto">
             <span>
               {worldsmithTool === 'raise' && 'Left-drag: Raise Mountain (Shift: Lower) • Right-drag: Orbit'}
               {worldsmithTool === 'valley' && 'Left-drag: Carve Valley • Right-drag: Orbit'}
@@ -2253,14 +2253,14 @@ export const MapViewport3D: React.FC<{ mapId: string }> = ({ mapId }) => {
             </span>
             <button
               onClick={() => setRightInspectorCollapsed(false)}
-              className="text-[#d4a853] hover:text-white underline text-[10.5px] font-medium"
+              className="text-[#c9a050] hover:text-white underline text-[10.5px] font-medium"
             >
               Brush
             </button>
           </div>
         ) : (
           mapToolMode !== 'select' && (
-            <div className="px-3 py-1 rounded-full bg-[#241d11]/90 border border-[#d4a853]/50 text-[11px] text-[#f5df9d] flex items-center gap-2 shadow-gold-sm pointer-events-auto">
+            <div className="px-3 py-1 rounded-full bg-[#100d07]/92 border border-[#b68d40]/45 text-[11px] text-[#d6b16a] flex items-center gap-2 shadow-gold-sm pointer-events-auto">
               <span>
                 {mapToolMode === 'pin' && 'Click terrain or sea to drop a Location Pin'}
                 {mapToolMode === 'text' && 'Configure label below, then click the world to place text'}
@@ -2272,7 +2272,7 @@ export const MapViewport3D: React.FC<{ mapId: string }> = ({ mapId }) => {
               </span>
               <button
                 onClick={() => setMapToolMode('select')}
-                className="text-[#d4a853] hover:text-white underline text-[10.5px]"
+                className="text-[#c9a050] hover:text-white underline text-[10.5px]"
               >
                 Esc
               </button>
@@ -2283,7 +2283,7 @@ export const MapViewport3D: React.FC<{ mapId: string }> = ({ mapId }) => {
 
       {/* Worldsmith River Spline Carving Bar (Stacked above Bottom Dock) */}
       {worldsmithMode && worldsmithTool === 'river' && (
-        <div className="absolute bottom-[68px] left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 px-3 py-2 rounded-lg dark-glass shadow-glass border border-[#d4a853]/35">
+        <div className="absolute bottom-[68px] left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 px-3 py-2 rounded-lg dark-glass shadow-glass border border-[#b68d40]/35">
           <span className="font-mono text-[11px] text-sky-300">
             {riverDrawingPoints.length} pts
           </span>
@@ -2292,12 +2292,12 @@ export const MapViewport3D: React.FC<{ mapId: string }> = ({ mapId }) => {
             value={riverName}
             onChange={(e) => setRiverName(e.target.value)}
             placeholder="River name..."
-            className="bg-[#0b0d10] border border-[#272e3a] rounded px-2.5 py-1 text-xs text-[#f3ead8] w-36 focus:outline-none focus:border-[#d4a853]"
+            className="bg-[#040507] border border-[#181e28] rounded px-2.5 py-1 text-xs text-[#e8dfd0] w-36 focus:outline-none focus:border-[#b68d40]"
           />
           <select
             value={riverWidth}
             onChange={(e) => setRiverWidth(Number(e.target.value))}
-            className="bg-[#0b0d10] border border-[#272e3a] rounded px-2 py-1 text-xs text-[#d4cfc4]"
+            className="bg-[#040507] border border-[#181e28] rounded px-2 py-1 text-xs text-[#ccc6ba]"
           >
             <option value={1.1}>Stream</option>
             <option value={1.6}>River</option>
@@ -2316,7 +2316,7 @@ export const MapViewport3D: React.FC<{ mapId: string }> = ({ mapId }) => {
           </button>
           <button
             onClick={() => clearRiverPoints()}
-            className="p-1.5 rounded bg-[#171b22] text-[#9aa3b2] hover:text-red-300"
+            className="p-1.5 rounded bg-[#0e1218] text-[#848d9c] hover:text-red-300"
             title="Clear Points"
           >
             <X className="w-3.5 h-3.5" />
@@ -2326,19 +2326,19 @@ export const MapViewport3D: React.FC<{ mapId: string }> = ({ mapId }) => {
 
       {/* Interactive Text Label Placement Bar (Stacked above Bottom Dock) */}
       {!worldsmithMode && mapToolMode === 'text' && (
-        <div className="absolute bottom-[68px] left-1/2 -translate-x-1/2 z-30 flex flex-wrap items-center gap-2 px-3 py-2 rounded-lg dark-glass shadow-glass border border-[#d4a853]/35 max-w-[92vw]">
-          <Type className="w-3.5 h-3.5 text-[#d4a853] shrink-0" />
+        <div className="absolute bottom-[68px] left-1/2 -translate-x-1/2 z-30 flex flex-wrap items-center gap-2 px-3 py-2 rounded-lg dark-glass shadow-glass border border-[#b68d40]/35 max-w-[92vw]">
+          <Type className="w-3.5 h-3.5 text-[#c9a050] shrink-0" />
           <input
             type="text"
             value={labelText}
             onChange={(e) => setLabelText(e.target.value)}
             placeholder="Text label (then click map)..."
-            className="bg-[#0b0d10] border border-[#272e3a] rounded px-2.5 py-1 text-xs text-[#f3ead8] w-44 focus:outline-none focus:border-[#d4a853]"
+            className="bg-[#040507] border border-[#181e28] rounded px-2.5 py-1 text-xs text-[#e8dfd0] w-44 focus:outline-none focus:border-[#b68d40]"
           />
           <select
             value={labelStyle}
             onChange={(e) => setLabelStyle(e.target.value as MapLabelStyle)}
-            className="bg-[#0b0d10] border border-[#272e3a] rounded px-2 py-1 text-xs text-[#d4cfc4]"
+            className="bg-[#040507] border border-[#181e28] rounded px-2 py-1 text-xs text-[#ccc6ba]"
           >
             <option value="title">World Title</option>
             <option value="region">Region / Country</option>
@@ -2349,7 +2349,7 @@ export const MapViewport3D: React.FC<{ mapId: string }> = ({ mapId }) => {
           <select
             value={labelLayerId}
             onChange={(e) => setLabelLayerId(e.target.value)}
-            className="bg-[#0b0d10] border border-[#272e3a] rounded px-2 py-1 text-xs text-[#d4cfc4]"
+            className="bg-[#040507] border border-[#181e28] rounded px-2 py-1 text-xs text-[#ccc6ba]"
             title="Tie label visibility to a world layer"
           >
             <option value="">Global (Always Visible)</option>
@@ -2359,7 +2359,7 @@ export const MapViewport3D: React.FC<{ mapId: string }> = ({ mapId }) => {
               </option>
             ))}
           </select>
-          <label className="flex items-center gap-1.5 text-[11px] text-[#b5b0a5]">
+          <label className="flex items-center gap-1.5 text-[11px] text-[#aba496]">
             <span>Size</span>
             <input
               type="range"
@@ -2368,7 +2368,7 @@ export const MapViewport3D: React.FC<{ mapId: string }> = ({ mapId }) => {
               step={0.15}
               value={labelFontSize}
               onChange={(e) => setLabelFontSize(Number(e.target.value))}
-              className="w-16 accent-[#d4a853]"
+              className="w-16 accent-[#b68d40]"
             />
           </label>
           <div className="flex items-center gap-1">
@@ -2387,7 +2387,7 @@ export const MapViewport3D: React.FC<{ mapId: string }> = ({ mapId }) => {
           </div>
           <button
             onClick={() => setMapToolMode('select')}
-            className="p-1.5 rounded bg-[#171b22] text-[#9aa3b2] hover:text-red-300"
+            className="p-1.5 rounded bg-[#0e1218] text-[#848d9c] hover:text-red-300"
             title="Cancel (Esc)"
           >
             <X className="w-3.5 h-3.5" />
@@ -2397,14 +2397,14 @@ export const MapViewport3D: React.FC<{ mapId: string }> = ({ mapId }) => {
 
       {/* Interactive Country / Region / Layer Zone Polygon Drawing Bar (Stacked above Bottom Dock) */}
       {!worldsmithMode && (mapToolMode === 'zone' || mapToolMode === 'region') && (
-        <div className="absolute bottom-[68px] left-1/2 -translate-x-1/2 z-30 flex flex-wrap items-center gap-2 px-3 py-2 rounded-lg dark-glass shadow-glass border border-[#d4a853]/35 max-w-[94vw]">
-          <span className="font-mono text-[11px] text-[#d4a853] shrink-0">
+        <div className="absolute bottom-[68px] left-1/2 -translate-x-1/2 z-30 flex flex-wrap items-center gap-2 px-3 py-2 rounded-lg dark-glass shadow-glass border border-[#b68d40]/35 max-w-[94vw]">
+          <span className="font-mono text-[11px] text-[#c9a050] shrink-0">
             {drawingPoints.length} pts
           </span>
           <select
             value={activeZoneLayerId}
             onChange={(e) => handleZoneLayerChange(e.target.value)}
-            className="bg-[#0b0d10] border border-[#272e3a] rounded px-2 py-1 text-xs text-[#e5be58]"
+            className="bg-[#040507] border border-[#181e28] rounded px-2 py-1 text-xs text-[#d6b16a]"
             title="Target World Layer"
           >
             {worldLayers.map((l) => (
@@ -2418,12 +2418,12 @@ export const MapViewport3D: React.FC<{ mapId: string }> = ({ mapId }) => {
             value={zoneName}
             onChange={(e) => setZoneName(e.target.value)}
             placeholder="Country / region / faith name..."
-            className="bg-[#0b0d10] border border-[#272e3a] rounded px-2.5 py-1 text-xs text-[#f3ead8] w-44 focus:outline-none focus:border-[#d4a853]"
+            className="bg-[#040507] border border-[#181e28] rounded px-2.5 py-1 text-xs text-[#e8dfd0] w-44 focus:outline-none focus:border-[#b68d40]"
           />
           <select
             value={zoneBorderStyle}
             onChange={(e) => setZoneBorderStyle(e.target.value as ZoneBorderStyle)}
-            className="bg-[#0b0d10] border border-[#272e3a] rounded px-2 py-1 text-xs text-[#d4cfc4]"
+            className="bg-[#040507] border border-[#181e28] rounded px-2 py-1 text-xs text-[#ccc6ba]"
           >
             <option value="solid">Solid Border</option>
             <option value="dashed">Dashed Border</option>
@@ -2446,7 +2446,7 @@ export const MapViewport3D: React.FC<{ mapId: string }> = ({ mapId }) => {
           <button
             disabled={drawingPoints.length === 0}
             onClick={() => popDrawingPoint()}
-            className="p-1.5 rounded bg-[#171b22] text-[#9aa3b2] hover:text-white disabled:opacity-35"
+            className="p-1.5 rounded bg-[#0e1218] text-[#848d9c] hover:text-white disabled:opacity-35"
             title="Undo Last Vertex"
           >
             <Undo2 className="w-3.5 h-3.5" />
@@ -2478,7 +2478,7 @@ export const MapViewport3D: React.FC<{ mapId: string }> = ({ mapId }) => {
               clearDrawingPoints();
               setMapToolMode('select');
             }}
-            className="p-1.5 rounded bg-[#171b22] text-[#9aa3b2] hover:text-red-300"
+            className="p-1.5 rounded bg-[#0e1218] text-[#848d9c] hover:text-red-300"
             title="Cancel"
           >
             <X className="w-3.5 h-3.5" />
@@ -2488,8 +2488,8 @@ export const MapViewport3D: React.FC<{ mapId: string }> = ({ mapId }) => {
 
       {/* Interactive Path / Route Drawing Bar (Stacked above Bottom Dock) */}
       {!worldsmithMode && mapToolMode === 'path' && (
-        <div className="absolute bottom-[68px] left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 px-3 py-2 rounded-lg dark-glass shadow-glass border border-[#d4a853]/35">
-          <span className="font-mono text-[11px] text-[#d4a853]">
+        <div className="absolute bottom-[68px] left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 px-3 py-2 rounded-lg dark-glass shadow-glass border border-[#b68d40]/35">
+          <span className="font-mono text-[11px] text-[#c9a050]">
             {drawingPoints.length} pts
           </span>
           <input
@@ -2497,12 +2497,12 @@ export const MapViewport3D: React.FC<{ mapId: string }> = ({ mapId }) => {
             value={pathName}
             onChange={(e) => setPathName(e.target.value)}
             placeholder="Trail / route name..."
-            className="bg-[#0b0d10] border border-[#272e3a] rounded px-2.5 py-1 text-xs text-[#f3ead8] w-44 focus:outline-none focus:border-[#d4a853]"
+            className="bg-[#040507] border border-[#181e28] rounded px-2.5 py-1 text-xs text-[#e8dfd0] w-44 focus:outline-none focus:border-[#b68d40]"
           />
           <button
             disabled={drawingPoints.length === 0}
             onClick={() => popDrawingPoint()}
-            className="p-1.5 rounded bg-[#171b22] text-[#9aa3b2] hover:text-white disabled:opacity-35"
+            className="p-1.5 rounded bg-[#0e1218] text-[#848d9c] hover:text-white disabled:opacity-35"
             title="Undo Last Point"
           >
             <Undo2 className="w-3.5 h-3.5" />
@@ -2523,7 +2523,7 @@ export const MapViewport3D: React.FC<{ mapId: string }> = ({ mapId }) => {
               clearDrawingPoints();
               setMapToolMode('select');
             }}
-            className="p-1.5 rounded bg-[#171b22] text-[#9aa3b2] hover:text-red-300"
+            className="p-1.5 rounded bg-[#0e1218] text-[#848d9c] hover:text-red-300"
             title="Cancel"
           >
             <X className="w-3.5 h-3.5" />
@@ -2533,12 +2533,12 @@ export const MapViewport3D: React.FC<{ mapId: string }> = ({ mapId }) => {
 
       {/* Interactive 3D Element Placement Bar (Stacked above Bottom Dock) */}
       {!worldsmithMode && mapToolMode === 'element' && (
-        <div className="absolute bottom-[68px] left-1/2 -translate-x-1/2 z-30 flex flex-wrap items-center gap-2 px-3 py-2 rounded-lg dark-glass shadow-glass border border-[#d4a853]/35 max-w-[92vw]">
-          <Castle className="w-3.5 h-3.5 text-[#d4a853] shrink-0" />
+        <div className="absolute bottom-[68px] left-1/2 -translate-x-1/2 z-30 flex flex-wrap items-center gap-2 px-3 py-2 rounded-lg dark-glass shadow-glass border border-[#b68d40]/35 max-w-[92vw]">
+          <Castle className="w-3.5 h-3.5 text-[#c9a050] shrink-0" />
           <select
             value={elementKind}
             onChange={(e) => handleElementKindChange(e.target.value as MapPropKind)}
-            className="bg-[#0b0d10] border border-[#272e3a] rounded px-2 py-1 text-xs text-[#f3ead8]"
+            className="bg-[#040507] border border-[#181e28] rounded px-2 py-1 text-xs text-[#e8dfd0]"
           >
             <optgroup label="Settlements & Structures">
               {WORLD_ELEMENT_CATALOG.filter((i) => i.category === 'Settlement & Structure').map((i) => (
@@ -2560,9 +2560,9 @@ export const MapViewport3D: React.FC<{ mapId: string }> = ({ mapId }) => {
             value={elementName}
             onChange={(e) => setElementName(e.target.value)}
             placeholder="Optional name..."
-            className="bg-[#0b0d10] border border-[#272e3a] rounded px-2.5 py-1 text-xs text-[#f3ead8] w-36 focus:outline-none focus:border-[#d4a853]"
+            className="bg-[#040507] border border-[#181e28] rounded px-2.5 py-1 text-xs text-[#e8dfd0] w-36 focus:outline-none focus:border-[#b68d40]"
           />
-          <label className="flex items-center gap-1.5 text-[11px] text-[#b5b0a5]">
+          <label className="flex items-center gap-1.5 text-[11px] text-[#aba496]">
             <span>Scale {elementScale.toFixed(1)}×</span>
             <input
               type="range"
@@ -2571,12 +2571,12 @@ export const MapViewport3D: React.FC<{ mapId: string }> = ({ mapId }) => {
               step={0.1}
               value={elementScale}
               onChange={(e) => setElementScale(Number(e.target.value))}
-              className="w-16 accent-[#d4a853]"
+              className="w-16 accent-[#b68d40]"
             />
           </label>
           <button
             onClick={() => setMapToolMode('select')}
-            className="px-2.5 py-1 rounded bg-[#171b22] hover:bg-[#232934] text-xs text-[#e7e2d8]"
+            className="px-2.5 py-1 rounded bg-[#0e1218] hover:bg-[#171c26] text-xs text-[#ded8cc]"
           >
             Done
           </button>
@@ -2584,7 +2584,7 @@ export const MapViewport3D: React.FC<{ mapId: string }> = ({ mapId }) => {
       )}
 
       {/* Option A: Bottom-Center Studio Tool & Layer Dock */}
-      <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1 px-1.5 py-1 rounded-xl dark-glass shadow-glass border border-[#2a3140]/85 max-w-[94vw]">
+      <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1 px-1.5 py-1 rounded-xl dark-glass shadow-glass border border-[#171c26] max-w-[94vw]">
         {/* Active Tool Buttons */}
         <div className="flex items-center gap-0.5">
           {worldsmithMode ? (
@@ -2612,8 +2612,8 @@ export const MapViewport3D: React.FC<{ mapId: string }> = ({ mapId }) => {
                   onClick={() => setWorldsmithTool(tool.id)}
                   className={`p-2 rounded-lg transition-all ${
                     active
-                      ? 'bg-[#d4a853]/25 text-[#f7ecc9] border border-[#d4a853]/70 shadow-gold-sm'
-                      : 'text-[#9aa3b2] hover:text-[#f3ead8] hover:bg-[#1c212b]'
+                      ? 'bg-[#b68d40]/20 text-[#d6b16a] border border-[#b68d40]/55 shadow-gold-sm'
+                      : 'text-[#848d9c] hover:text-[#e8dfd0] hover:bg-[#10141c]'
                   }`}
                 >
                   <Icon className="w-4 h-4" />
@@ -2649,8 +2649,8 @@ export const MapViewport3D: React.FC<{ mapId: string }> = ({ mapId }) => {
                   }}
                   className={`p-2 rounded-lg transition-all ${
                     active
-                      ? 'bg-[#d4a853]/25 text-[#f7ecc9] border border-[#d4a853]/70 shadow-gold-sm'
-                      : 'text-[#9aa3b2] hover:text-[#f3ead8] hover:bg-[#1c212b]'
+                      ? 'bg-[#b68d40]/20 text-[#d6b16a] border border-[#b68d40]/55 shadow-gold-sm'
+                      : 'text-[#848d9c] hover:text-[#e8dfd0] hover:bg-[#10141c]'
                   }`}
                 >
                   <Icon className="w-4 h-4" />
@@ -2660,7 +2660,7 @@ export const MapViewport3D: React.FC<{ mapId: string }> = ({ mapId }) => {
           )}
         </div>
 
-        <span className="w-px h-5 bg-[#252c3b] mx-0.5 shrink-0" />
+        <span className="w-px h-5 bg-[#171c26] mx-0.5 shrink-0" />
 
         {/* Layers Upward Popover */}
         <div className="relative">
@@ -2671,23 +2671,23 @@ export const MapViewport3D: React.FC<{ mapId: string }> = ({ mapId }) => {
             }}
             className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors ${
               layersDropdownOpen
-                ? 'bg-[#d4a853]/20 text-[#f5df9d] border border-[#d4a853]/60'
-                : 'text-[#d8d3c8] hover:bg-[#1c212b]'
+                ? 'bg-[#b68d40]/18 text-[#d6b16a] border border-[#b68d40]/50'
+                : 'text-[#ccc6ba] hover:bg-[#10141c]'
             }`}
             title="Base Layers & World Overlays (Countries, Regions, Religions...)"
           >
-            <Layers className="w-3.5 h-3.5 text-[#d4a853]" />
+            <Layers className="w-3.5 h-3.5 text-[#b68d40]" />
             <span>Layers</span>
           </button>
           {layersDropdownOpen && (
-            <div className="absolute right-0 bottom-full mb-2 w-68 rounded-lg dark-glass shadow-glass p-2 space-y-2 z-40 border border-[#d4a853]/35">
+            <div className="absolute right-0 bottom-full mb-2 w-68 rounded-lg dark-glass shadow-glass p-2 space-y-2 z-40 border border-[#b68d40]/35">
               <div className="flex items-center justify-between px-1">
-                <span className="text-[10px] font-mono uppercase tracking-wider text-[#8e97a6]">
+                <span className="text-[10px] font-mono uppercase tracking-wider text-[#7e8796]">
                   Base Map Layers
                 </span>
                 <button
                   onClick={() => setLayersDropdownOpen(false)}
-                  className="text-[#7c8594] hover:text-white"
+                  className="text-[#6d7686] hover:text-white"
                   title="Close"
                 >
                   <X className="w-3 h-3" />
@@ -2708,26 +2708,26 @@ export const MapViewport3D: React.FC<{ mapId: string }> = ({ mapId }) => {
                   <button
                     key={key}
                     onClick={() => toggleMapLayer(key)}
-                    className="w-full flex items-center justify-between px-2 py-1 rounded text-xs text-[#dcd7cc] hover:bg-[#d4a853]/15"
+                    className="w-full flex items-center justify-between px-2 py-1 rounded text-xs text-[#ccc6ba] hover:bg-[#b68d40]/15"
                   >
                     <span>{label}</span>
                     {mapLayers[key] ? (
-                      <Eye className="w-3.5 h-3.5 text-[#d4a853]" />
+                      <Eye className="w-3.5 h-3.5 text-[#b68d40]" />
                     ) : (
-                      <EyeOff className="w-3.5 h-3.5 text-[#626b7a]" />
+                      <EyeOff className="w-3.5 h-3.5 text-[#555d6c]" />
                     )}
                   </button>
                 ))}
               </div>
 
-              <div className="pt-1.5 border-t border-[#222834] space-y-1">
+              <div className="pt-1.5 border-t border-[#141821] space-y-1">
                 <div className="flex items-center justify-between px-1">
-                  <span className="text-[10px] font-mono uppercase tracking-wider text-[#d4a853]">
+                  <span className="text-[10px] font-mono uppercase tracking-wider text-[#c9a050]">
                     World Overlay Layers
                   </span>
                   <button
                     onClick={() => soloWorldLayer(activeMap.id, null)}
-                    className="text-[10px] text-[#9aa3b2] hover:text-[#f3d18a]"
+                    className="text-[10px] text-[#848d9c] hover:text-[#d6b16a]"
                   >
                     Show All
                   </button>
@@ -2736,14 +2736,14 @@ export const MapViewport3D: React.FC<{ mapId: string }> = ({ mapId }) => {
                   {worldLayers.map((layer) => (
                     <div
                       key={layer.id}
-                      className="flex items-center justify-between px-2 py-1 rounded text-xs text-[#dcd7cc] hover:bg-[#d4a853]/12"
+                      className="flex items-center justify-between px-2 py-1 rounded text-xs text-[#ccc6ba] hover:bg-[#b68d40]/12"
                     >
                       <button
                         onClick={() => toggleWorldLayer(activeMap.id, layer.id)}
                         className="flex items-center gap-2 min-w-0 flex-1 text-left"
                       >
                         <span
-                          className="w-2.5 h-2.5 rounded-full shrink-0 border border-white/30"
+                          className="w-2.5 h-2.5 rounded-full shrink-0 border border-white/25"
                           style={{ backgroundColor: layer.color }}
                         />
                         <span className="truncate">{layer.name}</span>
@@ -2754,9 +2754,9 @@ export const MapViewport3D: React.FC<{ mapId: string }> = ({ mapId }) => {
                         title={layer.visible ? 'Hide layer' : 'Show layer'}
                       >
                         {layer.visible ? (
-                          <Eye className="w-3.5 h-3.5 text-[#d4a853]" />
+                          <Eye className="w-3.5 h-3.5 text-[#b68d40]" />
                         ) : (
-                          <EyeOff className="w-3.5 h-3.5 text-[#626b7a]" />
+                          <EyeOff className="w-3.5 h-3.5 text-[#555d6c]" />
                         )}
                       </button>
                     </div>
@@ -2766,25 +2766,25 @@ export const MapViewport3D: React.FC<{ mapId: string }> = ({ mapId }) => {
                 {!newLayerOpen ? (
                   <button
                     onClick={() => setNewLayerOpen(true)}
-                    className="w-full py-1 px-2 rounded bg-[#141922] hover:bg-[#1c2330] border border-[#262d3b] text-[11px] text-[#e5be58] flex items-center justify-center gap-1"
+                    className="w-full py-1 px-2 rounded bg-[#0a0d12] hover:bg-[#12161f] border border-[#181e28] text-[11px] text-[#c9a050] flex items-center justify-center gap-1"
                   >
                     <Plus className="w-3 h-3" />
                     <span>Add Layer (Country / Religion...)</span>
                   </button>
                 ) : (
-                  <div className="p-1.5 rounded bg-[#0c0f14] border border-[#242b38] space-y-1.5">
+                  <div className="p-1.5 rounded bg-[#050608] border border-[#171c25] space-y-1.5">
                     <input
                       type="text"
                       value={newLayerName}
                       onChange={(e) => setNewLayerName(e.target.value)}
                       placeholder="Layer name (e.g. Magic Leylines)"
-                      className="w-full bg-[#131720] border border-[#283040] rounded px-2 py-1 text-[11px] text-[#f3ead8] focus:outline-none focus:border-[#d4a853]"
+                      className="w-full bg-[#090b0f] border border-[#1a202b] rounded px-2 py-1 text-[11px] text-[#e8dfd0] focus:outline-none focus:border-[#b68d40]"
                     />
                     <div className="flex items-center gap-1">
                       <select
                         value={newLayerCat}
                         onChange={(e) => setNewLayerCat(e.target.value as WorldLayerCategory)}
-                        className="flex-1 bg-[#131720] border border-[#283040] rounded px-1.5 py-1 text-[11px] text-[#d8d3c8]"
+                        className="flex-1 bg-[#090b0f] border border-[#1a202b] rounded px-1.5 py-1 text-[11px] text-[#ccc6ba]"
                       >
                         {(Object.keys(LAYER_CATEGORY_META) as WorldLayerCategory[]).map((cat) => (
                           <option key={cat} value={cat}>
@@ -2809,7 +2809,7 @@ export const MapViewport3D: React.FC<{ mapId: string }> = ({ mapId }) => {
                       </button>
                       <button
                         onClick={() => setNewLayerOpen(false)}
-                        className="p-1 rounded bg-[#181d27] text-[#8d96a5] hover:text-white"
+                        className="p-1 rounded bg-[#0e1218] text-[#7a8291] hover:text-white"
                       >
                         <X className="w-3 h-3" />
                       </button>
@@ -2830,23 +2830,23 @@ export const MapViewport3D: React.FC<{ mapId: string }> = ({ mapId }) => {
             }}
             className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors ${
               toolsDropdownOpen
-                ? 'bg-[#d4a853]/20 text-[#f5df9d] border border-[#d4a853]/60'
-                : 'text-[#d8d3c8] hover:bg-[#1c212b]'
+                ? 'bg-[#b68d40]/18 text-[#d6b16a] border border-[#b68d40]/50'
+                : 'text-[#ccc6ba] hover:bg-[#10141c]'
             }`}
             title="World Generator, Atmosphere, Heightmap & Quick Actions"
           >
-            <Wrench className="w-3.5 h-3.5 text-[#d4a853]" />
+            <Wrench className="w-3.5 h-3.5 text-[#b68d40]" />
             <span>Map Tools</span>
           </button>
           {toolsDropdownOpen && (
-            <div className="absolute right-0 bottom-full mb-2 w-60 rounded-lg dark-glass shadow-glass p-1.5 space-y-0.5 z-40 border border-[#d4a853]/35">
+            <div className="absolute right-0 bottom-full mb-2 w-60 rounded-lg dark-glass shadow-glass p-1.5 space-y-0.5 z-40 border border-[#b68d40]/35">
               <button
                 onClick={() => {
                   setWorldsmithMode(false);
                   setMapToolMode('text');
                   setToolsDropdownOpen(false);
                 }}
-                className="w-full text-left px-2.5 py-1.5 rounded text-xs text-[#e7e2d8] hover:bg-[#d4a853]/15"
+                className="w-full text-left px-2.5 py-1.5 rounded text-xs text-[#ded8cc] hover:bg-[#b68d40]/15"
               >
                 + Add Map Text Label
               </button>
@@ -2856,7 +2856,7 @@ export const MapViewport3D: React.FC<{ mapId: string }> = ({ mapId }) => {
                   setMapToolMode('zone');
                   setToolsDropdownOpen(false);
                 }}
-                className="w-full text-left px-2.5 py-1.5 rounded text-xs text-[#e7e2d8] hover:bg-[#d4a853]/15"
+                className="w-full text-left px-2.5 py-1.5 rounded text-xs text-[#ded8cc] hover:bg-[#b68d40]/15"
               >
                 + Draw Country / Region / Layer
               </button>
@@ -2866,7 +2866,7 @@ export const MapViewport3D: React.FC<{ mapId: string }> = ({ mapId }) => {
                   setMapToolMode('element');
                   setToolsDropdownOpen(false);
                 }}
-                className="w-full text-left px-2.5 py-1.5 rounded text-xs text-[#e7e2d8] hover:bg-[#d4a853]/15"
+                className="w-full text-left px-2.5 py-1.5 rounded text-xs text-[#ded8cc] hover:bg-[#b68d40]/15"
               >
                 + Place 3D Element (Castle, Ship...)
               </button>
@@ -2876,7 +2876,7 @@ export const MapViewport3D: React.FC<{ mapId: string }> = ({ mapId }) => {
                   setMapToolMode('pin');
                   setToolsDropdownOpen(false);
                 }}
-                className="w-full text-left px-2.5 py-1.5 rounded text-xs text-[#e7e2d8] hover:bg-[#d4a853]/15"
+                className="w-full text-left px-2.5 py-1.5 rounded text-xs text-[#ded8cc] hover:bg-[#b68d40]/15"
               >
                 + Place Location Pin
               </button>
@@ -2886,17 +2886,17 @@ export const MapViewport3D: React.FC<{ mapId: string }> = ({ mapId }) => {
                   setMapToolMode('path');
                   setToolsDropdownOpen(false);
                 }}
-                className="w-full text-left px-2.5 py-1.5 rounded text-xs text-[#e7e2d8] hover:bg-[#d4a853]/15"
+                className="w-full text-left px-2.5 py-1.5 rounded text-xs text-[#ded8cc] hover:bg-[#b68d40]/15"
               >
                 + Draw Terrain Route
               </button>
-              <div className="my-1 border-t border-[#1e2430]" />
+              <div className="my-1 border-t border-[#141821]" />
               <button
                 onClick={() => {
                   setMapGeneratorModalOpen(true, '3d');
                   setToolsDropdownOpen(false);
                 }}
-                className="w-full text-left px-2.5 py-1.5 rounded text-xs text-[#e5be58] hover:bg-[#d4a853]/15"
+                className="w-full text-left px-2.5 py-1.5 rounded text-xs text-[#c9a050] hover:bg-[#b68d40]/15"
               >
                 Generate New 3D World...
               </button>
@@ -2905,7 +2905,7 @@ export const MapViewport3D: React.FC<{ mapId: string }> = ({ mapId }) => {
                   setMapGeneratorModalOpen(true, '3d', mapId);
                   setToolsDropdownOpen(false);
                 }}
-                className="w-full text-left px-2.5 py-1.5 rounded text-xs text-[#dcd7cc] hover:bg-[#d4a853]/15"
+                className="w-full text-left px-2.5 py-1.5 rounded text-xs text-[#ccc6ba] hover:bg-[#b68d40]/15"
               >
                 Edit Map &amp; Atmosphere...
               </button>
@@ -2914,7 +2914,7 @@ export const MapViewport3D: React.FC<{ mapId: string }> = ({ mapId }) => {
                   setSettingsModalOpen(true);
                   setToolsDropdownOpen(false);
                 }}
-                className="w-full text-left px-2.5 py-1.5 rounded text-xs text-[#d4a853] hover:bg-[#d4a853]/15"
+                className="w-full text-left px-2.5 py-1.5 rounded text-xs text-[#b68d40] hover:bg-[#b68d40]/15"
               >
                 Upload Heightmap / Albedo...
               </button>
@@ -2926,7 +2926,7 @@ export const MapViewport3D: React.FC<{ mapId: string }> = ({ mapId }) => {
         {worldsmithMode && (
           <button
             onClick={() => setRightInspectorCollapsed(false)}
-            className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-[#181e29] border border-[#d4a853]/35 text-[#f0cf85] hover:border-[#eab308]"
+            className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-[#0e1218] border border-[#b68d40]/35 text-[#d6b16a] hover:border-[#b68d40]"
             title="Open Brush Radius, Strength & Mesh Inspector"
           >
             <Settings2 className="w-3.5 h-3.5" />
@@ -2938,39 +2938,39 @@ export const MapViewport3D: React.FC<{ mapId: string }> = ({ mapId }) => {
       {/* Bottom-Left Ornate SVG Compass Rose + Dynamic Scale Bar */}
       <div className="hidden sm:flex absolute bottom-3.5 left-4 z-10 pointer-events-none items-end gap-3.5">
         {/* Ornate Compass Rose */}
-        <svg viewBox="0 0 64 64" className="w-12 h-12 drop-shadow-[0_2px_8px_rgba(0,0,0,0.85)]">
-          <circle cx="32" cy="32" r="24" fill="none" stroke="#d4a853" strokeOpacity="0.4" strokeWidth="1" />
-          <circle cx="32" cy="32" r="19" fill="none" stroke="#d4a853" strokeOpacity="0.25" strokeDasharray="2 2" strokeWidth="0.8" />
-          <polygon points="32,4 36,28 32,32 28,28" fill="#e5be58" />
-          <polygon points="32,60 36,36 32,32 28,36" fill="#7c6638" />
-          <polygon points="60,32 36,36 32,32 36,28" fill="#b38732" />
-          <polygon points="4,32 28,36 32,32 28,28" fill="#7c6638" />
-          <text x="32" y="10" textAnchor="middle" fill="#f7ecc9" fontSize="7" fontFamily="Cinzel">
+        <svg viewBox="0 0 64 64" className="w-12 h-12 drop-shadow-[0_2px_8px_rgba(0,0,0,0.9)]">
+          <circle cx="32" cy="32" r="24" fill="none" stroke="#b68d40" strokeOpacity="0.38" strokeWidth="1" />
+          <circle cx="32" cy="32" r="19" fill="none" stroke="#b68d40" strokeOpacity="0.22" strokeDasharray="2 2" strokeWidth="0.8" />
+          <polygon points="32,4 36,28 32,32 28,28" fill="#c9a050" />
+          <polygon points="32,60 36,36 32,32 28,36" fill="#63502b" />
+          <polygon points="60,32 36,36 32,32 36,28" fill="#9a732d" />
+          <polygon points="4,32 28,36 32,32 28,28" fill="#63502b" />
+          <text x="32" y="10" textAnchor="middle" fill="#e6d7b4" fontSize="7" fontFamily="Cinzel">
             N
           </text>
-          <text x="56" y="34.5" textAnchor="middle" fill="#d4a853" fontSize="6" fontFamily="Cinzel">
+          <text x="56" y="34.5" textAnchor="middle" fill="#b68d40" fontSize="6" fontFamily="Cinzel">
             E
           </text>
-          <text x="8" y="34.5" textAnchor="middle" fill="#d4a853" fontSize="6" fontFamily="Cinzel">
+          <text x="8" y="34.5" textAnchor="middle" fill="#b68d40" fontSize="6" fontFamily="Cinzel">
             W
           </text>
-          <text x="32" y="60" textAnchor="middle" fill="#d4a853" fontSize="6" fontFamily="Cinzel">
+          <text x="32" y="60" textAnchor="middle" fill="#b68d40" fontSize="6" fontFamily="Cinzel">
             S
           </text>
         </svg>
 
         {/* Dynamic Scale Bar */}
         <div className="pb-1">
-          <div className="flex justify-between w-36 font-mono text-[10px] text-[#c9c3b8] mb-1">
+          <div className="flex justify-between w-36 font-mono text-[10px] text-[#bdb7ac] mb-1">
             <span>0</span>
             <span>{Math.round(scaleBarKm * 0.25)}</span>
             <span>{Math.round(scaleBarKm * 0.5)}</span>
             <span>{scaleBarKm} km</span>
           </div>
-          <div className="w-36 h-1.5 flex border border-[#d4a853]/70 bg-[#0b0d10]/80">
-            <div className="flex-1 bg-[#d4a853]" />
+          <div className="w-36 h-1.5 flex border border-[#b68d40]/65 bg-[#040507]/85">
+            <div className="flex-1 bg-[#b68d40]" />
             <div className="flex-1 bg-transparent" />
-            <div className="flex-1 bg-[#d4a853]" />
+            <div className="flex-1 bg-[#b68d40]" />
             <div className="flex-1 bg-transparent" />
           </div>
         </div>
@@ -2987,8 +2987,8 @@ export const MapViewport3D: React.FC<{ mapId: string }> = ({ mapId }) => {
           }
           className={`w-8 h-8 rounded-lg dark-glass flex items-center justify-center transition-colors ${
             mapCameraView === 'top'
-              ? 'border border-[#eab308] text-[#f9e7b2] bg-[#2a2214]/90 shadow-gold-sm'
-              : 'hover:border-[#d4a853] text-[#d4a853]'
+              ? 'border border-[#b68d40] text-[#d6b16a] bg-[#141008]/92 shadow-gold-sm'
+              : 'hover:border-[#b68d40] text-[#b68d40]'
           }`}
         >
           <Globe className="w-3.5 h-3.5" />
@@ -2997,23 +2997,23 @@ export const MapViewport3D: React.FC<{ mapId: string }> = ({ mapId }) => {
         <button
           onClick={triggerCameraReset}
           title="Reset North & Tilt (3D View)"
-          className="w-8 h-8 rounded-lg dark-glass hover:border-[#d4a853] flex items-center justify-center text-[#d4a853] transition-colors"
+          className="w-8 h-8 rounded-lg dark-glass hover:border-[#b68d40] flex items-center justify-center text-[#b68d40] transition-colors"
         >
           <Compass className="w-3.5 h-3.5" />
         </button>
 
-        <div className="flex flex-col rounded-lg dark-glass overflow-hidden divide-y divide-[#1d222b]">
+        <div className="flex flex-col rounded-lg dark-glass overflow-hidden divide-y divide-[#131720]">
           <button
             onClick={() => triggerCameraZoom(1)}
             title="Zoom In"
-            className="w-8 h-7 flex items-center justify-center text-[#dcd7cc] hover:text-[#eab308] hover:bg-[#1a1f28] transition-colors"
+            className="w-8 h-7 flex items-center justify-center text-[#ccc6ba] hover:text-[#c9a050] hover:bg-[#10141c] transition-colors"
           >
             <Plus className="w-3.5 h-3.5" />
           </button>
           <button
             onClick={() => triggerCameraZoom(-1)}
             title="Zoom Out"
-            className="w-8 h-7 flex items-center justify-center text-[#dcd7cc] hover:text-[#eab308] hover:bg-[#1a1f28] transition-colors"
+            className="w-8 h-7 flex items-center justify-center text-[#ccc6ba] hover:text-[#c9a050] hover:bg-[#10141c] transition-colors"
           >
             <Minus className="w-3.5 h-3.5" />
           </button>

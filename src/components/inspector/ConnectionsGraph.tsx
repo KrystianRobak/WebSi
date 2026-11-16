@@ -47,19 +47,19 @@ export const ConnectionsGraph: React.FC<{ focusEntityId?: string | null }> = ({
   }, [entities, entityLinks, focusEntityId]);
 
   return (
-    <div ref={containerRef} className="w-full h-[360px] rounded-lg bg-[#090b0f] border border-[#1d222b] overflow-hidden relative">
+    <div ref={containerRef} className="w-full h-[360px] rounded-lg bg-[#040507] border border-[#141821] overflow-hidden relative">
       <ForceGraph2D
         ref={graphRef}
         width={296}
         height={358}
         graphData={graphData}
-        backgroundColor="#090b0f"
+        backgroundColor="#040507"
         nodeRelSize={4}
-        linkColor={() => 'rgba(212, 168, 83, 0.28)'}
+        linkColor={() => 'rgba(182, 141, 64, 0.25)'}
         linkWidth={1.2}
         linkDirectionalParticles={1}
         linkDirectionalParticleWidth={1.8}
-        linkDirectionalParticleColor={() => '#eab308'}
+        linkDirectionalParticleColor={() => '#b68d40'}
         nodeCanvasObject={(node, ctx, globalScale) => {
           const n = node as {
             x?: number;
@@ -80,7 +80,7 @@ export const ConnectionsGraph: React.FC<{ focusEntityId?: string | null }> = ({
           if (isFocus) {
             ctx.beginPath();
             ctx.arc(n.x, n.y, radius + 2.5, 0, 2 * Math.PI, false);
-            ctx.strokeStyle = 'rgba(234, 179, 8, 0.65)';
+            ctx.strokeStyle = 'rgba(182, 141, 64, 0.65)';
             ctx.lineWidth = 1.2;
             ctx.stroke();
           }
@@ -91,7 +91,7 @@ export const ConnectionsGraph: React.FC<{ focusEntityId?: string | null }> = ({
             ctx.font = `${fontSize}px Inter, sans-serif`;
             ctx.textAlign = 'center';
             ctx.textBaseline = 'top';
-            ctx.fillStyle = isFocus ? '#f7ecc9' : 'rgba(222, 216, 204, 0.78)';
+            ctx.fillStyle = isFocus ? '#d6b16a' : 'rgba(222, 216, 204, 0.72)';
             ctx.fillText(label, n.x, n.y + radius + 2);
           }
         }}
@@ -100,7 +100,7 @@ export const ConnectionsGraph: React.FC<{ focusEntityId?: string | null }> = ({
           if (n.id) openEntityTab(n.id);
         }}
       />
-      <div className="absolute bottom-2 left-2.5 right-2.5 flex items-center justify-between pointer-events-none text-[10px] font-mono text-[#7c8594]">
+      <div className="absolute bottom-2 left-2.5 right-2.5 flex items-center justify-between pointer-events-none text-[10px] font-mono text-[#6a7280]">
         <span>{graphData.nodes.length} nodes</span>
         <span>Click node to open</span>
         <span>{graphData.links.length} links</span>

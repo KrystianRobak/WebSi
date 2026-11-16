@@ -4,23 +4,23 @@
 
 @layer base {
   :root {
-    --bg-outer: #0b0d10;
-    --bg-panel: #12151a;
-    --bg-elevated: #171b22;
-    --border-hairline: #1d222b;
-    --gold-primary: #d4a853;
-    --gold-bright: #eab308;
-    --text-primary: #e7e2d8;
-    --text-muted: #8b93a1;
+    --bg-outer: #050608;
+    --bg-panel: #090b0e;
+    --bg-elevated: #0e1116;
+    --border-hairline: #141820;
+    --gold-primary: #b68d40;
+    --gold-bright: #c99b42;
+    --text-primary: #ded8cc;
+    --text-muted: #7c8494;
   }
 
   * {
-    border-color: #1d222b;
+    border-color: #141820;
   }
 
   body {
-    background-color: #0b0d10;
-    color: #e7e2d8;
+    background-color: #050608;
+    color: #ded8cc;
     font-family: 'Inter', system-ui, sans-serif;
     margin: 0;
     padding: 0;
@@ -35,62 +35,62 @@
 }
 
 ::-webkit-scrollbar-track {
-  background: #0b0d10;
+  background: #050608;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #222834;
+  background: #1a1f29;
   border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #d4a85380;
+  background: rgba(182, 141, 64, 0.55);
 }
 
-/* Gold metallic CTA button shimmer */
+/* Dark Burnished Gold Metallic CTA */
 .btn-gold-metallic {
-  background: linear-gradient(180deg, #e5be64 0%, #c6963d 55%, #a87b29 100%);
-  color: #14110b;
-  border: 1px solid #f0d38a66;
-  box-shadow: inset 0 1px 0 rgba(255, 248, 225, 0.45), 0 2px 10px rgba(0, 0, 0, 0.55);
+  background: linear-gradient(180deg, #9d7833 0%, #7c5c22 55%, #5d4417 100%);
+  color: #f6efe0;
+  border: 1px solid rgba(198, 155, 72, 0.45);
+  box-shadow: inset 0 1px 0 rgba(255, 244, 214, 0.22), 0 2px 10px rgba(0, 0, 0, 0.65);
   transition: all 0.16s ease;
 }
 
 .btn-gold-metallic:hover {
-  background: linear-gradient(180deg, #efd07c 0%, #d4a448 55%, #b88830 100%);
-  box-shadow: inset 0 1px 0 rgba(255, 250, 235, 0.6), 0 0 16px rgba(212, 168, 83, 0.28);
+  background: linear-gradient(180deg, #b3893c 0%, #8f6b29 55%, #6d501c 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 248, 225, 0.32), 0 0 14px rgba(182, 141, 64, 0.24);
 }
 
 .btn-gold-metallic:active {
   transform: translateY(1px);
 }
 
-/* Dark Glass Overlay */
+/* Dark Obsidian Glass Overlay */
 .dark-glass {
-  background: rgba(13, 16, 22, 0.88);
+  background: rgba(6, 8, 11, 0.92);
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
-  border: 1px solid rgba(212, 168, 83, 0.22);
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(182, 141, 64, 0.22);
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.72), inset 0 1px 0 rgba(255, 255, 255, 0.03);
 }
 
 .dark-glass-subtle {
-  background: rgba(14, 17, 23, 0.82);
+  background: rgba(8, 10, 14, 0.88);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
-  border: 1px solid #1e2430;
+  border: 1px solid #151922;
 }
 
 /* Architectural Obsidian Surface Card */
 .surface-card {
-  background: linear-gradient(180deg, rgba(19, 23, 31, 0.92) 0%, rgba(13, 16, 22, 0.94) 100%);
-  border: 1px solid #1f2532;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03), 0 10px 30px rgba(0, 0, 0, 0.38);
+  background: linear-gradient(180deg, rgba(12, 14, 19, 0.96) 0%, rgba(7, 9, 12, 0.98) 100%);
+  border: 1px solid #161b24;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.02), 0 10px 30px rgba(0, 0, 0, 0.55);
 }
 
 .gold-hairline {
   height: 1px;
-  background: linear-gradient(90deg, transparent 0%, rgba(212, 168, 83, 0.42) 50%, transparent 100%);
+  background: linear-gradient(90deg, transparent 0%, rgba(182, 141, 64, 0.36) 50%, transparent 100%);
 }
 
 .font-editorial {
@@ -101,7 +101,7 @@
 .tiptap {
   outline: none;
   display: flow-root;
-  color: var(--note-color, #ddd6c8);
+  color: var(--note-color, #d5cebf);
   font-family: var(--note-font-family, 'Inter', system-ui, sans-serif);
   font-size: var(--note-font-size, 0.98rem);
   line-height: var(--note-line-height, 1.75);
@@ -113,33 +113,33 @@
   font-family: var(--note-heading-font, var(--note-font-family, 'Cinzel', Georgia, serif));
   font-size: var(--note-h1-size, 1.7rem);
   font-weight: 600;
-  color: var(--note-h1-color, var(--note-heading-color, #f4ece0));
+  color: var(--note-h1-color, var(--note-heading-color, #efe6d5));
   letter-spacing: 0.02em;
   overflow: hidden;
   margin-top: 0.25rem;
   margin-bottom: 0.9rem;
   padding-bottom: 0.45rem;
-  border-bottom: 1px solid rgba(212, 168, 83, 0.22);
+  border-bottom: 1px solid rgba(182, 141, 64, 0.22);
 }
 
 .tiptap h2 {
   font-family: var(--note-heading-font, var(--note-font-family, 'Cormorant Garamond', Georgia, serif));
   font-size: var(--note-h2-size, 1.45rem);
   font-weight: 600;
-  color: var(--note-h2-color, var(--note-heading-color, #e6c478));
+  color: var(--note-h2-color, var(--note-heading-color, #caa257));
   letter-spacing: 0.015em;
   overflow: hidden;
   margin-top: 1.55rem;
   margin-bottom: 0.55rem;
   padding-bottom: 0.25rem;
-  border-bottom: 1px solid #1b212c;
+  border-bottom: 1px solid #141922;
 }
 
 .tiptap h3 {
   font-family: var(--note-heading-font, var(--note-font-family, 'Inter', sans-serif));
   font-size: var(--note-h3-size, 1.02rem);
   font-weight: 600;
-  color: var(--note-h3-color, var(--note-heading-color, #eee7d9));
+  color: var(--note-h3-color, var(--note-heading-color, #e6decb));
   margin-top: 1.1rem;
   margin-bottom: 0.35rem;
 }
@@ -159,7 +159,7 @@
 }
 
 .tiptap li::marker {
-  color: var(--note-accent, #b89143);
+  color: var(--note-accent, #9b7736);
 }
 
 .tiptap ol {
@@ -169,9 +169,9 @@
 }
 
 .tiptap blockquote {
-  border-left: 2px solid var(--note-accent, rgba(212, 168, 83, 0.7));
+  border-left: 2px solid var(--note-accent, rgba(182, 141, 64, 0.58));
   padding: 0.4rem 1rem;
-  color: var(--note-color, #c5bdb0);
+  color: var(--note-color, #b9b1a3);
   font-family: 'Cormorant Garamond', Georgia, serif;
   font-size: 1.08em;
   font-style: italic;
@@ -181,7 +181,7 @@
 
 .tiptap details {
   margin: 0.85rem 0;
-  border-left: 2px solid #262e3d;
+  border-left: 2px solid #1c222e;
   padding: 0.3rem 0.85rem;
 }
 
@@ -189,7 +189,7 @@
   cursor: pointer;
   font-size: 0.92em;
   font-weight: 600;
-  color: var(--note-heading-color, #e6c478);
+  color: var(--note-heading-color, #caa257);
   user-select: none;
 }
 
@@ -208,34 +208,34 @@
   margin: 1rem 0;
   overflow-x: auto;
   border-radius: 10px;
-  border: 1px solid #202734;
-  background: rgba(13, 16, 22, 0.72);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.025);
+  border: 1px solid #161b24;
+  background: rgba(7, 9, 12, 0.88);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.02);
 }
 
 .tiptap thead th {
-  background: rgba(21, 26, 36, 0.88);
-  color: var(--note-heading-color, #e6c478);
+  background: rgba(12, 15, 21, 0.95);
+  color: var(--note-heading-color, #caa257);
   font-weight: 600;
   font-size: 0.84em;
   letter-spacing: 0.04em;
   text-transform: uppercase;
   padding: 0.6rem 0.85rem;
-  border-bottom: 1px solid rgba(212, 168, 83, 0.25);
+  border-bottom: 1px solid rgba(182, 141, 64, 0.22);
 }
 
 .tiptap th {
-  color: var(--note-heading-color, #e6c478);
+  color: var(--note-heading-color, #caa257);
   font-weight: 600;
   text-align: left;
   padding: 0.55rem 0.8rem;
-  border-bottom: 1px solid #262e3e;
+  border-bottom: 1px solid #1a202c;
 }
 
 .tiptap td {
   padding: 0.52rem 0.85rem;
-  border-bottom: 1px solid #181e28;
-  color: var(--note-color, #d7d0c3);
+  border-bottom: 1px solid #12161e;
+  color: var(--note-color, #cdc6b8);
   vertical-align: top;
 }
 
@@ -244,18 +244,18 @@
 }
 
 .tiptap tbody tr:nth-child(even) {
-  background: rgba(255, 255, 255, 0.015);
+  background: rgba(255, 255, 255, 0.012);
 }
 
 .tiptap tbody tr:hover {
-  background: rgba(212, 168, 83, 0.05);
+  background: rgba(182, 141, 64, 0.05);
 }
 
 .tiptap hr,
 .tiptap hr.vault-hr {
   border: 0;
   height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(212, 168, 83, 0.35), transparent);
+  background: linear-gradient(90deg, transparent, rgba(182, 141, 64, 0.3), transparent);
   margin: 1.4rem 0;
 }
 
@@ -265,7 +265,7 @@
   align-items: center;
   gap: 0.9rem;
   margin: 1.9rem 0;
-  color: var(--note-accent, #d4a853);
+  color: var(--note-accent, #b68d40);
   user-select: none;
 }
 
@@ -274,7 +274,7 @@
   content: '';
   flex: 1;
   height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(212, 168, 83, 0.45), transparent);
+  background: linear-gradient(90deg, transparent, rgba(182, 141, 64, 0.38), transparent);
 }
 
 .vault-page-split-label {
@@ -284,9 +284,9 @@
   text-transform: uppercase;
   padding: 0.22rem 0.8rem;
   border-radius: 9999px;
-  background: rgba(20, 24, 32, 0.92);
-  border: 1px solid rgba(212, 168, 83, 0.3);
-  color: #f0d38a;
+  background: rgba(10, 12, 17, 0.95);
+  border: 1px solid rgba(182, 141, 64, 0.28);
+  color: #d6b269;
 }
 
 .vault-page-split-diamond {
@@ -314,8 +314,8 @@
   min-width: 0;
   padding: 0.85rem 1rem;
   border-radius: 10px;
-  background: rgba(15, 19, 27, 0.55);
-  border: 1px solid #1e2532;
+  background: rgba(8, 10, 14, 0.72);
+  border: 1px solid #151a23;
 }
 
 .vault-column > :first-child {
@@ -340,15 +340,15 @@
   margin: 1rem 0;
   padding: 0.85rem 1rem;
   border-radius: 10px;
-  background: linear-gradient(180deg, rgba(20, 25, 35, 0.88) 0%, rgba(13, 17, 24, 0.92) 100%);
-  border: 1px solid rgba(212, 168, 83, 0.24);
+  background: linear-gradient(180deg, rgba(11, 14, 19, 0.94) 0%, rgba(7, 9, 13, 0.97) 100%);
+  border: 1px solid rgba(182, 141, 64, 0.22);
   cursor: pointer;
   transition: border-color 0.16s ease, transform 0.16s ease, box-shadow 0.16s ease;
 }
 
 .vault-embed-card:hover {
-  border-color: rgba(212, 168, 83, 0.62);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  border-color: rgba(182, 141, 64, 0.55);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
   transform: translateY(-1px);
 }
 
@@ -357,7 +357,7 @@
   height: 68px;
   border-radius: 8px;
   object-fit: cover;
-  border: 1px solid #2b3343;
+  border: 1px solid #1b212d;
   flex-shrink: 0;
 }
 
@@ -371,7 +371,7 @@
   font-size: 0.66rem;
   text-transform: uppercase;
   letter-spacing: 0.1em;
-  color: var(--note-accent, #d4a853);
+  color: var(--note-accent, #b68d40);
   margin-bottom: 0.15rem;
 }
 
@@ -379,14 +379,14 @@
   font-family: 'Cinzel', Georgia, serif;
   font-size: 1rem;
   font-weight: 600;
-  color: #f4ece0;
+  color: #efe6d5;
   margin-bottom: 0.25rem;
 }
 
 .vault-embed-summary {
   font-size: 0.82rem;
   line-height: 1.45;
-  color: #b4bccb;
+  color: #9ba3b3;
 }
 
 .vault-embed-metas {
@@ -400,18 +400,18 @@
   font-size: 0.72rem;
   padding: 0.12rem 0.5rem;
   border-radius: 6px;
-  background: rgba(11, 13, 18, 0.75);
-  border: 1px solid #242b38;
-  color: #d6cfc2;
+  background: rgba(6, 7, 10, 0.88);
+  border: 1px solid #181d27;
+  color: #c8c1b4;
 }
 
 /* Obsidian Callouts (> [!lore] Title) */
 .vault-callout {
   margin: 1rem 0;
   border-radius: 10px;
-  border: 1px solid #232b39;
+  border: 1px solid #161b24;
   border-left-width: 3px;
-  background: rgba(16, 20, 29, 0.78);
+  background: rgba(9, 11, 16, 0.88);
   padding: 0.75rem 1rem;
 }
 
@@ -430,13 +430,13 @@
   letter-spacing: 0.08em;
   padding: 0.1rem 0.45rem;
   border-radius: 4px;
-  background: rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.05);
 }
 
 .vault-callout-title {
   font-weight: 600;
   font-size: 0.92em;
-  color: #f4ece0;
+  color: #efe6d5;
 }
 
 .vault-callout-body > :last-child {
@@ -445,63 +445,63 @@
 
 .vault-callout-note,
 .vault-callout-info {
-  border-left-color: #60a5fa;
-  background: rgba(30, 58, 138, 0.12);
+  border-left-color: #3b82f6;
+  background: rgba(15, 29, 64, 0.22);
 }
 .vault-callout-note .vault-callout-badge,
 .vault-callout-info .vault-callout-badge {
   color: #93c5fd;
-  background: rgba(59, 130, 246, 0.18);
+  background: rgba(59, 130, 246, 0.16);
 }
 
 .vault-callout-tip {
-  border-left-color: #34d399;
-  background: rgba(6, 78, 59, 0.14);
+  border-left-color: #10b981;
+  background: rgba(5, 46, 36, 0.24);
 }
 .vault-callout-tip .vault-callout-badge {
   color: #6ee7b7;
-  background: rgba(16, 185, 129, 0.18);
+  background: rgba(16, 185, 129, 0.16);
 }
 
 .vault-callout-lore,
 .vault-callout-quote {
-  border-left-color: #d4a853;
-  background: rgba(120, 83, 24, 0.12);
+  border-left-color: #b68d40;
+  background: rgba(66, 46, 14, 0.18);
 }
 .vault-callout-lore .vault-callout-badge,
 .vault-callout-quote .vault-callout-badge {
-  color: #f3d488;
-  background: rgba(212, 168, 83, 0.18);
+  color: #d6b269;
+  background: rgba(182, 141, 64, 0.16);
 }
 
 .vault-callout-warning {
-  border-left-color: #f59e0b;
-  background: rgba(120, 53, 15, 0.15);
+  border-left-color: #d97706;
+  background: rgba(69, 32, 8, 0.22);
 }
 .vault-callout-warning .vault-callout-badge {
-  color: #fcd34d;
-  background: rgba(245, 158, 11, 0.2);
+  color: #f59e0b;
+  background: rgba(217, 119, 6, 0.18);
 }
 
 .vault-callout-danger,
 .vault-callout-secret {
-  border-left-color: #f87171;
-  background: rgba(127, 29, 29, 0.18);
+  border-left-color: #dc2626;
+  background: rgba(69, 14, 14, 0.26);
 }
 .vault-callout-danger .vault-callout-badge,
 .vault-callout-secret .vault-callout-badge {
   color: #fca5a5;
-  background: rgba(239, 68, 68, 0.22);
+  background: rgba(220, 38, 38, 0.2);
 }
 
 .vault-callout-statblock,
 .vault-statblock {
   margin: 1rem 0;
   border-radius: 10px;
-  border: 1px solid rgba(212, 168, 83, 0.32);
-  border-top: 3px solid #d4a853;
-  border-bottom: 3px solid #d4a853;
-  background: linear-gradient(180deg, rgba(24, 21, 18, 0.9) 0%, rgba(15, 17, 23, 0.94) 100%);
+  border: 1px solid rgba(182, 141, 64, 0.28);
+  border-top: 3px solid #9d7833;
+  border-bottom: 3px solid #9d7833;
+  background: linear-gradient(180deg, rgba(14, 13, 12, 0.95) 0%, rgba(8, 10, 14, 0.98) 100%);
   padding: 0.9rem 1.1rem;
 }
 
@@ -510,17 +510,17 @@
   font-family: 'Cinzel', Georgia, serif;
   font-weight: 700;
   font-size: 1.02rem;
-  color: #f3d488;
+  color: #caa257;
   padding-bottom: 0.45rem;
   margin-bottom: 0.6rem;
-  border-bottom: 1px solid rgba(212, 168, 83, 0.24);
+  border-bottom: 1px solid rgba(182, 141, 64, 0.22);
 }
 
 .vault-card {
   margin: 1rem 0;
   border-radius: 10px;
-  border: 1px solid #242b38;
-  background: rgba(16, 20, 28, 0.78);
+  border: 1px solid #161b24;
+  background: rgba(9, 11, 16, 0.88);
   padding: 0.9rem 1.1rem;
 }
 
@@ -532,8 +532,8 @@
 .vault-details {
   margin: 0.9rem 0;
   border-radius: 8px;
-  border: 1px solid #232a36;
-  background: rgba(15, 18, 25, 0.7);
+  border: 1px solid #161b24;
+  background: rgba(8, 10, 14, 0.82);
   padding: 0.55rem 0.9rem;
 }
 
@@ -557,22 +557,22 @@
   height: 15px;
   margin-top: 0.25rem;
   border-radius: 4px;
-  border: 1px solid #3a4354;
-  background: #0e1117;
+  border: 1px solid #283040;
+  background: #07090d;
   font-size: 10px;
   font-weight: 700;
-  color: #14110b;
+  color: #f6efe0;
   flex-shrink: 0;
 }
 
 .vault-checkbox.checked {
-  background: #d4a853;
-  border-color: #eab308;
+  background: #9d7833;
+  border-color: #b68d40;
 }
 
 .vault-mark {
-  background: rgba(212, 168, 83, 0.24);
-  color: #f9ebc2;
+  background: rgba(182, 141, 64, 0.22);
+  color: #eadcc0;
   padding: 0.05em 0.32em;
   border-radius: 4px;
 }
@@ -580,17 +580,17 @@
 .tiptap code {
   font-family: 'JetBrains Mono', monospace;
   font-size: 0.84em;
-  background: #171b22;
-  color: #e5be58;
+  background: #0d1016;
+  color: #caa257;
   padding: 0.15em 0.35em;
   border-radius: 4px;
-  border: 1px solid #252c38;
+  border: 1px solid #181e28;
 }
 
 .tiptap pre {
   font-family: 'JetBrains Mono', monospace;
-  background: #0d1015;
-  border: 1px solid #1d222b;
+  background: #07090d;
+  border: 1px solid #141821;
   border-radius: 6px;
   padding: 0.8rem 1rem;
   margin: 0.85rem 0;
@@ -601,12 +601,12 @@
   background: transparent;
   border: none;
   padding: 0;
-  color: #d6dde9;
+  color: #c5ccd8;
   font-size: 0.86em;
 }
 
 .tiptap p.is-editor-empty:first-child::before {
-  color: #545d6d;
+  color: #464e5d;
   content: attr(data-placeholder);
   float: left;
   height: 0;
@@ -615,9 +615,9 @@
 
 /* WikiLink Styling */
 .wikilink-pill {
-  color: var(--note-accent, #e5be58);
-  background: rgba(212, 168, 83, 0.08);
-  border-bottom: 1px dashed rgba(212, 168, 83, 0.55);
+  color: var(--note-accent, #caa257);
+  background: rgba(182, 141, 64, 0.08);
+  border-bottom: 1px dashed rgba(182, 141, 64, 0.48);
   padding: 0.02rem 0.25rem;
   border-radius: 3px;
   cursor: pointer;
@@ -626,8 +626,8 @@
 }
 
 .wikilink-pill:hover {
-  background: rgba(212, 168, 83, 0.2);
-  color: #f7ecc9;
+  background: rgba(182, 141, 64, 0.18);
+  color: #efe2c4;
   border-bottom-style: solid;
 }
 
@@ -637,7 +637,7 @@
   max-height: 460px;
   margin: 1rem auto;
   border-radius: 6px;
-  border: 1px solid rgba(212, 168, 83, 0.25);
+  border: 1px solid rgba(182, 141, 64, 0.24);
   object-fit: contain;
 }
 

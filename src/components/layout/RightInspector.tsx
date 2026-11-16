@@ -181,9 +181,9 @@ export const RightInspector: React.FC = () => {
     : [];
 
   return (
-    <aside className="h-full bg-[#0e1116] border-l border-[#1d222b] flex flex-col select-none overflow-hidden">
+    <aside className="h-full bg-[#07090d] border-l border-[#12161f] flex flex-col select-none overflow-hidden">
       {/* Top Sub-Tabs: Details | Connections | References + Collapse */}
-      <div className="h-[38px] px-2 border-b border-[#1d222b] flex items-center justify-between bg-[#11141a] shrink-0">
+      <div className="h-[38px] px-2 border-b border-[#12161f] flex items-center justify-between bg-[#050608] shrink-0">
         <div className="flex items-center justify-around flex-1 h-full">
           {(
             [
@@ -198,12 +198,12 @@ export const RightInspector: React.FC = () => {
                 key={tab.id}
                 onClick={() => setInspectorSubTab(tab.id)}
                 className={`relative h-full px-2.5 text-[12px] font-medium transition-colors ${
-                  active ? 'text-[#f0cf85]' : 'text-[#858d9b] hover:text-[#dfd9cc]'
+                  active ? 'text-[#d6b16a]' : 'text-[#757e8d] hover:text-[#ded8cc]'
                 }`}
               >
                 <span>{tab.label}</span>
                 {active && (
-                  <span className="absolute bottom-0 left-1 right-1 h-[2px] bg-[#d4a853] rounded-t" />
+                  <span className="absolute bottom-0 left-1 right-1 h-[2px] bg-[#b68d40] rounded-t" />
                 )}
               </button>
             );
@@ -213,7 +213,7 @@ export const RightInspector: React.FC = () => {
           onClick={() => setRightInspectorCollapsed(true)}
           title="Collapse Inspector Drawer"
           aria-label="Collapse Inspector Drawer"
-          className="p-1.5 rounded text-[#7e8796] hover:text-[#f0cf85] hover:bg-[#191f2a] transition-colors shrink-0"
+          className="p-1.5 rounded text-[#6d7686] hover:text-[#d6b16a] hover:bg-[#0e1218] transition-colors shrink-0"
         >
           <PanelRightClose className="w-3.5 h-3.5" />
         </button>
@@ -233,14 +233,14 @@ export const RightInspector: React.FC = () => {
                 <div className="space-y-2">
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-2 min-w-0">
-                      <span className="p-1.5 rounded bg-[#161b24] border border-[#d4a853]/30 text-[#d4a853] shrink-0">
+                      <span className="p-1.5 rounded bg-[#0c0f15] border border-[#b68d40]/30 text-[#c9a050] shrink-0">
                         <EntityIcon type="Map" className="w-3.5 h-3.5" />
                       </span>
                       <div className="min-w-0">
-                        <h2 className="font-serif text-[13.5px] font-semibold text-[#f3ead8] truncate">
+                        <h2 className="font-serif text-[13.5px] font-semibold text-[#e8dfd0] truncate">
                           {activeMap.name}
                         </h2>
-                        <div className="text-[10px] font-mono text-[#7c8594]">
+                        <div className="text-[10px] font-mono text-[#6d7686]">
                           {activeMap.scale_config.ratio} · {activeMap.width}×{activeMap.height}
                         </div>
                       </div>
@@ -248,13 +248,13 @@ export const RightInspector: React.FC = () => {
                   </div>
 
                   {/* Quick 3D vs Whole World Top View Toggle */}
-                  <div className="grid grid-cols-2 gap-1 p-0.5 rounded-md bg-[#11151d] border border-[#1d222b]">
+                  <div className="grid grid-cols-2 gap-1 p-0.5 rounded-md bg-[#040507] border border-[#12161f]">
                     <button
                       onClick={() => triggerCameraReset()}
                       className={`py-1 rounded text-[11px] font-medium flex items-center justify-center gap-1.5 transition-colors ${
                         mapCameraView === 'perspective'
-                          ? 'bg-[#252c38] text-[#f5df9d] border border-[#d4a853]/45'
-                          : 'text-[#8e97a6] hover:text-white'
+                          ? 'bg-[#10141c] text-[#d6b16a] border border-[#b68d40]/45'
+                          : 'text-[#7e8796] hover:text-white'
                       }`}
                     >
                       <Compass className="w-3 h-3" />
@@ -265,7 +265,7 @@ export const RightInspector: React.FC = () => {
                       className={`py-1 rounded text-[11px] font-medium flex items-center justify-center gap-1.5 transition-colors ${
                         mapCameraView === 'top'
                           ? 'btn-gold-metallic font-semibold'
-                          : 'text-[#8e97a6] hover:text-white'
+                          : 'text-[#7e8796] hover:text-white'
                       }`}
                     >
                       <Globe className="w-3 h-3" />
@@ -276,9 +276,9 @@ export const RightInspector: React.FC = () => {
 
                 {/* Contextual Selected Zone Editor */}
                 {selectedZone && (
-                  <div className="rounded-lg bg-[#141821] border border-[#d4a853]/50 p-2.5 space-y-2.5 text-[11.5px]">
+                  <div className="rounded-lg bg-[#090b0f] border border-[#b68d40]/40 p-2.5 space-y-2.5 text-[11.5px]">
                     <div className="flex items-center justify-between">
-                      <span className="text-[10.5px] font-mono uppercase tracking-wider text-[#d4a853] flex items-center gap-1.5">
+                      <span className="text-[10.5px] font-mono uppercase tracking-wider text-[#c9a050] flex items-center gap-1.5">
                         <span
                           className="w-2.5 h-2.5 rounded-full"
                           style={{ backgroundColor: selectedZone.color }}
@@ -295,7 +295,7 @@ export const RightInspector: React.FC = () => {
                         </button>
                         <button
                           onClick={() => setSelectedZoneId(null)}
-                          className="p-1 rounded hover:bg-[#1e2430] text-[#858d9b]"
+                          className="p-1 rounded hover:bg-[#141821] text-[#7a8290]"
                           title="Close"
                         >
                           <X className="w-3.5 h-3.5" />
@@ -309,12 +309,12 @@ export const RightInspector: React.FC = () => {
                       onChange={(e) =>
                         updateMapZone(activeMap.id, selectedZone.id, { name: e.target.value })
                       }
-                      className="w-full bg-[#0b0d10] border border-[#242a36] rounded px-2 py-1 text-xs text-[#f3ead8] focus:outline-none focus:border-[#d4a853]"
+                      className="w-full bg-[#040507] border border-[#141821] rounded px-2 py-1 text-xs text-[#e8dfd0] focus:outline-none focus:border-[#b68d40]"
                     />
 
                     <div className="grid grid-cols-2 gap-1.5">
                       <label className="space-y-0.5">
-                        <span className="text-[10px] text-[#858d9b]">World Layer</span>
+                        <span className="text-[10px] text-[#7a8290]">World Layer</span>
                         <select
                           value={selectedZone.layerId}
                           onChange={(e) =>
@@ -322,7 +322,7 @@ export const RightInspector: React.FC = () => {
                               layerId: e.target.value,
                             })
                           }
-                          className="w-full bg-[#0b0d10] border border-[#242a36] rounded px-1.5 py-1 text-[11px] text-[#e7e2d8]"
+                          className="w-full bg-[#040507] border border-[#141821] rounded px-1.5 py-1 text-[11px] text-[#ded8cc]"
                         >
                           {worldLayers.map((l) => (
                             <option key={l.id} value={l.id}>
@@ -332,7 +332,7 @@ export const RightInspector: React.FC = () => {
                         </select>
                       </label>
                       <label className="space-y-0.5">
-                        <span className="text-[10px] text-[#858d9b]">Border Style</span>
+                        <span className="text-[10px] text-[#7a8290]">Border Style</span>
                         <select
                           value={selectedZone.borderStyle}
                           onChange={(e) =>
@@ -340,7 +340,7 @@ export const RightInspector: React.FC = () => {
                               borderStyle: e.target.value as ZoneBorderStyle,
                             })
                           }
-                          className="w-full bg-[#0b0d10] border border-[#242a36] rounded px-1.5 py-1 text-[11px] text-[#e7e2d8]"
+                          className="w-full bg-[#040507] border border-[#141821] rounded px-1.5 py-1 text-[11px] text-[#ded8cc]"
                         >
                           <option value="solid">Solid</option>
                           <option value="dashed">Dashed</option>
@@ -367,7 +367,7 @@ export const RightInspector: React.FC = () => {
                     </div>
 
                     <div className="space-y-1">
-                      <div className="flex justify-between text-[10.5px] text-[#9aa3b2]">
+                      <div className="flex justify-between text-[10.5px] text-[#8891a0]">
                         <span>Fill Opacity</span>
                         <span className="font-mono">
                           {Math.round((selectedZone.fillOpacity ?? 0.34) * 100)}%
@@ -384,7 +384,7 @@ export const RightInspector: React.FC = () => {
                             fillOpacity: Number(e.target.value),
                           })
                         }
-                        className="w-full accent-[#d4a853]"
+                        className="w-full accent-[#b68d40]"
                       />
                     </div>
 
@@ -398,7 +398,7 @@ export const RightInspector: React.FC = () => {
                               showLabel: e.target.checked,
                             })
                           }
-                          className="accent-[#d4a853]"
+                          className="accent-[#b68d40]"
                         />
                         <span>Show Label</span>
                       </label>
@@ -425,7 +425,7 @@ export const RightInspector: React.FC = () => {
                             entityId: e.target.value || null,
                           })
                         }
-                        className="flex-1 bg-[#0b0d10] border border-[#242a36] rounded px-1.5 py-1 text-[11px] text-[#dcd7cc]"
+                        className="flex-1 bg-[#040507] border border-[#141821] rounded px-1.5 py-1 text-[11px] text-[#d5cfc4]"
                       >
                         <option value="">No linked Vault note</option>
                         {entities.map((ent) => (
@@ -437,7 +437,7 @@ export const RightInspector: React.FC = () => {
                       {selectedZone.entityId && (
                         <button
                           onClick={() => openEntityTab(selectedZone.entityId!)}
-                          className="p-1.5 rounded bg-[#1d2330] hover:bg-[#2a3244] text-[#d4a853]"
+                          className="p-1.5 rounded bg-[#141821] hover:bg-[#1e2430] text-[#c9a050]"
                           title="Open linked entry"
                         >
                           <ArrowUpRight className="w-3.5 h-3.5" />
@@ -449,9 +449,9 @@ export const RightInspector: React.FC = () => {
 
                 {/* Contextual Selected Text Label Editor */}
                 {selectedLabel && (
-                  <div className="rounded-lg bg-[#141821] border border-[#d4a853]/50 p-2.5 space-y-2.5 text-[11.5px]">
+                  <div className="rounded-lg bg-[#090b0f] border border-[#b68d40]/40 p-2.5 space-y-2.5 text-[11.5px]">
                     <div className="flex items-center justify-between">
-                      <span className="text-[10.5px] font-mono uppercase tracking-wider text-[#d4a853] flex items-center gap-1.5">
+                      <span className="text-[10.5px] font-mono uppercase tracking-wider text-[#c9a050] flex items-center gap-1.5">
                         <Type className="w-3.5 h-3.5" />
                         Selected Text Label
                       </span>
@@ -465,7 +465,7 @@ export const RightInspector: React.FC = () => {
                         </button>
                         <button
                           onClick={() => setSelectedLabelId(null)}
-                          className="p-1 rounded hover:bg-[#1e2430] text-[#858d9b]"
+                          className="p-1 rounded hover:bg-[#141821] text-[#7a8290]"
                           title="Close"
                         >
                           <X className="w-3.5 h-3.5" />
@@ -479,12 +479,12 @@ export const RightInspector: React.FC = () => {
                       onChange={(e) =>
                         updateMapLabel(activeMap.id, selectedLabel.id, { text: e.target.value })
                       }
-                      className="w-full bg-[#0b0d10] border border-[#242a36] rounded px-2 py-1 text-xs text-[#f3ead8] focus:outline-none focus:border-[#d4a853]"
+                      className="w-full bg-[#040507] border border-[#141821] rounded px-2 py-1 text-xs text-[#e8dfd0] focus:outline-none focus:border-[#b68d40]"
                     />
 
                     <div className="grid grid-cols-2 gap-1.5">
                       <label className="space-y-0.5">
-                        <span className="text-[10px] text-[#858d9b]">Style</span>
+                        <span className="text-[10px] text-[#7a8290]">Style</span>
                         <select
                           value={selectedLabel.style}
                           onChange={(e) =>
@@ -492,7 +492,7 @@ export const RightInspector: React.FC = () => {
                               style: e.target.value as MapLabelStyle,
                             })
                           }
-                          className="w-full bg-[#0b0d10] border border-[#242a36] rounded px-1.5 py-1 text-[11px] text-[#e7e2d8]"
+                          className="w-full bg-[#040507] border border-[#141821] rounded px-1.5 py-1 text-[11px] text-[#ded8cc]"
                         >
                           <option value="title">World Title</option>
                           <option value="region">Region / Country</option>
@@ -502,7 +502,7 @@ export const RightInspector: React.FC = () => {
                         </select>
                       </label>
                       <label className="space-y-0.5">
-                        <span className="text-[10px] text-[#858d9b]">Layer Visibility</span>
+                        <span className="text-[10px] text-[#7a8290]">Layer Visibility</span>
                         <select
                           value={selectedLabel.layerId || ''}
                           onChange={(e) =>
@@ -510,7 +510,7 @@ export const RightInspector: React.FC = () => {
                               layerId: e.target.value || null,
                             })
                           }
-                          className="w-full bg-[#0b0d10] border border-[#242a36] rounded px-1.5 py-1 text-[11px] text-[#e7e2d8]"
+                          className="w-full bg-[#040507] border border-[#141821] rounded px-1.5 py-1 text-[11px] text-[#ded8cc]"
                         >
                           <option value="">Global (Always On)</option>
                           {worldLayers.map((l) => (
@@ -538,7 +538,7 @@ export const RightInspector: React.FC = () => {
                       ))}
                     </div>
 
-                    <div className="grid grid-cols-2 gap-2 text-[10.5px] text-[#9aa3b2]">
+                    <div className="grid grid-cols-2 gap-2 text-[10.5px] text-[#8891a0]">
                       <label className="space-y-0.5">
                         <div className="flex justify-between">
                           <span>Size</span>
@@ -555,7 +555,7 @@ export const RightInspector: React.FC = () => {
                               fontSize: Number(e.target.value),
                             })
                           }
-                          className="w-full accent-[#d4a853]"
+                          className="w-full accent-[#b68d40]"
                         />
                       </label>
                       <label className="space-y-0.5">
@@ -576,12 +576,12 @@ export const RightInspector: React.FC = () => {
                               rotationY: Number(e.target.value),
                             })
                           }
-                          className="w-full accent-[#d4a853]"
+                          className="w-full accent-[#b68d40]"
                         />
                       </label>
                     </div>
 
-                    <div className="flex items-center justify-between text-[10.5px] text-[#9aa3b2]">
+                    <div className="flex items-center justify-between text-[10.5px] text-[#8891a0]">
                       <span>Tip: Drag label on map to reposition</span>
                       <label className="flex items-center gap-1 text-red-300 cursor-pointer">
                         <input
@@ -602,9 +602,9 @@ export const RightInspector: React.FC = () => {
 
                 {/* Contextual Selected 3D Element Editor */}
                 {selectedProp && (
-                  <div className="rounded-lg bg-[#141821] border border-[#d4a853]/50 p-2.5 space-y-2 text-[11.5px]">
+                  <div className="rounded-lg bg-[#090b0f] border border-[#b68d40]/40 p-2.5 space-y-2 text-[11.5px]">
                     <div className="flex items-center justify-between">
-                      <span className="text-[10.5px] font-mono uppercase tracking-wider text-[#d4a853] flex items-center gap-1.5">
+                      <span className="text-[10.5px] font-mono uppercase tracking-wider text-[#c9a050] flex items-center gap-1.5">
                         <Castle className="w-3.5 h-3.5" />
                         Element: {selectedProp.kind}
                       </span>
@@ -618,7 +618,7 @@ export const RightInspector: React.FC = () => {
                         </button>
                         <button
                           onClick={() => setSelectedPropId(null)}
-                          className="p-1 rounded hover:bg-[#1e2430] text-[#858d9b]"
+                          className="p-1 rounded hover:bg-[#141821] text-[#7a8290]"
                           title="Close"
                         >
                           <X className="w-3.5 h-3.5" />
@@ -633,10 +633,10 @@ export const RightInspector: React.FC = () => {
                       onChange={(e) =>
                         updateMapProp(activeMap.id, selectedProp.id, { name: e.target.value })
                       }
-                      className="w-full bg-[#0b0d10] border border-[#242a36] rounded px-2 py-1 text-xs text-[#f3ead8] focus:outline-none focus:border-[#d4a853]"
+                      className="w-full bg-[#040507] border border-[#141821] rounded px-2 py-1 text-xs text-[#e8dfd0] focus:outline-none focus:border-[#b68d40]"
                     />
 
-                    <div className="grid grid-cols-2 gap-2 text-[10.5px] text-[#9aa3b2]">
+                    <div className="grid grid-cols-2 gap-2 text-[10.5px] text-[#8891a0]">
                       <label className="space-y-0.5">
                         <div className="flex justify-between">
                           <span>Rotation</span>
@@ -655,7 +655,7 @@ export const RightInspector: React.FC = () => {
                               rotY: Number(e.target.value),
                             })
                           }
-                          className="w-full accent-[#d4a853]"
+                          className="w-full accent-[#b68d40]"
                         />
                       </label>
                       <label className="space-y-0.5">
@@ -674,7 +674,7 @@ export const RightInspector: React.FC = () => {
                               scale: Number(e.target.value),
                             })
                           }
-                          className="w-full accent-[#d4a853]"
+                          className="w-full accent-[#b68d40]"
                         />
                       </label>
                     </div>
@@ -682,13 +682,13 @@ export const RightInspector: React.FC = () => {
                 )}
 
                 {/* Segmented Map Inspector Tabs: Layers vs Tools & Items */}
-                <div className="grid grid-cols-2 gap-1 p-0.5 rounded-md bg-[#0a0d12] border border-[#1a202b]">
+                <div className="grid grid-cols-2 gap-1 p-0.5 rounded-md bg-[#040507] border border-[#12161f]">
                   <button
                     onClick={() => setMapInspectorTab('layers')}
                     className={`py-1 rounded text-[11px] font-medium transition-colors ${
                       mapInspectorTab === 'layers'
-                        ? 'bg-[#1a202b] text-[#f3d488] border border-[#d4a853]/35'
-                        : 'text-[#848d9c] hover:text-[#e7e2d8]'
+                        ? 'bg-[#10141c] text-[#d6b16a] border border-[#b68d40]/35'
+                        : 'text-[#757e8d] hover:text-[#ded8cc]'
                     }`}
                   >
                     Layers ({worldLayers.length})
@@ -697,8 +697,8 @@ export const RightInspector: React.FC = () => {
                     onClick={() => setMapInspectorTab('elements')}
                     className={`py-1 rounded text-[11px] font-medium transition-colors ${
                       mapInspectorTab === 'elements'
-                        ? 'bg-[#1a202b] text-[#f3d488] border border-[#d4a853]/35'
-                        : 'text-[#848d9c] hover:text-[#e7e2d8]'
+                        ? 'bg-[#10141c] text-[#d6b16a] border border-[#b68d40]/35'
+                        : 'text-[#757e8d] hover:text-[#ded8cc]'
                     }`}
                   >
                     Tools &amp; Items ({zonesOnMap.length + labelsOnMap.length + pinsOnMap.length})
@@ -710,20 +710,20 @@ export const RightInspector: React.FC = () => {
                 {/* World Overlay Layers (Countries, Regions, Religions, Custom) */}
                 <div className="space-y-2 pt-1">
                   <div className="flex items-center justify-between">
-                    <span className="text-[11px] font-semibold text-[#d4a853] tracking-wide flex items-center gap-1.5">
+                    <span className="text-[11px] font-semibold text-[#c9a050] tracking-wide flex items-center gap-1.5">
                       <Layers className="w-3.5 h-3.5" />
                       World Layers ({worldLayers.length})
                     </span>
                     <div className="flex items-center gap-2">
                       <button
                         onClick={() => soloWorldLayer(activeMap.id, null)}
-                        className="text-[10.5px] text-[#8e97a6] hover:text-[#f5df9d]"
+                        className="text-[10.5px] text-[#7e8796] hover:text-[#d6b16a]"
                       >
                         All On
                       </button>
                       <button
                         onClick={() => setNewLayerOpen((v) => !v)}
-                        className="text-[10.5px] text-[#e5be58] hover:underline flex items-center gap-0.5"
+                        className="text-[10.5px] text-[#c9a050] hover:underline flex items-center gap-0.5"
                       >
                         <Plus className="w-3 h-3" />
                         Layer
@@ -732,13 +732,13 @@ export const RightInspector: React.FC = () => {
                   </div>
 
                   {newLayerOpen && (
-                    <div className="p-2 rounded-md bg-[#12161e] border border-[#d4a853]/35 space-y-2 text-[11px]">
+                    <div className="p-2 rounded-md bg-[#090b0f] border border-[#b68d40]/35 space-y-2 text-[11px]">
                       <input
                         type="text"
                         value={newLayerName}
                         onChange={(e) => setNewLayerName(e.target.value)}
                         placeholder="Layer name (e.g. Trade Guilds)"
-                        className="w-full bg-[#0b0d10] border border-[#242a36] rounded px-2 py-1 text-xs text-[#f3ead8] focus:outline-none focus:border-[#d4a853]"
+                        className="w-full bg-[#040507] border border-[#171c25] rounded px-2 py-1 text-xs text-[#e8dfd0] focus:outline-none focus:border-[#b68d40]"
                       />
                       <select
                         value={newLayerCat}
@@ -747,7 +747,7 @@ export const RightInspector: React.FC = () => {
                           setNewLayerCat(cat);
                           setNewLayerColor(LAYER_CATEGORY_META[cat].defaultColor);
                         }}
-                        className="w-full bg-[#0b0d10] border border-[#242a36] rounded px-2 py-1 text-xs text-[#dcd7cc]"
+                        className="w-full bg-[#040507] border border-[#171c25] rounded px-2 py-1 text-xs text-[#ccc6ba]"
                       >
                         {(Object.keys(LAYER_CATEGORY_META) as WorldLayerCategory[]).map((cat) => (
                           <option key={cat} value={cat}>
@@ -798,8 +798,8 @@ export const RightInspector: React.FC = () => {
                           key={layer.id}
                           className={`p-1.5 rounded border transition-colors ${
                             layer.visible
-                              ? 'bg-[#141820] border-[#252c38]'
-                              : 'bg-transparent border-[#181d25] opacity-65'
+                              ? 'bg-[#0a0d12] border-[#161b25]'
+                              : 'bg-transparent border-[#10141c] opacity-60'
                           }`}
                         >
                           <div className="flex items-center justify-between gap-1.5">
@@ -808,25 +808,25 @@ export const RightInspector: React.FC = () => {
                               className="flex items-center gap-2 min-w-0 flex-1 text-left"
                             >
                               {layer.visible ? (
-                                <Eye className="w-3.5 h-3.5 text-[#d4a853] shrink-0" />
+                                <Eye className="w-3.5 h-3.5 text-[#b68d40] shrink-0" />
                               ) : (
-                                <EyeOff className="w-3.5 h-3.5 text-[#5b6370] shrink-0" />
+                                <EyeOff className="w-3.5 h-3.5 text-[#525a68] shrink-0" />
                               )}
                               <span
-                                className="w-2.5 h-2.5 rounded-full shrink-0 border border-white/30"
+                                className="w-2.5 h-2.5 rounded-full shrink-0 border border-white/25"
                                 style={{ backgroundColor: layer.color }}
                               />
-                              <span className="text-[11.5px] text-[#e7e2d8] truncate">
+                              <span className="text-[11.5px] text-[#ded8cc] truncate">
                                 {layer.name}
                               </span>
                             </button>
                             <div className="flex items-center gap-1 shrink-0">
-                              <span className="font-mono text-[10px] text-[#7c8594]">
+                              <span className="font-mono text-[10px] text-[#6d7686]">
                                 {zoneCount}
                               </span>
                               <button
                                 onClick={() => soloWorldLayer(activeMap.id, layer.id)}
-                                className="px-1.5 py-0.5 rounded bg-[#1b212d] hover:bg-[#d4a853]/25 text-[9.5px] text-[#9aa3b2] hover:text-[#f5df9d]"
+                                className="px-1.5 py-0.5 rounded bg-[#10141c] hover:bg-[#b68d40]/20 text-[9.5px] text-[#848d9c] hover:text-[#d6b16a]"
                                 title="Solo this layer"
                               >
                                 Solo
@@ -834,7 +834,7 @@ export const RightInspector: React.FC = () => {
                               {worldLayers.length > 1 && (
                                 <button
                                   onClick={() => deleteWorldLayer(activeMap.id, layer.id)}
-                                  className="p-0.5 text-[#5d6574] hover:text-red-400"
+                                  className="p-0.5 text-[#555d6c] hover:text-red-400"
                                   title="Delete layer"
                                 >
                                   <Trash2 className="w-3 h-3" />
@@ -844,7 +844,7 @@ export const RightInspector: React.FC = () => {
                           </div>
                           {layer.visible && (
                             <div className="mt-1 flex items-center gap-2 pl-6 pr-1">
-                              <span className="text-[9.5px] text-[#7c8594]">Opacity</span>
+                              <span className="text-[9.5px] text-[#6d7686]">Opacity</span>
                               <input
                                 type="range"
                                 min={0.08}
@@ -856,7 +856,7 @@ export const RightInspector: React.FC = () => {
                                     opacity: Number(e.target.value),
                                   })
                                 }
-                                className="flex-1 accent-[#d4a853] h-1"
+                                className="flex-1 accent-[#b68d40] h-1"
                               />
                             </div>
                           )}
@@ -867,8 +867,8 @@ export const RightInspector: React.FC = () => {
                 </div>
 
                 {/* Base Map Layers (7) */}
-                <div className="space-y-1.5 pt-2 border-t border-[#181d25]">
-                  <div className="text-[11px] font-semibold text-[#b8b3a8] tracking-wide">
+                <div className="space-y-1.5 pt-2 border-t border-[#12161f]">
+                  <div className="text-[11px] font-semibold text-[#a8a196] tracking-wide">
                     Base Layers (7)
                   </div>
                   <div className="space-y-0.5">
@@ -890,14 +890,14 @@ export const RightInspector: React.FC = () => {
                           onClick={() => toggleMapLayer(key)}
                           className={`w-full flex items-center gap-2.5 px-2.5 py-1 rounded text-[11.5px] transition-colors ${
                             visible
-                              ? 'bg-[#141820] text-[#e7e2d8] hover:bg-[#1a1f29]'
-                              : 'bg-transparent text-[#646d7c] hover:bg-[#141820]/60'
+                              ? 'bg-[#0a0d12] text-[#ded8cc] hover:bg-[#10141c]'
+                              : 'bg-transparent text-[#5c6574] hover:bg-[#0a0d12]/60'
                           }`}
                         >
                           {visible ? (
-                            <Eye className="w-3.5 h-3.5 text-[#d4a853]" />
+                            <Eye className="w-3.5 h-3.5 text-[#b68d40]" />
                           ) : (
-                            <EyeOff className="w-3.5 h-3.5 text-[#5b6370]" />
+                            <EyeOff className="w-3.5 h-3.5 text-[#525a68]" />
                           )}
                           <span>{label}</span>
                         </button>
@@ -910,7 +910,7 @@ export const RightInspector: React.FC = () => {
                   <>
                 {/* Map Tools Grid */}
                 <div className="space-y-2 pt-1">
-                  <div className="text-[11px] font-semibold text-[#b8b3a8] tracking-wide">
+                  <div className="text-[11px] font-semibold text-[#a8a196] tracking-wide">
                     Map Tools
                   </div>
                   <div className="grid grid-cols-3 gap-1.5">
@@ -940,11 +940,11 @@ export const RightInspector: React.FC = () => {
                           }}
                           className={`flex flex-col items-center justify-center gap-1 py-2 px-1 rounded-md border text-[10px] leading-tight text-center transition-all ${
                             isActive
-                              ? 'bg-[#2a2214] border-[#d4a853] text-[#f7ecc9] shadow-gold-sm'
-                              : 'bg-[#12161e] border-[#1d222b] text-[#9aa3b2] hover:border-[#d4a853]/45 hover:text-[#f3ead8]'
+                              ? 'bg-[#141008] border-[#b68d40] text-[#d6b16a] shadow-gold-sm'
+                              : 'bg-[#090b0f] border-[#141821] text-[#848d9c] hover:border-[#b68d40]/45 hover:text-[#e8dfd0]'
                           }`}
                         >
-                          <Icon className="w-3.5 h-3.5 text-[#d4a853]" />
+                          <Icon className="w-3.5 h-3.5 text-[#b68d40]" />
                           <span>{tool.label}</span>
                         </button>
                       );
@@ -953,20 +953,20 @@ export const RightInspector: React.FC = () => {
                 </div>
 
                 {/* Zones / Territories List */}
-                <div className="space-y-1.5 pt-2 border-t border-[#181d25]">
+                <div className="space-y-1.5 pt-2 border-t border-[#12161f]">
                   <div className="flex items-center justify-between">
-                    <span className="text-[11.5px] font-semibold text-[#b8b3a8]">
+                    <span className="text-[11.5px] font-semibold text-[#a8a196]">
                       Zones &amp; Realms ({zonesOnMap.length})
                     </span>
                     <button
                       onClick={() => setMapToolMode('zone')}
-                      className="text-[10.5px] text-[#d4a853] hover:underline"
+                      className="text-[10.5px] text-[#c9a050] hover:underline"
                     >
                       + Draw Zone
                     </button>
                   </div>
                   {zonesOnMap.length === 0 ? (
-                    <div className="text-[11px] text-[#646d7c] italic">
+                    <div className="text-[11px] text-[#5c6574] italic">
                       No countries, regions or faiths drawn yet.
                     </div>
                   ) : (
@@ -979,8 +979,8 @@ export const RightInspector: React.FC = () => {
                             key={zone.id}
                             className={`flex items-center justify-between px-2 py-1.5 rounded border text-[11px] ${
                               active
-                                ? 'bg-[#1f1a12] border-[#d4a853]/70 text-[#f7ecc9]'
-                                : 'bg-[#12161e] border-[#1d222b] text-[#c9c3b8] hover:border-[#303744]'
+                                ? 'bg-[#141008] border-[#b68d40]/60 text-[#e6d7b4]'
+                                : 'bg-[#090b0f] border-[#141821] text-[#bdb7ac] hover:border-[#222835]'
                             }`}
                           >
                             <button
@@ -993,14 +993,14 @@ export const RightInspector: React.FC = () => {
                               />
                               <span className="truncate font-medium">{zone.name}</span>
                               {layer && (
-                                <span className="text-[9.5px] text-[#7c8594] truncate">
+                                <span className="text-[9.5px] text-[#6d7686] truncate">
                                   ({layer.name.split(' ')[0]})
                                 </span>
                               )}
                             </button>
                             <button
                               onClick={() => deleteMapZone(activeMap.id, zone.id)}
-                              className="text-[#646d7c] hover:text-red-400 ml-1.5 shrink-0"
+                              className="text-[#5c6574] hover:text-red-400 ml-1.5 shrink-0"
                               title="Delete Zone"
                             >
                               <Trash2 className="w-3 h-3" />
@@ -1013,14 +1013,14 @@ export const RightInspector: React.FC = () => {
                 </div>
 
                 {/* Text Labels List */}
-                <div className="space-y-1.5 pt-2 border-t border-[#181d25]">
+                <div className="space-y-1.5 pt-2 border-t border-[#12161f]">
                   <div className="flex items-center justify-between">
-                    <span className="text-[11.5px] font-semibold text-[#b8b3a8]">
+                    <span className="text-[11.5px] font-semibold text-[#a8a196]">
                       Text Labels ({labelsOnMap.length})
                     </span>
                     <button
                       onClick={() => setMapToolMode('text')}
-                      className="text-[10.5px] text-[#d4a853] hover:underline"
+                      className="text-[10.5px] text-[#c9a050] hover:underline"
                     >
                       + Add Text
                     </button>
@@ -1032,23 +1032,23 @@ export const RightInspector: React.FC = () => {
                           key={lbl.id}
                           className={`flex items-center justify-between px-2 py-1.5 rounded border text-[11px] ${
                             selectedLabelId === lbl.id
-                              ? 'bg-[#1f1a12] border-[#d4a853]/70 text-[#f7ecc9]'
-                              : 'bg-[#12161e] border-[#1d222b] text-[#c9c3b8] hover:border-[#303744]'
+                              ? 'bg-[#141008] border-[#b68d40]/60 text-[#e6d7b4]'
+                              : 'bg-[#090b0f] border-[#141821] text-[#bdb7ac] hover:border-[#222835]'
                           }`}
                         >
                           <button
                             onClick={() => setSelectedLabelId(lbl.id)}
                             className="flex items-center gap-2 min-w-0 flex-1 text-left"
                           >
-                            <Type className="w-3 h-3 text-[#d4a853] shrink-0" />
+                            <Type className="w-3 h-3 text-[#b68d40] shrink-0" />
                             <span className="truncate">{lbl.text}</span>
-                            <span className="text-[9.5px] font-mono text-[#7c8594] uppercase">
+                            <span className="text-[9.5px] font-mono text-[#6d7686] uppercase">
                               {lbl.style}
                             </span>
                           </button>
                           <button
                             onClick={() => deleteMapLabel(activeMap.id, lbl.id)}
-                            className="text-[#646d7c] hover:text-red-400 ml-1.5 shrink-0"
+                            className="text-[#5c6574] hover:text-red-400 ml-1.5 shrink-0"
                             title="Delete Label"
                           >
                             <Trash2 className="w-3 h-3" />
@@ -1061,14 +1061,14 @@ export const RightInspector: React.FC = () => {
 
                 {/* Placed 3D Elements List */}
                 {heroPropsOnMap.length > 0 && (
-                  <div className="space-y-1.5 pt-2 border-t border-[#181d25]">
+                  <div className="space-y-1.5 pt-2 border-t border-[#12161f]">
                     <div className="flex items-center justify-between">
-                      <span className="text-[11.5px] font-semibold text-[#b8b3a8]">
+                      <span className="text-[11.5px] font-semibold text-[#a8a196]">
                         3D Elements ({heroPropsOnMap.length})
                       </span>
                       <button
                         onClick={() => setMapToolMode('element')}
-                        className="text-[10.5px] text-[#d4a853] hover:underline"
+                        className="text-[10.5px] text-[#c9a050] hover:underline"
                       >
                         + Place
                       </button>
@@ -1079,22 +1079,22 @@ export const RightInspector: React.FC = () => {
                           key={prop.id}
                           className={`flex items-center justify-between px-2 py-1.5 rounded border text-[11px] ${
                             selectedPropId === prop.id
-                              ? 'bg-[#1f1a12] border-[#d4a853]/70 text-[#f7ecc9]'
-                              : 'bg-[#12161e] border-[#1d222b] text-[#c9c3b8] hover:border-[#303744]'
+                              ? 'bg-[#141008] border-[#b68d40]/60 text-[#e6d7b4]'
+                              : 'bg-[#090b0f] border-[#141821] text-[#bdb7ac] hover:border-[#222835]'
                           }`}
                         >
                           <button
                             onClick={() => setSelectedPropId(prop.id)}
                             className="flex items-center gap-2 min-w-0 flex-1 text-left"
                           >
-                            <Castle className="w-3 h-3 text-[#d4a853] shrink-0" />
+                            <Castle className="w-3 h-3 text-[#b68d40] shrink-0" />
                             <span className="truncate capitalize">
                               {prop.name || prop.kind}
                             </span>
                           </button>
                           <button
                             onClick={() => deleteMapProp(activeMap.id, prop.id)}
-                            className="text-[#646d7c] hover:text-red-400 ml-1.5 shrink-0"
+                            className="text-[#5c6574] hover:text-red-400 ml-1.5 shrink-0"
                             title="Delete Element"
                           >
                             <Trash2 className="w-3 h-3" />
@@ -1106,8 +1106,8 @@ export const RightInspector: React.FC = () => {
                 )}
 
                 {/* Linked Entries List */}
-                <div className="space-y-2 pt-2 border-t border-[#181d25]">
-                  <div className="text-[11.5px] font-semibold text-[#b8b3a8] tracking-wide">
+                <div className="space-y-2 pt-2 border-t border-[#12161f]">
+                  <div className="text-[11.5px] font-semibold text-[#a8a196] tracking-wide">
                     Linked Entries ({pinsOnMap.length})
                   </div>
                   <div className="space-y-2">
@@ -1121,8 +1121,8 @@ export const RightInspector: React.FC = () => {
                           onDoubleClick={() => ent && openEntityTab(ent.id)}
                           className={`w-full text-left p-2.5 rounded-lg border transition-all flex items-center justify-between gap-2 group ${
                             isSelected
-                              ? 'bg-[#1f1a12] border-[#d4a853]/70 shadow-gold-sm'
-                              : 'bg-[#12161e] border-[#1d222b] hover:border-[#d4a853]/40 hover:bg-[#161b25]'
+                              ? 'bg-[#141008] border-[#b68d40]/60 shadow-gold-sm'
+                              : 'bg-[#090b0f] border-[#141821] hover:border-[#b68d40]/40 hover:bg-[#0e1218]'
                           }`}
                         >
                           <div className="flex items-center gap-2.5 min-w-0">
@@ -1130,10 +1130,10 @@ export const RightInspector: React.FC = () => {
                               <img
                                 src={ent.cover_image_url}
                                 alt={ent.title}
-                                className="w-9 h-9 rounded object-cover border border-[#2b3342] shrink-0"
+                                className="w-9 h-9 rounded object-cover border border-[#1d2330] shrink-0"
                               />
                             ) : (
-                              <span className="p-1.5 rounded bg-[#181d27] border border-[#252c38] text-[#d4a853] shrink-0">
+                              <span className="p-1.5 rounded bg-[#0c0f15] border border-[#181d27] text-[#b68d40] shrink-0">
                                 <EntityIcon
                                   type={ent?.type || pin.icon_type}
                                   className="w-3.5 h-3.5"
@@ -1141,15 +1141,15 @@ export const RightInspector: React.FC = () => {
                               </span>
                             )}
                             <div className="min-w-0">
-                              <div className="text-[12.5px] font-semibold text-[#f3ead8] truncate group-hover:text-[#f0cf85]">
+                              <div className="text-[12.5px] font-semibold text-[#e8dfd0] truncate group-hover:text-[#d6b16a]">
                                 {ent?.title || pin.label}
                               </div>
-                              <div className="text-[11px] text-[#858d9b] truncate">
+                              <div className="text-[11px] text-[#757e8d] truncate">
                                 {ent?.summary || 'Map marker'}
                               </div>
                             </div>
                           </div>
-                          <ChevronRight className="w-4 h-4 text-[#5e6675] group-hover:text-[#d4a853] shrink-0" />
+                          <ChevronRight className="w-4 h-4 text-[#565f6e] group-hover:text-[#b68d40] shrink-0" />
                         </button>
                       );
                     })}
@@ -1158,19 +1158,19 @@ export const RightInspector: React.FC = () => {
 
                 {/* Paths & Routes List */}
                 {pathsOnMap.length > 0 && (
-                  <div className="space-y-1.5 pt-2 border-t border-[#181d25]">
-                    <div className="text-[11px] font-semibold text-[#858d9b]">
+                  <div className="space-y-1.5 pt-2 border-t border-[#12161f]">
+                    <div className="text-[11px] font-semibold text-[#757e8d]">
                       Routes &amp; Legacy Polygons ({pathsOnMap.length})
                     </div>
                     {pathsOnMap.map((path) => (
                       <div
                         key={path.id}
-                        className="flex items-center justify-between px-2.5 py-1.5 rounded bg-[#12161e] border border-[#1d222b] text-[11px] text-[#c9c3b8]"
+                        className="flex items-center justify-between px-2.5 py-1.5 rounded bg-[#090b0f] border border-[#141821] text-[11px] text-[#bdb7ac]"
                       >
                         <span className="truncate">{path.name}</span>
                         <button
                           onClick={() => deleteMapPath(path.id)}
-                          className="text-[#646d7c] hover:text-red-400 ml-2 shrink-0"
+                          className="text-[#5c6574] hover:text-red-400 ml-2 shrink-0"
                           title="Delete path"
                         >
                           <Trash2 className="w-3 h-3" />
@@ -1186,7 +1186,7 @@ export const RightInspector: React.FC = () => {
               /* Entity Inspector Details */
               <div className="space-y-3.5">
                 {focusedEntity.cover_image_url && (
-                  <div className="rounded-lg overflow-hidden border border-[#242a35] bg-[#0b0d10]">
+                  <div className="rounded-lg overflow-hidden border border-[#171c25] bg-[#040507]">
                     <img
                       src={focusedEntity.cover_image_url}
                       alt={focusedEntity.title}
@@ -1196,36 +1196,36 @@ export const RightInspector: React.FC = () => {
                 )}
 
                 <div className="flex items-center gap-2">
-                  <span className="p-1.5 rounded bg-[#181d26] border border-[#d4a853]/30 text-[#d4a853]">
+                  <span className="p-1.5 rounded bg-[#0c0f15] border border-[#b68d40]/30 text-[#c9a050]">
                     <EntityIcon type={focusedEntity.type} className="w-4 h-4" />
                   </span>
                   <div className="min-w-0">
-                    <div className="text-[10px] font-mono uppercase tracking-wider text-[#d4a853]">
+                    <div className="text-[10px] font-mono uppercase tracking-wider text-[#c9a050]">
                       {focusedEntity.type}
                     </div>
-                    <h2 className="font-serif text-[14.5px] font-semibold text-[#f3ead8] truncate">
+                    <h2 className="font-serif text-[14.5px] font-semibold text-[#e8dfd0] truncate">
                       {focusedEntity.title}
                     </h2>
                   </div>
                 </div>
 
-                <p className="text-xs text-[#b8b1a3] leading-relaxed">{focusedEntity.summary}</p>
+                <p className="text-xs text-[#aba496] leading-relaxed">{focusedEntity.summary}</p>
 
                 {getVisibleMetadataEntries(focusedEntity.metadata).length > 0 && (
-                  <div className="rounded-md bg-[#12161e] border border-[#1d222b] divide-y divide-[#1a1f28] text-[11.5px]">
+                  <div className="rounded-md bg-[#090b0f] border border-[#141821] divide-y divide-[#11151d] text-[11.5px]">
                     {getVisibleMetadataEntries(focusedEntity.metadata).map(([k, v]) => (
                       <div key={k} className="flex items-center justify-between px-2.5 py-1.5">
-                        <span className="text-[#858d9b]">{k}</span>
-                        <span className="text-[#e7e2d8] font-medium">{String(v)}</span>
+                        <span className="text-[#757e8d]">{k}</span>
+                        <span className="text-[#ded8cc] font-medium">{String(v)}</span>
                       </div>
                     ))}
                   </div>
                 )}
 
-                <div className="pt-2 border-t border-[#181d25] space-y-2">
-                  <div className="text-[11px] font-semibold text-[#b8b3a8]">Map Presence</div>
+                <div className="pt-2 border-t border-[#12161f] space-y-2">
+                  <div className="text-[11px] font-semibold text-[#a8a196]">Map Presence</div>
                   {mapPins.filter((p) => p.entity_id === focusedEntity.id).length === 0 ? (
-                    <div className="text-[11px] text-[#646d7c] italic">
+                    <div className="text-[11px] text-[#5c6574] italic">
                       Not pinned on any world map yet.
                     </div>
                   ) : (
@@ -1242,7 +1242,7 @@ export const RightInspector: React.FC = () => {
                                 setSelectedPinId(pin.id);
                               }
                             }}
-                            className="w-full flex items-center justify-between px-2.5 py-2 rounded bg-[#12161e] border border-[#1d222b] hover:border-[#d4a853]/50 text-xs text-[#e5be58]"
+                            className="w-full flex items-center justify-between px-2.5 py-2 rounded bg-[#090b0f] border border-[#141821] hover:border-[#b68d40]/50 text-xs text-[#c9a050]"
                           >
                             <span className="flex items-center gap-1.5 truncate">
                               <MapPin className="w-3.5 h-3.5" />
@@ -1258,7 +1258,7 @@ export const RightInspector: React.FC = () => {
             ) : focusedAsset ? (
               /* Asset Dossier in Inspector */
               <div className="space-y-3.5">
-                <div className="rounded-lg overflow-hidden border border-[#242a35] bg-[#090b0f] p-2">
+                <div className="rounded-lg overflow-hidden border border-[#171c25] bg-[#040507] p-2">
                   <img
                     src={focusedAsset.url}
                     alt={focusedAsset.name}
@@ -1267,36 +1267,36 @@ export const RightInspector: React.FC = () => {
                 </div>
 
                 <div className="flex items-center gap-2">
-                  <span className="p-1.5 rounded bg-[#181d26] border border-[#d4a853]/30 text-[#d4a853]">
+                  <span className="p-1.5 rounded bg-[#0c0f15] border border-[#b68d40]/30 text-[#c9a050]">
                     <ImageIcon className="w-4 h-4" />
                   </span>
                   <div className="min-w-0">
-                    <div className="text-[10px] font-mono uppercase tracking-wider text-[#d4a853]">
+                    <div className="text-[10px] font-mono uppercase tracking-wider text-[#c9a050]">
                       Vault Asset • {focusedAsset.kind}
                     </div>
-                    <h2 className="font-serif text-[14.5px] font-semibold text-[#f3ead8] truncate">
+                    <h2 className="font-serif text-[14.5px] font-semibold text-[#e8dfd0] truncate">
                       {focusedAsset.name}
                     </h2>
                   </div>
                 </div>
 
-                <div className="surface-card rounded-lg divide-y divide-[#1a1f28] text-[11.5px]">
+                <div className="surface-card rounded-lg divide-y divide-[#12161f] text-[11.5px]">
                   <div className="flex items-center justify-between px-3 py-2">
-                    <span className="text-[#858d9b]">Reference Slug</span>
-                    <code className="font-mono text-[#e5be58] text-[11px]">
+                    <span className="text-[#757e8d]">Reference Slug</span>
+                    <code className="font-mono text-[#c9a050] text-[11px]">
                       asset://{focusedAsset.slug}
                     </code>
                   </div>
                   <div className="flex items-center justify-between px-3 py-2">
-                    <span className="text-[#858d9b]">Inline Syntax</span>
-                    <code className="font-mono text-[#c9c3b8] text-[11px]">
+                    <span className="text-[#757e8d]">Inline Syntax</span>
+                    <code className="font-mono text-[#bdb7ac] text-[11px]">
                       ![[{focusedAsset.slug}]]
                     </code>
                   </div>
                 </div>
 
-                <div className="pt-2 border-t border-[#181d25] space-y-2">
-                  <div className="text-[11px] font-semibold text-[#b8b3a8]">
+                <div className="pt-2 border-t border-[#12161f] space-y-2">
+                  <div className="text-[11px] font-semibold text-[#a8a196]">
                     Entries Referencing Asset
                   </div>
                   {(() => {
@@ -1309,7 +1309,7 @@ export const RightInspector: React.FC = () => {
                     );
                     if (refs.length === 0) {
                       return (
-                        <div className="text-[11px] text-[#646d7c] italic">
+                        <div className="text-[11px] text-[#5c6574] italic">
                           Not embedded in any entry yet. Use Attach controls to link it.
                         </div>
                       );
@@ -1318,13 +1318,13 @@ export const RightInspector: React.FC = () => {
                       <button
                         key={ent.id}
                         onClick={() => openEntityTab(ent.id)}
-                        className="w-full flex items-center justify-between px-2.5 py-2 rounded bg-[#12161e] border border-[#1d222b] hover:border-[#d4a853]/50 text-xs text-[#e7e2d8]"
+                        className="w-full flex items-center justify-between px-2.5 py-2 rounded bg-[#090b0f] border border-[#141821] hover:border-[#b68d40]/50 text-xs text-[#ded8cc]"
                       >
                         <span className="flex items-center gap-2 truncate">
-                          <EntityIcon type={ent.type} className="w-3.5 h-3.5 text-[#d4a853]" />
+                          <EntityIcon type={ent.type} className="w-3.5 h-3.5 text-[#b68d40]" />
                           <span className="truncate">{ent.title}</span>
                         </span>
-                        <ChevronRight className="w-3.5 h-3.5 text-[#646d7c] shrink-0" />
+                        <ChevronRight className="w-3.5 h-3.5 text-[#5c6574] shrink-0" />
                       </button>
                     ));
                   })()}
@@ -1334,33 +1334,33 @@ export const RightInspector: React.FC = () => {
               /* Template Dossier in Inspector */
               <div className="space-y-3.5">
                 <div className="flex items-center gap-2">
-                  <span className="p-1.5 rounded bg-[#181d26] border border-[#d4a853]/30 text-[#d4a853]">
+                  <span className="p-1.5 rounded bg-[#0c0f15] border border-[#b68d40]/30 text-[#c9a050]">
                     <FileCode2 className="w-4 h-4" />
                   </span>
                   <div className="min-w-0">
-                    <div className="text-[10px] font-mono uppercase tracking-wider text-[#d4a853]">
+                    <div className="text-[10px] font-mono uppercase tracking-wider text-[#c9a050]">
                       Record Blueprint
                     </div>
-                    <h2 className="font-serif text-[14.5px] font-semibold text-[#f3ead8] truncate">
+                    <h2 className="font-serif text-[14.5px] font-semibold text-[#e8dfd0] truncate">
                       {focusedTemplate.label}
                     </h2>
                   </div>
                 </div>
 
-                <div className="surface-card rounded-lg divide-y divide-[#1a1f28] text-[11.5px]">
+                <div className="surface-card rounded-lg divide-y divide-[#12161f] text-[11.5px]">
                   <div className="flex items-center justify-between px-3 py-2">
-                    <span className="text-[#858d9b]">Target Type</span>
-                    <span className="text-[#e5be58] font-medium">{focusedTemplate.type}</span>
+                    <span className="text-[#757e8d]">Target Type</span>
+                    <span className="text-[#c9a050] font-medium">{focusedTemplate.type}</span>
                   </div>
                   <div className="flex items-center justify-between px-3 py-2">
-                    <span className="text-[#858d9b]">Default Attributes</span>
-                    <span className="font-mono text-[#e7e2d8]">
+                    <span className="text-[#757e8d]">Default Attributes</span>
+                    <span className="font-mono text-[#ded8cc]">
                       {Object.keys(focusedTemplate.metadata).length}
                     </span>
                   </div>
                   <div className="flex items-center justify-between px-3 py-2">
-                    <span className="text-[#858d9b]">Vault Records</span>
-                    <span className="font-mono text-[#e7e2d8]">
+                    <span className="text-[#757e8d]">Vault Records</span>
+                    <span className="font-mono text-[#ded8cc]">
                       {entities.filter((e) => e.type === focusedTemplate.type).length}
                     </span>
                   </div>
@@ -1381,15 +1381,15 @@ export const RightInspector: React.FC = () => {
         {inspectorSubTab === 'connections' && (
           <div className="space-y-3">
             <div className="flex items-center justify-between">
-              <div className="flex items-center gap-1.5 text-xs font-semibold text-[#e7e2d8]">
-                <Network className="w-3.5 h-3.5 text-[#d4a853]" />
+              <div className="flex items-center gap-1.5 text-xs font-semibold text-[#ded8cc]">
+                <Network className="w-3.5 h-3.5 text-[#b68d40]" />
                 <span>Knowledge Graph</span>
               </div>
-              <span className="text-[10.5px] font-mono text-[#7c8594]">Interactive 2D</span>
+              <span className="text-[10.5px] font-mono text-[#6d7686]">Interactive 2D</span>
             </div>
             <ConnectionsGraph focusEntityId={focusedEntityId} />
-            <div className="text-[11px] text-[#858d9b] leading-relaxed">
-              Edges are derived live from <code className="text-[#d4a853]">[[WikiLinks]]</code>{' '}
+            <div className="text-[11px] text-[#757e8d] leading-relaxed">
+              Edges are derived live from <code className="text-[#c9a050]">[[WikiLinks]]</code>{' '}
               across your vault notes. Drag to pan, scroll to zoom, or click any node to open its
               grimoire entry.
             </div>
@@ -1400,10 +1400,10 @@ export const RightInspector: React.FC = () => {
           <div className="space-y-4">
             {!focusedEntity ? (
               <div className="space-y-2">
-                <div className="text-xs font-semibold text-[#d4a853]">
+                <div className="text-xs font-semibold text-[#c9a050]">
                   World Backlinks Overview
                 </div>
-                <p className="text-xs text-[#858d9b]">
+                <p className="text-xs text-[#757e8d]">
                   Select a pinned location on the map or open an entity tab to inspect its
                   bidirectional backlinks.
                 </p>
@@ -1416,10 +1416,10 @@ export const RightInspector: React.FC = () => {
                       <button
                         key={pin.id}
                         onClick={() => openEntityTab(ent.id)}
-                        className="w-full flex items-center justify-between px-2.5 py-2 rounded bg-[#12161e] border border-[#1d222b] hover:border-[#d4a853]/40 text-xs"
+                        className="w-full flex items-center justify-between px-2.5 py-2 rounded bg-[#090b0f] border border-[#141821] hover:border-[#b68d40]/40 text-xs"
                       >
-                        <span className="text-[#e7e2d8] font-medium truncate">{ent.title}</span>
-                        <span className="font-mono text-[11px] text-[#d4a853]">
+                        <span className="text-[#ded8cc] font-medium truncate">{ent.title}</span>
+                        <span className="font-mono text-[11px] text-[#c9a050]">
                           {refsCount} backlinks
                         </span>
                       </button>
@@ -1430,11 +1430,11 @@ export const RightInspector: React.FC = () => {
             ) : (
               <>
                 <div>
-                  <div className="text-[11px] font-semibold uppercase tracking-wider text-[#d4a853] mb-2">
+                  <div className="text-[11px] font-semibold uppercase tracking-wider text-[#c9a050] mb-2">
                     Incoming Backlinks ({incomingLinks.length})
                   </div>
                   {incomingLinks.length === 0 ? (
-                    <div className="text-xs text-[#646d7c] italic">
+                    <div className="text-xs text-[#5c6574] italic">
                       No other notes reference {focusedEntity.title} yet.
                     </div>
                   ) : (
@@ -1443,41 +1443,41 @@ export const RightInspector: React.FC = () => {
                         <button
                           key={src.id}
                           onClick={() => openEntityTab(src.id)}
-                          className="w-full text-left p-2.5 rounded-lg bg-[#12161e] border border-[#1d222b] hover:border-[#d4a853]/45 transition-colors"
+                          className="w-full text-left p-2.5 rounded-lg bg-[#090b0f] border border-[#141821] hover:border-[#b68d40]/45 transition-colors"
                         >
                           <div className="flex items-center justify-between gap-2 mb-0.5">
-                            <span className="flex items-center gap-1.5 text-xs font-semibold text-[#f3ead8] truncate">
-                              <EntityIcon type={src.type} className="w-3.5 h-3.5 text-[#d4a853]" />
+                            <span className="flex items-center gap-1.5 text-xs font-semibold text-[#e8dfd0] truncate">
+                              <EntityIcon type={src.type} className="w-3.5 h-3.5 text-[#b68d40]" />
                               {src.title}
                             </span>
-                            <span className="text-[10px] font-mono text-[#7c8594]">{src.type}</span>
+                            <span className="text-[10px] font-mono text-[#6d7686]">{src.type}</span>
                           </div>
-                          <p className="text-[11px] text-[#858d9b] line-clamp-2">{src.summary}</p>
+                          <p className="text-[11px] text-[#757e8d] line-clamp-2">{src.summary}</p>
                         </button>
                       ))}
                     </div>
                   )}
                 </div>
 
-                <div className="pt-2 border-t border-[#181d25]">
-                  <div className="text-[11px] font-semibold uppercase tracking-wider text-[#858d9b] mb-2">
+                <div className="pt-2 border-t border-[#12161f]">
+                  <div className="text-[11px] font-semibold uppercase tracking-wider text-[#757e8d] mb-2">
                     Outgoing Links ({outgoingLinks.length})
                   </div>
                   {outgoingLinks.length === 0 ? (
-                    <div className="text-xs text-[#646d7c] italic">No outgoing WikiLinks.</div>
+                    <div className="text-xs text-[#5c6574] italic">No outgoing WikiLinks.</div>
                   ) : (
                     <div className="space-y-1">
                       {outgoingLinks.map((tgt) => (
                         <button
                           key={tgt.id}
                           onClick={() => openEntityTab(tgt.id)}
-                          className="w-full flex items-center justify-between px-2.5 py-1.5 rounded bg-[#12161e] border border-[#1d222b] hover:border-[#d4a853]/40 text-xs text-[#dcd7cc]"
+                          className="w-full flex items-center justify-between px-2.5 py-1.5 rounded bg-[#090b0f] border border-[#141821] hover:border-[#b68d40]/40 text-xs text-[#ccc6ba]"
                         >
                           <span className="flex items-center gap-2 truncate">
-                            <EntityIcon type={tgt.type} className="w-3 h-3 text-[#d4a853]" />
+                            <EntityIcon type={tgt.type} className="w-3 h-3 text-[#b68d40]" />
                             <span className="truncate">{tgt.title}</span>
                           </span>
-                          <ChevronRight className="w-3.5 h-3.5 text-[#646d7c]" />
+                          <ChevronRight className="w-3.5 h-3.5 text-[#5c6574]" />
                         </button>
                       ))}
                     </div>
