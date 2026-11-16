@@ -1693,13 +1693,13 @@ const MapPin3D: React.FC<{
         position={[0, 3.85, 0]}
         center
         distanceFactor={isTopView ? 115 : 48}
-        zIndexRange={[18, 0]}
+        zIndexRange={isHovered ? [40, 20] : [18, 0]}
         style={{ pointerEvents: 'none' }}
       >
         <div className="relative flex flex-col items-center select-none pointer-events-none">
-          {/* Hover Tooltip Preview Card */}
+          {/* Hover Tooltip Preview Card (absolutely positioned so badge position stays pixel-locked) */}
           {isHovered && !isSelected && (
-            <div className="mb-2 w-[250px] rounded-lg dark-glass shadow-glass p-2.5 text-left pointer-events-none animate-in fade-in zoom-in-95 duration-100">
+            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-[250px] rounded-lg dark-glass shadow-glass p-2.5 text-left pointer-events-none">
               {entity?.cover_image_url && (
                 <div className="h-20 w-full rounded overflow-hidden mb-2 border border-[#242a35]">
                   <img
@@ -1736,7 +1736,7 @@ const MapPin3D: React.FC<{
               e.stopPropagation();
               onSelectPin(pin.id);
             }}
-            className={`pointer-events-auto flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[12px] font-medium whitespace-nowrap transition-all cursor-pointer shadow-lg ${
+            className={`pointer-events-auto flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[12px] font-medium whitespace-nowrap transition-colors cursor-pointer shadow-lg ${
               isSelected
                 ? 'bg-[#2a2214] text-[#f9e7b2] border border-[#eab308] shadow-gold-glow scale-105'
                 : pin.is_gm_only
