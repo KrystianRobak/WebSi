@@ -21,11 +21,46 @@ export type EntityType =
 
 export type EntityCategory = 'encyclopedia' | 'campaign' | 'world';
 
+export type CampaignMode = 'normal' | 'west_marches';
+export type CampaignRole = 'gm' | 'co_gm' | 'player';
+
+export interface PlayerProfile {
+  id: string;
+  display_name: string;
+  avatar_url?: string | null;
+  bio: string;
+  updated_at?: string;
+}
+
+export interface CampaignCalendarConfig {
+  eraName: string;
+  currentYear: number;
+  currentMonthIndex: number;
+  currentDay: number;
+  months: Array<{ name: string; days: number }>;
+  weekdays: string[];
+}
+
 export interface World {
   id: string;
   owner_id?: string | null;
   name: string;
   description: string;
+  mode: CampaignMode;
+  invite_code?: string | null;
+  max_players_per_party?: number;
+  calendar_config?: CampaignCalendarConfig | null;
+  active_sheet_template_id?: string | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface CampaignMember {
+  campaign_id: string;
+  user_id: string;
+  role: CampaignRole;
+  joined_at: string;
+  profile?: PlayerProfile;
 }
 
 export interface Entity {
@@ -234,6 +269,8 @@ export interface BattlemapToken {
   id: string;
   name: string;
   entity_id?: string | null;
+  character_id?: string | null;
+  owner_user_id?: string | null;
   disposition: TokenDisposition;
   x: number; // pixel coordinates on battlemap canvas
   y: number;
@@ -246,6 +283,9 @@ export interface BattlemapToken {
   lightColor: string;
   isHidden: boolean; // GM-only hidden enemy/ambush
   badgeColor?: string;
+  conditions?: string[];
+  elevationFt?: number;
+  auraRadiusFt?: number;
 }
 
 export interface BattlemapWall {
@@ -311,6 +351,40 @@ export interface BattlemapProp {
   blocksLight?: boolean;
 }
 
+export type AoeTemplateShape = 'circle' | 'cone' | 'line' | 'square';
+
+export interface BattlemapAoeTemplate {
+  id: string;
+  shape: AoeTemplateShape;
+  label: string;
+  x: number;
+  y: number;
+  radiusFt: number;
+  angleDeg: number;
+  color: string;
+}
+
+export interface CombatTurnEntry {
+  id: string;
+  name: string;
+  initiative: number;
+  tokenId?: string | null;
+  characterId?: string | null;
+  ownerUserId?: string | null;
+  hp?: number;
+  maxHp?: number;
+  ac?: number;
+  conditions: string[];
+  isHidden?: boolean;
+}
+
+export interface BattlemapCombatState {
+  active: boolean;
+  round: number;
+  activeTurnIndex: number;
+  entries: CombatTurnEntry[];
+}
+
 export type WorldAtmospherePreset =
   | 'golden-hour'
   | 'high-noon'
@@ -327,11 +401,14 @@ export interface BattlemapData {
   gridOpacity: number;
   ambientLight: number; // 0.05 (pitch dark) .. 1.0 (full daylight)
   dynamicLighting: boolean;
+  fogOfWarEnabled?: boolean;
+  revealedMaskUrl?: string | null;
   tokens: BattlemapToken[];
   walls: BattlemapWall[];
   doors: BattlemapDoor[];
   lights: BattlemapLight[];
   props?: BattlemapProp[];
+  aoeTemplates?: BattlemapAoeTemplate[];
   sceneNotes?: string;
 }
 
@@ -354,6 +431,8 @@ export interface VaultMap {
   water?: WaterSettings;
   terrain_shading?: TerrainShadingSettings;
   fog_volumes?: FogVolume[];
+  fog_of_war_2d?: string | null;
+  combat_state?: BattlemapCombatState | null;
   rivers?: MapRiver[];
   props?: MapProp[];
   layers?: WorldMapLayer[];
@@ -407,6 +486,7 @@ export type AssetKind = 'portrait' | 'scene' | 'handout' | 'map';
 
 export interface VaultAsset {
   id: string;
+  world_id?: string;
   slug: string;
   name: string;
   url: string;
@@ -424,9 +504,192 @@ export interface EntityTemplate {
   customCss: string;
 }
 
+// ----------------------------------------------------------------------------
+// Character Sheets (Roll20-Style) & Characters
+// ----------------------------------------------------------------------------
+export interface SheetFieldSchema {
+  defaults?: Record<string, string | number | boolean>;
+  computed?: Record<string, string>;
+  rolls?: Record<string, string>;
+}
+
+export interface CharacterSheetTemplate {
+  id: string;
+  campaign_id: string;
+  name: string;
+  system_label: string;
+  html_template: string;
+  css_template: string;
+  schema_json: SheetFieldSchema;
+  updated_by?: string | null;
+  updated_at?: string;
+}
+
+export type SheetAttributeValue =
+  | string
+  | number
+  | boolean
+  | null
+  | undefined
+  | Array<Record<string, string | number | boolean>>;
+
+export interface CharacterRecord {
+  id: string;
+  campaign_id: string;
+  user_id: string;
+  name: string;
+  portrait_url?: string | null;
+  entity_id?: string | null;
+  sheet_template_id?: string | null;
+  attributes: Record<string, SheetAttributeValue>;
+  is_active: boolean;
+  updated_at: string;
+}
+
+// ----------------------------------------------------------------------------
+// West Marches Guild Quest Boards & Signups
+// ----------------------------------------------------------------------------
+export type GuildQuestStatus = 'open' | 'full' | 'in_progress' | 'completed' | 'archived';
+
+export interface MapQuestBoard {
+  id: string;
+  map_id: string;
+  campaign_id: string;
+  title: string;
+  description: string;
+  x: number;
+  y: number;
+  z: number;
+  created_by?: string | null;
+  created_at?: string;
+}
+
+export interface GuildQuest {
+  id: string;
+  board_id: string;
+  campaign_id: string;
+  title: string;
+  summary: string;
+  danger_tier: string;
+  reward: string;
+  scheduled_at?: string | null;
+  max_players: number;
+  status: GuildQuestStatus;
+  linked_entity_id?: string | null;
+  created_by?: string | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface GuildQuestSignup {
+  id: string;
+  quest_id: string;
+  campaign_id: string;
+  user_id: string;
+  character_id: string;
+  note: string;
+  signed_up_at: string;
+}
+
+// ----------------------------------------------------------------------------
+// Player Journals & Sharing
+// ----------------------------------------------------------------------------
+export type JournalShareScope = 'private' | 'selected' | 'campaign';
+
+export interface JournalPage {
+  id: string;
+  campaign_id: string;
+  owner_id: string;
+  title: string;
+  content: string;
+  tags: string[];
+  share_scope: JournalShareScope;
+  updated_at: string;
+}
+
+export interface JournalPageShare {
+  page_id: string;
+  shared_with_user_id: string;
+  can_edit: boolean;
+}
+
+// ----------------------------------------------------------------------------
+// Per-Player Fog of War & Sharing
+// ----------------------------------------------------------------------------
+export interface MapFogState {
+  map_id: string;
+  user_id: string;
+  campaign_id: string;
+  mask_url: string;
+  updated_at: string;
+}
+
+export interface MapFogShare {
+  id: string;
+  map_id: string;
+  campaign_id: string;
+  owner_user_id: string;
+  shared_with_user_id?: string | null;
+  share_all: boolean;
+}
+
+// ----------------------------------------------------------------------------
+// Dice Roller & Campaign Timeline
+// ----------------------------------------------------------------------------
+export interface DiceRollBreakdown {
+  groups: Array<{
+    notation: string;
+    rolls: number[];
+    kept: number[];
+    subtotal: number;
+  }>;
+  modifier: number;
+}
+
+export interface DiceRollRecord {
+  id: string;
+  campaign_id: string;
+  user_id: string;
+  character_id?: string | null;
+  label: string;
+  expression: string;
+  total: number;
+  breakdown: DiceRollBreakdown;
+  is_gm_blind: boolean;
+  created_at: string;
+}
+
+export interface TimelineEvent {
+  id: string;
+  campaign_id: string;
+  title: string;
+  date_label: string;
+  sort_order: number;
+  era: string;
+  description: string;
+  linked_entity_id?: string | null;
+  is_gm_only: boolean;
+  created_by?: string | null;
+  created_at?: string;
+}
+
+// ----------------------------------------------------------------------------
+// Workspace Tabs & Tooling Modes
+// ----------------------------------------------------------------------------
+export type TabKind =
+  | 'map'
+  | 'entity'
+  | 'asset'
+  | 'template'
+  | 'journal'
+  | 'character'
+  | 'sheet_studio'
+  | 'timeline'
+  | 'profile_hub';
+
 export interface TabItem {
   id: string;
-  kind: 'map' | 'entity' | 'asset' | 'template';
+  kind: TabKind;
   targetId: string;
   title: string;
   subtitle?: string;
@@ -436,7 +699,17 @@ export interface TabItem {
 export type EditorMode = 'code' | 'preview';
 export type MapRenderMode = 'map' | 'terrain';
 export type MapCameraView = 'perspective' | 'top';
-export type MapToolMode = 'select' | 'pin' | 'text' | 'zone' | 'path' | 'region' | 'element' | 'link';
+export type MapToolMode =
+  | 'select'
+  | 'pin'
+  | 'text'
+  | 'zone'
+  | 'path'
+  | 'region'
+  | 'element'
+  | 'link'
+  | 'quest-board'
+  | 'fog-brush';
 export type WorldsmithTool =
   | 'raise'
   | 'valley'
@@ -484,15 +757,20 @@ export type TerrainCommand =
   | { type: 'noise-all'; amount?: number }
   | { type: 'raise-all'; delta: number }
   | { type: 'clear-paint' }
-  | { type: 'expand'; newWorldSize: number };
+  | { type: 'expand'; newWorldSize: number }
+  | { type: 'save-textures' };
 export type BattlemapToolMode =
   | 'select'
   | 'place-party'
   | 'place-enemy'
   | 'place-light'
   | 'place-prop'
+  | 'place-quest-board'
   | 'draw-wall'
   | 'draw-door'
+  | 'fog-reveal'
+  | 'fog-hide'
+  | 'aoe'
   | 'erase'
   | 'measure';
 export type InspectorSubTab = 'details' | 'connections' | 'references';
@@ -505,4 +783,6 @@ export interface MapLayerVisibility {
   paths: boolean;
   regions: boolean;
   labels: boolean;
+  questBoards?: boolean;
+  fogOfWar?: boolean;
 }

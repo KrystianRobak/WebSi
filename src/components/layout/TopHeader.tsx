@@ -1,12 +1,13 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
+  ChevronDown,
   Cloud,
   CloudOff,
   Columns2,
+  Dices,
   Download,
   Eye,
   EyeOff,
-  Lock,
   LogOut,
   PanelRightClose,
   PanelRightOpen,
@@ -16,13 +17,20 @@ import {
   Search,
   Settings,
   Undo2,
+  User,
   X,
 } from 'lucide-react';
+import { exportCampaignArchive } from '../../lib/campaignArchive';
 import { useVaultStore } from '../../store/useVaultStore';
 import { AethelgardCrest, EntityIcon } from '../common/EntityIcon';
 
 export const TopHeader: React.FC = () => {
   const {
+    campaigns,
+    activeCampaignId,
+    switchCampaign,
+    myRole,
+    isEffectiveGm,
     tabs,
     activeTabId,
     splitPaneTabId,
@@ -32,41 +40,77 @@ export const TopHeader: React.FC = () => {
     gmMode,
     setGmMode,
     syncStatus,
-    isAuthenticated,
     past,
     future,
     undo,
     redo,
     setCommandPaletteOpen,
-    setAuthModalOpen,
     setSettingsModalOpen,
     openNewEntryModal,
+    openProfileHubTab,
+    diceDrawerOpen,
+    setDiceDrawerOpen,
     signOutVault,
+    profile,
     world,
     entities,
+    entityLinks,
     maps,
     mapPins,
     mapPaths,
+    assets,
+    templates,
+    sheetTemplates,
+    characters,
+    questBoards,
+    guildQuests,
+    timelineEvents,
     rightInspectorCollapsed,
     toggleRightInspector,
   } = useVaultStore();
 
   const [exportOpen, setExportOpen] = useState(false);
+  const [campaignMenuOpen, setCampaignMenuOpen] = useState(false);
+  const campaignMenuRef = useRef<HTMLDivElement>(null);
+  const canToggleGm = myRole === 'gm' || myRole === 'co_gm';
+  const effectiveGm = isEffectiveGm();
+  const activeCampaign = campaigns.find((c) => c.id === activeCampaignId) || null;
+
+  useEffect(() => {
+    if (!campaignMenuOpen) return;
+    const handlePointerDown = (e: PointerEvent) => {
+      if (campaignMenuRef.current && !campaignMenuRef.current.contains(e.target as Node)) {
+        setCampaignMenuOpen(false);
+      }
+    };
+    document.addEventListener('pointerdown', handlePointerDown);
+    return () => document.removeEventListener('pointerdown', handlePointerDown);
+  }, [campaignMenuOpen]);
 
   const handleExportJson = () => {
-    const payload = {
-      exportedAt: new Date().toISOString(),
+    const archive = exportCampaignArchive({
+      isEffectiveGm: effectiveGm,
       world,
-      entities: gmMode ? entities : entities.map((e) => ({ ...e, gm_secrets: '' })),
+      entities,
+      entityLinks,
       maps,
-      mapPins: gmMode ? mapPins : mapPins.filter((p) => !p.is_gm_only),
-      mapPaths: gmMode ? mapPaths : mapPaths.filter((p) => !p.is_gm_only),
-    };
-    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+      mapPins,
+      mapPaths,
+      assets,
+      templates,
+      sheetTemplates,
+      characters,
+      mapQuestBoards: questBoards,
+      guildQuests,
+      timelineEvents,
+    });
+    const blob = new Blob([JSON.stringify(archive, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `aethelgard-vault-${gmMode ? 'gm' : 'player'}.json`;
+    a.download = `${(world.name || 'aethelgard').toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${
+      effectiveGm ? 'gm' : 'player'
+    }-v2.json`;
     a.click();
     URL.revokeObjectURL(url);
     setExportOpen(false);
@@ -74,7 +118,8 @@ export const TopHeader: React.FC = () => {
 
   const handleExportMarkdown = () => {
     const lines = entities.map((e) => {
-      const secretSection = gmMode && e.gm_secrets ? `\n\n> **[GM SECRET]**: ${e.gm_secrets}` : '';
+      const secretSection =
+        effectiveGm && e.gm_secrets ? `\n\n> **[GM SECRET]**: ${e.gm_secrets}` : '';
       return `# ${e.title} (${e.type})\nTags: ${e.tags.join(', ')}\n\n${e.content}${secretSection}\n\n---\n`;
     });
     const blob = new Blob([lines.join('\n')], { type: 'text/markdown' });
@@ -90,7 +135,11 @@ export const TopHeader: React.FC = () => {
   const syncDot = (() => {
     switch (syncStatus) {
       case 'synced':
-        return { dot: 'bg-emerald-400', icon: <Cloud className="w-3 h-3 text-emerald-400" />, label: 'Realtime Synced' };
+        return {
+          dot: 'bg-emerald-400',
+          icon: <Cloud className="w-3 h-3 text-emerald-400" />,
+          label: 'Realtime Synced',
+        };
       case 'syncing':
       case 'connecting':
         return {
@@ -99,52 +148,139 @@ export const TopHeader: React.FC = () => {
           label: 'Syncing...',
         };
       case 'error':
-        return { dot: 'bg-red-400', icon: <CloudOff className="w-3 h-3 text-red-400" />, label: 'Sync Error' };
+        return {
+          dot: 'bg-red-400',
+          icon: <CloudOff className="w-3 h-3 text-red-400" />,
+          label: 'Sync Error',
+        };
       default:
-        return { dot: 'bg-[#5c6473]', icon: <Cloud className="w-3 h-3 text-[#7a8291]" />, label: 'Local Demo Vault' };
+        return {
+          dot: 'bg-[#5c6473]',
+          icon: <Cloud className="w-3 h-3 text-[#7a8291]" />,
+          label: 'Offline',
+        };
     }
   })();
 
   return (
-    <header className="h-[42px] select-none bg-[#050608] border-b border-[#11151d] px-2.5 flex items-center justify-between gap-2 shrink-0 z-30">
-      {/* Left: Brand + Sync Dot + Undo/Redo */}
+    <header className="h-[42px] select-none bg-[#050608] border-b border-[#11151d] px-2.5 flex items-center justify-between gap-2 shrink-0 z-50">
+      {/* Left: Brand + Campaign Switcher + Undo/Redo */}
       <div className="flex items-center gap-1.5 shrink-0">
         <button
-          onClick={() => setSettingsModalOpen(true)}
+          onClick={openProfileHubTab}
           title={`Aethelgard Vault — ${syncDot.label}`}
           className="flex items-center gap-1.5 px-1.5 py-1 rounded-md hover:bg-[#0d1016] transition-colors"
         >
           <AethelgardCrest className="w-4 h-4" />
-          <span className="hidden lg:inline font-serif text-[12.5px] font-semibold tracking-wider text-[#e8dfd0]">
+          <span className="hidden xl:inline font-serif text-[12.5px] font-semibold tracking-wider text-[#e8dfd0]">
             Aethelgard
           </span>
           <span className={`w-1.5 h-1.5 rounded-full ${syncDot.dot}`} />
         </button>
 
-        <div className="hidden sm:flex items-center gap-0.5 border-l border-[#12161f] pl-1.5">
-          <button
-            onClick={undo}
-            disabled={past.length === 0}
-            title="Undo (Ctrl+Z)"
-            className="p-1 rounded text-[#6f7887] hover:text-[#e5ded0] hover:bg-[#0e1218] disabled:opacity-25 disabled:pointer-events-none transition-colors"
-          >
-            <Undo2 className="w-3.5 h-3.5" />
-          </button>
-          <button
-            onClick={redo}
-            disabled={future.length === 0}
-            title="Redo (Ctrl+Y)"
-            className="p-1 rounded text-[#6f7887] hover:text-[#e5ded0] hover:bg-[#0e1218] disabled:opacity-25 disabled:pointer-events-none transition-colors"
-          >
-            <Redo2 className="w-3.5 h-3.5" />
-          </button>
-        </div>
+        {campaigns.length > 0 && (
+          <div className="relative flex items-center gap-1 border-l border-[#12161f] pl-1.5" ref={campaignMenuRef}>
+            <button
+              type="button"
+              aria-label="Switch Campaign"
+              aria-haspopup="listbox"
+              aria-expanded={campaignMenuOpen}
+              onClick={() => setCampaignMenuOpen((v) => !v)}
+              className="h-[26px] max-w-[185px] bg-[#0a0d13] border border-[#191f2c] hover:border-[#b68d40]/50 rounded-md px-2 text-[11px] text-[#e5ded0] flex items-center gap-1.5 focus:outline-none focus:border-[#b68d40] transition-colors"
+            >
+              <span data-testid="active-campaign-name" className="truncate font-medium text-[#f0e6d2]">
+                {activeCampaign?.name || world.name || 'Campaign'}
+              </span>
+              <ChevronDown className="w-3 h-3 text-[#7a8291] shrink-0" />
+            </button>
+            {campaignMenuOpen && (
+              <div
+                role="listbox"
+                aria-label="Campaigns"
+                className="absolute left-1.5 top-full mt-1.5 w-60 rounded-md dark-glass shadow-glass py-1 z-50 border border-[#1d2432]"
+              >
+                {campaigns.map((c) => {
+                  const selected = c.id === activeCampaignId;
+                  return (
+                    <button
+                      key={c.id}
+                      type="button"
+                      role="option"
+                      aria-selected={selected}
+                      onClick={() => {
+                        switchCampaign(c.id);
+                        setCampaignMenuOpen(false);
+                      }}
+                      className={`w-full text-left px-3 py-1.5 text-xs flex items-center justify-between gap-2 transition-colors ${
+                        selected
+                          ? 'bg-[#b68d40]/18 text-[#f0e6d2] font-medium'
+                          : 'text-[#ded8cc] hover:bg-[#b68d40]/12'
+                      }`}
+                    >
+                      <span className="truncate">{c.name}</span>
+                      <span
+                        className={`text-[9px] px-1 py-0.5 rounded border shrink-0 ${
+                          c.mode === 'west_marches'
+                            ? 'bg-amber-500/10 border-amber-500/35 text-amber-300'
+                            : 'bg-sky-500/10 border-sky-500/35 text-sky-300'
+                        }`}
+                      >
+                        {c.mode === 'west_marches' ? 'WM' : 'Normal'}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+            {world.id && (
+              <span
+                className={`hidden md:inline-block text-[9.5px] px-1.5 py-0.5 rounded border font-medium ${
+                  world.mode === 'west_marches'
+                    ? 'bg-amber-500/10 border-amber-500/35 text-amber-300'
+                    : 'bg-sky-500/10 border-sky-500/35 text-sky-300'
+                }`}
+              >
+                {world.mode === 'west_marches' ? 'WM' : 'Normal'}
+              </span>
+            )}
+          </div>
+        )}
+
+        {effectiveGm && (
+          <div className="hidden sm:flex items-center gap-0.5 border-l border-[#12161f] pl-1.5">
+            <button
+              onClick={undo}
+              disabled={past.length === 0}
+              title="Undo (Ctrl+Z)"
+              className="p-1 rounded text-[#6f7887] hover:text-[#e5ded0] hover:bg-[#0e1218] disabled:opacity-25 disabled:pointer-events-none transition-colors"
+            >
+              <Undo2 className="w-3.5 h-3.5" />
+            </button>
+            <button
+              onClick={redo}
+              disabled={future.length === 0}
+              title="Redo (Ctrl+Y)"
+              className="p-1 rounded text-[#6f7887] hover:text-[#e5ded0] hover:bg-[#0e1218] disabled:opacity-25 disabled:pointer-events-none transition-colors"
+            >
+              <Redo2 className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Center: Inline Browser-Style Tab Strip + New/Split */}
       <div className="flex-1 min-w-0 flex items-center gap-1 h-full py-1">
         <div className="flex items-center gap-1 overflow-x-auto no-scrollbar min-w-0">
-          {tabs.map((tab) => {
+          {tabs
+            .filter((tab) => {
+              if (effectiveGm || tab.kind !== 'entity') return true;
+              const ent = entities.find((e) => e.id === tab.targetId);
+              const isGmOnly = Boolean(
+                ent?.metadata?.is_gm_only || (ent as { is_gm_only?: boolean } | undefined)?.is_gm_only
+              );
+              return !isGmOnly;
+            })
+            .map((tab) => {
             const isActive = tab.id === activeTabId;
             const isSplit = tab.id === splitPaneTabId;
             return (
@@ -182,13 +318,15 @@ export const TopHeader: React.FC = () => {
           })}
         </div>
 
-        <button
-          onClick={() => openNewEntryModal('Location', 'encyclopedia')}
-          title="New Entry"
-          className="p-1 rounded-md text-[#7a8291] hover:text-[#c9a050] hover:bg-[#0e1218] shrink-0 transition-colors"
-        >
-          <Plus className="w-3.5 h-3.5" />
-        </button>
+        {effectiveGm && (
+          <button
+            onClick={() => openNewEntryModal('Location', 'encyclopedia')}
+            title="New Entry"
+            className="p-1 rounded-md text-[#7a8291] hover:text-[#c9a050] hover:bg-[#0e1218] shrink-0 transition-colors"
+          >
+            <Plus className="w-3.5 h-3.5" />
+          </button>
+        )}
         <button
           onClick={toggleSplitPane}
           title={splitPaneTabId ? 'Close Dual Tab Split' : 'Split Tab View'}
@@ -202,7 +340,7 @@ export const TopHeader: React.FC = () => {
         </button>
       </div>
 
-      {/* Right: Compact Search, GM, Export, Inspector Toggle, Settings, Auth */}
+      {/* Right: Search, Dice Drawer, Role-Gated GM Mode, Export, Inspector Toggle, Profile, Settings, SignOut */}
       <div className="flex items-center gap-1 shrink-0">
         <button
           onClick={() => setCommandPaletteOpen(true)}
@@ -216,59 +354,78 @@ export const TopHeader: React.FC = () => {
           </kbd>
         </button>
 
-        {/* GM Mode Toggle */}
+        {/* Dice Roller Toggle */}
         <button
-          onClick={() => setGmMode(!gmMode)}
-          title={
-            gmMode
-              ? 'GM Mode ON — Secrets and hidden map pins visible'
-              : 'GM Mode OFF — Screen-share safe (secrets & hidden pins stripped)'
-          }
-          className={`h-[26px] flex items-center gap-1 px-2 rounded-md text-[11px] font-medium border transition-all ${
-            gmMode
-              ? 'bg-[#1c0b0e] border-red-500/35 text-red-200/90'
-              : 'bg-[#090b0f] border-[#141821] text-[#7e8796] hover:text-[#ded8cc]'
+          onClick={() => setDiceDrawerOpen(!diceDrawerOpen)}
+          title="Dice Roller & Log"
+          aria-label="Dice Roller"
+          className={`h-[26px] px-2 rounded-md border flex items-center gap-1 text-[11px] font-medium transition-colors ${
+            diceDrawerOpen
+              ? 'bg-[#b68d40]/18 border-[#b68d40]/50 text-[#e8dfd0]'
+              : 'bg-[#090b0f] border-[#141821] text-[#848d9c] hover:text-[#ded8cc]'
           }`}
         >
-          {gmMode ? (
-            <Eye className="w-3 h-3 text-red-400" />
-          ) : (
-            <EyeOff className="w-3 h-3 text-[#5c6473]" />
-          )}
-          <span className="hidden xl:inline">{gmMode ? 'GM' : 'Player'}</span>
+          <Dices className="w-3.5 h-3.5 text-[#d4a853]" />
+          <span className="hidden lg:inline">Dice</span>
         </button>
 
-        {/* Export Dropdown */}
-        <div className="relative">
+        {/* Role-Gated GM Mode Toggle (hidden for plain players) */}
+        {canToggleGm && (
           <button
-            onClick={() => setExportOpen((v) => !v)}
-            title="Export Vault"
-            className="h-[26px] px-1.5 rounded-md bg-[#090b0f] border border-[#141821] hover:border-[#b68d40]/40 text-[#bdb7ac] flex items-center gap-1 text-[11px] transition-colors"
+            onClick={() => setGmMode(!gmMode)}
+            title={
+              gmMode
+                ? 'GM Mode ON — Secrets and hidden map pins visible'
+                : 'Player View — Secrets & hidden pins stripped'
+            }
+            className={`h-[26px] flex items-center gap-1 px-2 rounded-md text-[11px] font-medium border transition-all ${
+              gmMode
+                ? 'bg-[#1c0b0e] border-red-500/35 text-red-200/90'
+                : 'bg-[#090b0f] border-[#141821] text-[#7e8796] hover:text-[#ded8cc]'
+            }`}
           >
-            <Download className="w-3.5 h-3.5 text-[#b68d40]" />
+            {gmMode ? (
+              <Eye className="w-3 h-3 text-red-400" />
+            ) : (
+              <EyeOff className="w-3 h-3 text-[#5c6473]" />
+            )}
+            <span className="hidden xl:inline">{gmMode ? 'GM Mode' : 'Player View'}</span>
           </button>
-          {exportOpen && (
-            <div
-              onMouseLeave={() => setExportOpen(false)}
-              className="absolute right-0 mt-1.5 w-48 rounded-md dark-glass shadow-glass py-1 z-50"
+        )}
+
+        {/* Export Dropdown */}
+        {world.id && (
+          <div className="relative">
+            <button
+              onClick={() => setExportOpen((v) => !v)}
+              title="Export Campaign"
+              className="h-[26px] px-1.5 rounded-md bg-[#090b0f] border border-[#141821] hover:border-[#b68d40]/40 text-[#bdb7ac] flex items-center gap-1 text-[11px] transition-colors"
             >
-              <button
-                onClick={handleExportJson}
-                className="w-full text-left px-3 py-1.5 text-xs text-[#ded8cc] hover:bg-[#b68d40]/15 flex items-center justify-between"
+              <Download className="w-3.5 h-3.5 text-[#b68d40]" />
+            </button>
+            {exportOpen && (
+              <div
+                onMouseLeave={() => setExportOpen(false)}
+                className="absolute right-0 mt-1.5 w-52 rounded-md dark-glass shadow-glass py-1 z-50"
               >
-                <span>Export Vault JSON</span>
-                <span className="font-mono text-[10px] text-[#7a8291]">.json</span>
-              </button>
-              <button
-                onClick={handleExportMarkdown}
-                className="w-full text-left px-3 py-1.5 text-xs text-[#ded8cc] hover:bg-[#b68d40]/15 flex items-center justify-between"
-              >
-                <span>Export Grimoire MD</span>
-                <span className="font-mono text-[10px] text-[#7a8291]">.md</span>
-              </button>
-            </div>
-          )}
-        </div>
+                <button
+                  onClick={handleExportJson}
+                  className="w-full text-left px-3 py-1.5 text-xs text-[#ded8cc] hover:bg-[#b68d40]/15 flex items-center justify-between"
+                >
+                  <span>Export Archive v2 JSON</span>
+                  <span className="font-mono text-[10px] text-[#7a8291]">.json</span>
+                </button>
+                <button
+                  onClick={handleExportMarkdown}
+                  className="w-full text-left px-3 py-1.5 text-xs text-[#ded8cc] hover:bg-[#b68d40]/15 flex items-center justify-between"
+                >
+                  <span>Export Grimoire MD</span>
+                  <span className="font-mono text-[10px] text-[#7a8291]">.md</span>
+                </button>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Inspector Drawer Toggle */}
         <button
@@ -289,35 +446,41 @@ export const TopHeader: React.FC = () => {
           <span className="hidden lg:inline">Inspector</span>
         </button>
 
+        {/* Profile Hub */}
+        <button
+          onClick={openProfileHubTab}
+          title="Adventurer Account"
+          aria-label="Adventurer Account"
+          className="h-[26px] px-2 rounded-md text-[#b9c0cd] hover:text-[#c9a050] hover:bg-[#0e1218] transition-colors flex items-center gap-1.5 text-[11px]"
+        >
+          <User className="w-3.5 h-3.5 text-[#d4a853]" />
+          {profile?.display_name && (
+            <span className="hidden md:inline max-w-[110px] truncate font-medium text-[#ede5d6]">
+              {profile.display_name}
+            </span>
+          )}
+        </button>
+
         {/* Settings */}
         <button
           onClick={() => setSettingsModalOpen(true)}
-          title="Vault & Supabase Settings"
+          title="Supabase & Terrain Settings"
+          aria-label="Settings"
           className="p-1.5 rounded-md text-[#7a8291] hover:text-[#c9a050] hover:bg-[#0e1218] transition-colors"
         >
           <Settings className="w-3.5 h-3.5" />
         </button>
 
-        {/* Token Auth / Lock */}
-        {isAuthenticated ? (
-          <button
-            onClick={signOutVault}
-            title="Lock Vault (Sign out)"
-            className="p-1.5 rounded-md bg-[#090b0f] border border-[#141821] text-[#bdb7ac] hover:border-red-500/40 hover:text-red-300 transition-colors"
-          >
-            <LogOut className="w-3.5 h-3.5" />
-          </button>
-        ) : (
-          <button
-            onClick={() => setAuthModalOpen(true)}
-            title="Unlock Campaign Token (Supabase Login)"
-            className="h-[26px] flex items-center gap-1 px-2 rounded-md text-[11px] bg-[#0b0e14] border border-[#b68d40]/35 text-[#c9a050] hover:bg-[#b68d40]/15 transition-colors"
-          >
-            <Lock className="w-3 h-3" />
-          </button>
-        )}
+        {/* Sign Out */}
+        <button
+          onClick={signOutVault}
+          title="Sign Out"
+          aria-label="Sign Out"
+          className="p-1.5 rounded-md bg-[#090b0f] border border-[#141821] text-[#bdb7ac] hover:border-red-500/40 hover:text-red-300 transition-colors"
+        >
+          <LogOut className="w-3.5 h-3.5" />
+        </button>
       </div>
     </header>
   );
 };
-

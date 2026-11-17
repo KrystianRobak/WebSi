@@ -30,7 +30,10 @@ import { BattlemapPropKind, VaultMap } from '../../types/vault';
 export const BattlemapInspectorSection: React.FC<{ activeMap: VaultMap }> = ({ activeMap }) => {
   const {
     entities,
-    gmMode,
+    characters,
+    campaignMembers,
+    isEffectiveGm,
+    canEditToken,
     selectedTokenId,
     selectedDoorId,
     selectedLightId,
@@ -53,18 +56,24 @@ export const BattlemapInspectorSection: React.FC<{ activeMap: VaultMap }> = ({ a
     deleteBattlemapProp,
     setMapGeneratorModalOpen,
     openEntityTab,
+    openCharacterTab,
   } = useVaultStore();
 
+  const canGmEdit = isEffectiveGm();
   const bm = activeMap.battlemap;
   if (!bm) return null;
 
-  const visibleDoors = bm.doors.filter((d) => gmMode || !d.isSecret);
-  const visibleTokens = bm.tokens.filter((t) => gmMode || !t.isHidden);
-  const visibleProps = (bm.props || []).filter((p) => gmMode || !p.isSecret);
-  const selectedToken = bm.tokens.find((t) => t.id === selectedTokenId) || null;
-  const selectedProp = (bm.props || []).find((p) => p.id === selectedPropId2D) || null;
+  const visibleDoors = bm.doors.filter((d) => canGmEdit || !d.isSecret);
+  const visibleTokens = bm.tokens.filter((t) => canGmEdit || !t.isHidden);
+  const visibleProps = (bm.props || []).filter((p) => canGmEdit || !p.isSecret);
+  const selectedToken = visibleTokens.find((t) => t.id === selectedTokenId) || null;
+  const canEditSelectedToken = selectedToken ? canEditToken(selectedToken) : false;
+  const selectedProp = canGmEdit
+    ? (bm.props || []).find((p) => p.id === selectedPropId2D) || null
+    : null;
 
   const spawnQuickProp = (kind: BattlemapPropKind) => {
+    if (!canGmEdit) return;
     const cx = Math.round((bm.width * 0.5) / bm.gridSizePx) * bm.gridSizePx + bm.gridSizePx * 0.5;
     const cy = Math.round((bm.height * 0.5) / bm.gridSizePx) * bm.gridSizePx + bm.gridSizePx * 0.5;
     addBattlemapProp(activeMap.id, {
@@ -89,6 +98,7 @@ export const BattlemapInspectorSection: React.FC<{ activeMap: VaultMap }> = ({ a
   };
 
   const spawnQuickToken = (disposition: 'enemy' | 'party') => {
+    if (!canGmEdit) return;
     const cx = Math.round(bm.width * 0.5 / bm.gridSizePx) * bm.gridSizePx + bm.gridSizePx * 0.5;
     const cy = Math.round(bm.height * 0.5 / bm.gridSizePx) * bm.gridSizePx + bm.gridSizePx * 0.5;
     addBattlemapToken(activeMap.id, {
@@ -116,13 +126,15 @@ export const BattlemapInspectorSection: React.FC<{ activeMap: VaultMap }> = ({ a
             {activeMap.name}
           </h2>
           <div className="flex items-center gap-1 shrink-0">
-            <button
-              onClick={() => setMapGeneratorModalOpen(true, '2d', activeMap.id)}
-              title="Edit Map Setup, Theme & Backdrop"
-              className="p-1 rounded bg-[#181d26] hover:bg-[#232a36] border border-[#2a3140] text-[#d4a853]"
-            >
-              <Settings2 className="w-3.5 h-3.5" />
-            </button>
+            {canGmEdit && (
+              <button
+                onClick={() => setMapGeneratorModalOpen(true, '2d', activeMap.id)}
+                title="Edit Map Setup, Theme & Backdrop"
+                className="p-1 rounded bg-[#181d26] hover:bg-[#232a36] border border-[#2a3140] text-[#d4a853]"
+              >
+                <Settings2 className="w-3.5 h-3.5" />
+              </button>
+            )}
             <span className="px-1.5 py-0.5 rounded text-[9.5px] font-mono uppercase bg-sky-500/15 text-sky-300 border border-sky-500/30">
               2D VTT
             </span>
@@ -130,68 +142,70 @@ export const BattlemapInspectorSection: React.FC<{ activeMap: VaultMap }> = ({ a
         </div>
 
         {/* Lighting & Grid Controls */}
-        <div className="rounded-md bg-[#12161e] border border-[#1d222b] p-2.5 space-y-2.5 text-[11.5px]">
-          <div className="space-y-1">
-            <div className="flex items-center justify-between text-[#b8b3a8]">
-              <span className="flex items-center gap-1.5">
-                <Sun className="w-3.5 h-3.5 text-[#d4a853]" />
-                Ambient Light
-              </span>
-              <span className="font-mono text-[#e5be58]">
-                {Math.round(bm.ambientLight * 100)}%
-              </span>
+        {canGmEdit && (
+          <div className="rounded-md bg-[#12161e] border border-[#1d222b] p-2.5 space-y-2.5 text-[11.5px]">
+            <div className="space-y-1">
+              <div className="flex items-center justify-between text-[#b8b3a8]">
+                <span className="flex items-center gap-1.5">
+                  <Sun className="w-3.5 h-3.5 text-[#d4a853]" />
+                  Ambient Light
+                </span>
+                <span className="font-mono text-[#e5be58]">
+                  {Math.round(bm.ambientLight * 100)}%
+                </span>
+              </div>
+              <input
+                type="range"
+                min={0.05}
+                max={1}
+                step={0.05}
+                value={bm.ambientLight}
+                onChange={(e) =>
+                  updateBattlemap(activeMap.id, (prev) => ({
+                    ...prev,
+                    ambientLight: Number(e.target.value),
+                  }))
+                }
+                className="w-full accent-[#d4a853]"
+              />
             </div>
-            <input
-              type="range"
-              min={0.05}
-              max={1}
-              step={0.05}
-              value={bm.ambientLight}
-              onChange={(e) =>
-                updateBattlemap(activeMap.id, (prev) => ({
-                  ...prev,
-                  ambientLight: Number(e.target.value),
-                }))
-              }
-              className="w-full accent-[#d4a853]"
-            />
-          </div>
 
-          <div className="grid grid-cols-2 gap-1.5">
-            <button
-              onClick={() =>
-                updateBattlemap(activeMap.id, (prev) => ({
-                  ...prev,
-                  dynamicLighting: !prev.dynamicLighting,
-                }))
-              }
-              className={`px-2 py-1.5 rounded border text-[11px] flex items-center justify-center gap-1 transition-colors ${
-                bm.dynamicLighting
-                  ? 'bg-[#d4a853]/15 border-[#d4a853]/50 text-[#f3d185]'
-                  : 'bg-[#171b23] border-[#242a35] text-[#858d9b]'
-              }`}
-            >
-              <Sparkles className="w-3 h-3" />
-              <span>Shadows</span>
-            </button>
-            <button
-              onClick={() =>
-                updateBattlemap(activeMap.id, (prev) => ({
-                  ...prev,
-                  showGrid: !prev.showGrid,
-                }))
-              }
-              className={`px-2 py-1.5 rounded border text-[11px] flex items-center justify-center gap-1 transition-colors ${
-                bm.showGrid
-                  ? 'bg-[#d4a853]/15 border-[#d4a853]/50 text-[#f3d185]'
-                  : 'bg-[#171b23] border-[#242a35] text-[#858d9b]'
-              }`}
-            >
-              <Grid3x3 className="w-3 h-3" />
-              <span>5ft Grid</span>
-            </button>
+            <div className="grid grid-cols-2 gap-1.5">
+              <button
+                onClick={() =>
+                  updateBattlemap(activeMap.id, (prev) => ({
+                    ...prev,
+                    dynamicLighting: !prev.dynamicLighting,
+                  }))
+                }
+                className={`px-2 py-1.5 rounded border text-[11px] flex items-center justify-center gap-1 transition-colors ${
+                  bm.dynamicLighting
+                    ? 'bg-[#d4a853]/15 border-[#d4a853]/50 text-[#f3d185]'
+                    : 'bg-[#171b23] border-[#242a35] text-[#858d9b]'
+                }`}
+              >
+                <Sparkles className="w-3 h-3" />
+                <span>Shadows</span>
+              </button>
+              <button
+                onClick={() =>
+                  updateBattlemap(activeMap.id, (prev) => ({
+                    ...prev,
+                    showGrid: !prev.showGrid,
+                  }))
+                }
+                className={`px-2 py-1.5 rounded border text-[11px] flex items-center justify-center gap-1 transition-colors ${
+                  bm.showGrid
+                    ? 'bg-[#d4a853]/15 border-[#d4a853]/50 text-[#f3d185]'
+                    : 'bg-[#171b23] border-[#242a35] text-[#858d9b]'
+                }`}
+              >
+                <Grid3x3 className="w-3 h-3" />
+                <span>5ft Grid</span>
+              </button>
+            </div>
           </div>
-        </div>
+        )}
       </div>
 
       {/* Selected Token Inspector */}
@@ -202,28 +216,41 @@ export const BattlemapInspectorSection: React.FC<{ activeMap: VaultMap }> = ({ a
               Selected Token
             </span>
             <div className="flex items-center gap-1">
-              <button
-                onClick={() => {
-                  const { id: _ignore, ...rest } = selectedToken;
-                  addBattlemapToken(activeMap.id, {
-                    ...rest,
-                    name: `${selectedToken.name} II`,
-                    x: selectedToken.x + 28,
-                    y: selectedToken.y + 18,
-                  });
-                }}
-                title="Duplicate Token"
-                className="p-1 rounded bg-[#161a22] hover:bg-[#232934] text-[#b8b3a8]"
-              >
-                <Copy className="w-3 h-3" />
-              </button>
-              <button
-                onClick={() => deleteBattlemapToken(activeMap.id, selectedToken.id)}
-                title="Delete Token"
-                className="p-1 rounded bg-[#161a22] hover:bg-red-950/50 text-red-400"
-              >
-                <Trash2 className="w-3 h-3" />
-              </button>
+              {selectedToken.character_id && (
+                <button
+                  onClick={() => openCharacterTab(selectedToken.character_id!)}
+                  title="Open Linked Character Sheet"
+                  className="px-1.5 py-0.5 rounded bg-[#181d26] hover:bg-[#232a36] text-[#e6c687] text-[10px] flex items-center gap-1"
+                >
+                  <ExternalLink className="w-2.5 h-2.5" /> Sheet
+                </button>
+              )}
+              {canGmEdit && (
+                <>
+                  <button
+                    onClick={() => {
+                      const { id: _ignore, ...rest } = selectedToken;
+                      addBattlemapToken(activeMap.id, {
+                        ...rest,
+                        name: `${selectedToken.name} II`,
+                        x: selectedToken.x + 28,
+                        y: selectedToken.y + 18,
+                      });
+                    }}
+                    title="Duplicate Token"
+                    className="p-1 rounded bg-[#161a22] hover:bg-[#232934] text-[#b8b3a8]"
+                  >
+                    <Copy className="w-3 h-3" />
+                  </button>
+                  <button
+                    onClick={() => deleteBattlemapToken(activeMap.id, selectedToken.id)}
+                    title="Delete Token"
+                    className="p-1 rounded bg-[#161a22] hover:bg-red-950/50 text-red-400"
+                  >
+                    <Trash2 className="w-3 h-3" />
+                  </button>
+                </>
+              )}
             </div>
           </div>
 
@@ -231,39 +258,44 @@ export const BattlemapInspectorSection: React.FC<{ activeMap: VaultMap }> = ({ a
             <input
               type="text"
               value={selectedToken.name}
+              disabled={!canEditSelectedToken}
               onChange={(e) =>
                 updateBattlemapToken(activeMap.id, selectedToken.id, { name: e.target.value })
               }
-              className="w-full bg-[#0b0d10] border border-[#242a36] rounded px-2 py-1 text-xs font-medium text-[#f3ead8] focus:outline-none focus:border-[#d4a853]"
+              className="w-full bg-[#0b0d10] border border-[#242a36] rounded px-2 py-1 text-xs font-medium text-[#f3ead8] focus:outline-none focus:border-[#d4a853] disabled:opacity-70"
             />
 
             {/* HP Stepper & AC */}
             <div className="flex items-center justify-between gap-2">
               <div className="flex items-center gap-1">
                 <span className="text-[#858d9b]">HP:</span>
-                <button
-                  onClick={() =>
-                    updateBattlemapToken(activeMap.id, selectedToken.id, {
-                      hp: Math.max(0, selectedToken.hp - 5),
-                    })
-                  }
-                  className="p-1 rounded bg-[#1b2029] hover:bg-[#252c38] text-[#e7e2d8]"
-                >
-                  <Minus className="w-2.5 h-2.5" />
-                </button>
+                {canEditSelectedToken && (
+                  <button
+                    onClick={() =>
+                      updateBattlemapToken(activeMap.id, selectedToken.id, {
+                        hp: Math.max(0, selectedToken.hp - 5),
+                      })
+                    }
+                    className="p-1 rounded bg-[#1b2029] hover:bg-[#252c38] text-[#e7e2d8]"
+                  >
+                    <Minus className="w-2.5 h-2.5" />
+                  </button>
+                )}
                 <span className="font-mono text-[#e7e2d8] min-w-[44px] text-center">
                   {selectedToken.hp}/{selectedToken.maxHp}
                 </span>
-                <button
-                  onClick={() =>
-                    updateBattlemapToken(activeMap.id, selectedToken.id, {
-                      hp: Math.min(selectedToken.maxHp, selectedToken.hp + 5),
-                    })
-                  }
-                  className="p-1 rounded bg-[#1b2029] hover:bg-[#252c38] text-[#e7e2d8]"
-                >
-                  <Plus className="w-2.5 h-2.5" />
-                </button>
+                {canEditSelectedToken && (
+                  <button
+                    onClick={() =>
+                      updateBattlemapToken(activeMap.id, selectedToken.id, {
+                        hp: Math.min(selectedToken.maxHp, selectedToken.hp + 5),
+                      })
+                    }
+                    className="p-1 rounded bg-[#1b2029] hover:bg-[#252c38] text-[#e7e2d8]"
+                  >
+                    <Plus className="w-2.5 h-2.5" />
+                  </button>
+                )}
               </div>
               <div className="flex items-center gap-1 text-[#b8b3a8]">
                 <Shield className="w-3 h-3 text-[#d4a853]" />
@@ -282,6 +314,7 @@ export const BattlemapInspectorSection: React.FC<{ activeMap: VaultMap }> = ({ a
                 min={0}
                 max={60}
                 step={5}
+                disabled={!canEditSelectedToken}
                 value={selectedToken.lightRadiusFt}
                 onChange={(e) =>
                   updateBattlemapToken(activeMap.id, selectedToken.id, {
@@ -292,29 +325,76 @@ export const BattlemapInspectorSection: React.FC<{ activeMap: VaultMap }> = ({ a
               />
             </div>
 
-            {gmMode && (
-              <button
-                onClick={() =>
-                  updateBattlemapToken(activeMap.id, selectedToken.id, {
-                    isHidden: !selectedToken.isHidden,
-                  })
-                }
-                className={`w-full px-2 py-1.5 rounded border text-[11px] flex items-center justify-center gap-1.5 ${
-                  selectedToken.isHidden
-                    ? 'bg-red-950/40 border-red-500/45 text-red-200'
-                    : 'bg-[#171b23] border-[#262d3a] text-[#b8b3a8]'
-                }`}
-              >
-                {selectedToken.isHidden ? (
-                  <>
-                    <EyeOff className="w-3 h-3" /> Hidden From Players (GM Only)
-                  </>
-                ) : (
-                  <>
-                    <Eye className="w-3 h-3" /> Visible to Players
-                  </>
-                )}
-              </button>
+            {canGmEdit && (
+              <>
+                <div className="grid grid-cols-2 gap-1.5 text-[10.5px]">
+                  <label className="space-y-0.5 text-[#9aa3b2]">
+                    <span>Linked Character</span>
+                    <select
+                      value={selectedToken.character_id || ''}
+                      onChange={(e) => {
+                        const cid = e.target.value || null;
+                        const matched = cid ? characters.find((c) => c.id === cid) : null;
+                        updateBattlemapToken(activeMap.id, selectedToken.id, {
+                          character_id: cid,
+                          owner_user_id: matched ? matched.user_id : selectedToken.owner_user_id ?? null,
+                          name: matched ? matched.name : selectedToken.name,
+                        });
+                      }}
+                      className="w-full bg-[#0b0d10] border border-[#242a36] rounded px-1.5 py-1 text-[10.5px] text-[#e7e2d8]"
+                    >
+                      <option value="">None</option>
+                      {characters.map((ch) => (
+                        <option key={ch.id} value={ch.id}>
+                          {ch.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="space-y-0.5 text-[#9aa3b2]">
+                    <span>Player Owner</span>
+                    <select
+                      value={selectedToken.owner_user_id || ''}
+                      onChange={(e) =>
+                        updateBattlemapToken(activeMap.id, selectedToken.id, {
+                          owner_user_id: e.target.value || null,
+                        })
+                      }
+                      className="w-full bg-[#0b0d10] border border-[#242a36] rounded px-1.5 py-1 text-[10.5px] text-[#e7e2d8]"
+                    >
+                      <option value="">GM Only</option>
+                      {campaignMembers.map((m) => (
+                        <option key={m.user_id} value={m.user_id}>
+                          {m.profile?.display_name || m.role}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+
+                <button
+                  onClick={() =>
+                    updateBattlemapToken(activeMap.id, selectedToken.id, {
+                      isHidden: !selectedToken.isHidden,
+                    })
+                  }
+                  className={`w-full px-2 py-1.5 rounded border text-[11px] flex items-center justify-center gap-1.5 ${
+                    selectedToken.isHidden
+                      ? 'bg-red-950/40 border-red-500/45 text-red-200'
+                      : 'bg-[#171b23] border-[#262d3a] text-[#b8b3a8]'
+                  }`}
+                >
+                  {selectedToken.isHidden ? (
+                    <>
+                      <EyeOff className="w-3 h-3" /> Hidden From Players (GM Only)
+                    </>
+                  ) : (
+                    <>
+                      <Eye className="w-3 h-3" /> Visible to Players
+                    </>
+                  )}
+                </button>
+              </>
             )}
           </div>
         </div>
@@ -435,7 +515,7 @@ export const BattlemapInspectorSection: React.FC<{ activeMap: VaultMap }> = ({ a
                 <span>Blocks Light</span>
               </label>
 
-              {gmMode && (
+              {canGmEdit && (
                 <label className="flex items-center gap-1.5 text-red-300 cursor-pointer">
                   <input
                     type="checkbox"
@@ -550,7 +630,7 @@ export const BattlemapInspectorSection: React.FC<{ activeMap: VaultMap }> = ({ a
                     >
                       {door.isOpen ? 'Open' : 'Closed'}
                     </button>
-                    {gmMode && (
+                    {canGmEdit && (
                       <>
                         <button
                           onClick={(e) => {
@@ -584,7 +664,7 @@ export const BattlemapInspectorSection: React.FC<{ activeMap: VaultMap }> = ({ a
                     )}
                   </div>
                 </div>
-                {isSel && gmMode && (
+                {isSel && canGmEdit && (
                   <div
                     onClick={(e) => e.stopPropagation()}
                     className="flex items-center gap-2 pt-1.5 mt-1.5 border-t border-[#232935] text-[10.5px]"
@@ -689,7 +769,7 @@ export const BattlemapInspectorSection: React.FC<{ activeMap: VaultMap }> = ({ a
                     >
                       {light.isOn ? 'Lit' : 'Off'}
                     </button>
-                    {gmMode && (
+                    {canGmEdit && (
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
@@ -799,20 +879,22 @@ export const BattlemapInspectorSection: React.FC<{ activeMap: VaultMap }> = ({ a
           </span>
         </div>
 
-        <div className="grid grid-cols-2 gap-1.5">
-          <button
-            onClick={() => spawnQuickToken('party')}
-            className="px-2 py-1.5 rounded bg-[#161c26] hover:bg-[#1e2634] border border-sky-500/30 text-[11px] text-sky-200 flex items-center justify-center gap-1"
-          >
-            <Users className="w-3 h-3" /> + Party
-          </button>
-          <button
-            onClick={() => spawnQuickToken('enemy')}
-            className="px-2 py-1.5 rounded bg-[#1b1518] hover:bg-[#271b20] border border-red-500/35 text-[11px] text-red-200 flex items-center justify-center gap-1"
-          >
-            <Skull className="w-3 h-3" /> + Enemy
-          </button>
-        </div>
+        {canGmEdit && (
+          <div className="grid grid-cols-2 gap-1.5">
+            <button
+              onClick={() => spawnQuickToken('party')}
+              className="px-2 py-1.5 rounded bg-[#161c26] hover:bg-[#1e2634] border border-sky-500/30 text-[11px] text-sky-200 flex items-center justify-center gap-1"
+            >
+              <Users className="w-3 h-3" /> + Party
+            </button>
+            <button
+              onClick={() => spawnQuickToken('enemy')}
+              className="px-2 py-1.5 rounded bg-[#1b1518] hover:bg-[#271b20] border border-red-500/35 text-[11px] text-red-200 flex items-center justify-center gap-1"
+            >
+              <Skull className="w-3 h-3" /> + Enemy
+            </button>
+          </div>
+        )}
 
         <div className="space-y-1">
           {visibleTokens.map((tok) => (
@@ -856,26 +938,28 @@ export const BattlemapInspectorSection: React.FC<{ activeMap: VaultMap }> = ({ a
           </span>
         </div>
 
-        <div className="grid grid-cols-3 gap-1">
-          <button
-            onClick={() => spawnQuickProp('crate')}
-            className="px-1.5 py-1 rounded bg-[#161a22] hover:bg-[#212734] border border-[#2a3240] text-[10.5px] text-[#e5be58] flex items-center justify-center gap-1"
-          >
-            <Package className="w-3 h-3" /> + Prop
-          </button>
-          <button
-            onClick={() => spawnQuickProp('trap')}
-            className="px-1.5 py-1 rounded bg-[#1b1416] hover:bg-[#2a1b1f] border border-red-500/35 text-[10.5px] text-red-200 flex items-center justify-center gap-1"
-          >
-            <AlertTriangle className="w-3 h-3" /> + Trap
-          </button>
-          <button
-            onClick={() => spawnQuickProp('marker')}
-            className="px-1.5 py-1 rounded bg-[#1a1811] hover:bg-[#282315] border border-amber-500/35 text-[10.5px] text-amber-200 flex items-center justify-center gap-1"
-          >
-            <Bookmark className="w-3 h-3" /> + Note
-          </button>
-        </div>
+        {canGmEdit && (
+          <div className="grid grid-cols-3 gap-1">
+            <button
+              onClick={() => spawnQuickProp('crate')}
+              className="px-1.5 py-1 rounded bg-[#161a22] hover:bg-[#212734] border border-[#2a3240] text-[10.5px] text-[#e5be58] flex items-center justify-center gap-1"
+            >
+              <Package className="w-3 h-3" /> + Prop
+            </button>
+            <button
+              onClick={() => spawnQuickProp('trap')}
+              className="px-1.5 py-1 rounded bg-[#1b1416] hover:bg-[#2a1b1f] border border-red-500/35 text-[10.5px] text-red-200 flex items-center justify-center gap-1"
+            >
+              <AlertTriangle className="w-3 h-3" /> + Trap
+            </button>
+            <button
+              onClick={() => spawnQuickProp('marker')}
+              className="px-1.5 py-1 rounded bg-[#1a1811] hover:bg-[#282315] border border-amber-500/35 text-[10.5px] text-amber-200 flex items-center justify-center gap-1"
+            >
+              <Bookmark className="w-3 h-3" /> + Note
+            </button>
+          </div>
+        )}
 
         <div className="space-y-1">
           {visibleProps.map((prop) => (
@@ -903,7 +987,7 @@ export const BattlemapInspectorSection: React.FC<{ activeMap: VaultMap }> = ({ a
                   </span>
                 )}
               </span>
-              {gmMode && (
+              {canGmEdit && (
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
@@ -921,7 +1005,7 @@ export const BattlemapInspectorSection: React.FC<{ activeMap: VaultMap }> = ({ a
       </div>
 
       {/* Sight-Blocking Walls Architecture */}
-      {gmMode && (
+      {canGmEdit && (
         <div className="space-y-2 pt-2 border-t border-[#181d25]">
           <div className="flex items-center justify-between">
             <span className="text-[11.5px] font-semibold text-[#b8b3a8] flex items-center gap-1.5">

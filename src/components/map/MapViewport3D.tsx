@@ -29,6 +29,7 @@ import {
   Plus,
   Redo2,
   Route,
+  ScrollText,
   Settings2,
   Sparkles,
   Stamp,
@@ -41,6 +42,24 @@ import {
   Wrench,
   X,
 } from 'lucide-react';
+import { uploadAssetDataUrlOrBlob } from '../../lib/supabase';
+import {
+  buildFogDataTexture,
+  createFogMask,
+  loadMaskFromUrl,
+  maskToCanvasBlob,
+  paintFogCircle,
+  unionFogMasks,
+  worldXZToMaskNorm,
+} from '../../lib/fogOfWarMask';
+import {
+  SEA_WATER_FRAGMENT_SHADER,
+  SEA_WATER_VERTEX_SHADER,
+  TERRAIN_MAP_CHUNK,
+  TERRAIN_NORMAL_CHUNK,
+  TERRAIN_ROUGHNESS_CHUNK,
+  TERRAIN_SHADER_COMMON,
+} from '../../lib/terrainShaders';
 import {
   DEFAULT_DISPLACEMENT,
   SEA_LEVEL_NORM,
@@ -103,10 +122,12 @@ import {
   ZoneBorderStyle,
 } from '../../types/vault';
 import { EntityIcon } from '../common/EntityIcon';
+import { GuildQuestBoardModal } from '../quests/GuildQuestBoardModal';
 import { PinEntitySlideOver } from './PinEntitySlideOver';
 import {
   BrushCursorRing,
   FogVolumes3D,
+  QuestBoards3D,
   TerrainLabels3D,
   TerrainProps3D,
   TerrainRivers3D,
@@ -222,11 +243,19 @@ export interface ElementDraftConfig {
   scale: number;
 }
 
+export interface FogBrushDraftConfig {
+  targetUserId: string;
+  reveal: boolean;
+  radius: number;
+}
+
 interface TerrainSceneProps {
   mapData: VaultMap;
   terrainActionsRef: React.MutableRefObject<TerrainActionsHandle | null>;
   labelDraftRef: React.MutableRefObject<LabelDraftConfig>;
   elementDraftRef: React.MutableRefObject<ElementDraftConfig>;
+  fogDraftRef: React.MutableRefObject<FogBrushDraftConfig>;
+  fogCommandSignal: { seq: number; action: 'reveal-all' | 'reset-shroud' };
 }
 
 function buildLiveHeightDataTexture(heightData: Float32Array, res: number): THREE.DataTexture {
@@ -301,6 +330,8 @@ interface SeaLevelWaterProps {
   seaY: number;
   terrainSize: number;
   heightTex: THREE.Texture | null;
+  fogTex?: THREE.Texture | null;
+  fogGmAlpha?: number;
   displacementScale: number;
   waterSettings: WaterSettings;
   wireframe?: boolean;
@@ -322,6 +353,8 @@ const SeaLevelWater: React.FC<SeaLevelWaterProps> = React.memo(({
   seaY,
   terrainSize,
   heightTex,
+  fogTex = null,
+  fogGmAlpha = 1.0,
   displacementScale,
   waterSettings,
   wireframe = false,
@@ -339,6 +372,9 @@ const SeaLevelWater: React.FC<SeaLevelWaterProps> = React.memo(({
       uTime: { value: 0 },
       uHeightMap: { value: null as THREE.Texture | null },
       uHasHeightMap: { value: 0 },
+      uFogTex: { value: null as THREE.Texture | null },
+      uHasFogTex: { value: 0 },
+      uFogGmAlpha: { value: 1.0 },
       uTerrainSize: { value: terrainSize },
       uDisplacementScale: { value: DEFAULT_DISPLACEMENT },
       uSeaY: { value: SEA_LEVEL_NORM * DEFAULT_DISPLACEMENT },
@@ -375,6 +411,9 @@ const SeaLevelWater: React.FC<SeaLevelWaterProps> = React.memo(({
     const u = matRef.current.uniforms;
     u.uHeightMap.value = heightTex;
     u.uHasHeightMap.value = heightTex ? 1.0 : 0.0;
+    u.uFogTex.value = fogTex;
+    u.uHasFogTex.value = fogTex ? 1.0 : 0.0;
+    u.uFogGmAlpha.value = fogGmAlpha;
     u.uTerrainSize.value = terrainSize;
     u.uDisplacementScale.value = displacementScale;
     u.uSeaY.value = seaY;
@@ -399,7 +438,7 @@ const SeaLevelWater: React.FC<SeaLevelWaterProps> = React.memo(({
     u.uSkyHorizon.value.set(atmo.skyHorizon);
     u.uSkyZenith.value.set(atmo.skyZenith);
     u.uFogColor.value.set(atmo.fog);
-  }, [heightTex, terrainSize, displacementScale, seaY, waterSettings, wireframe, atmosphereKey]);
+  }, [heightTex, fogTex, fogGmAlpha, terrainSize, displacementScale, seaY, waterSettings, wireframe, atmosphereKey]);
 
   useFrame(({ clock, camera }) => {
     if (matRef.current) {
@@ -431,506 +470,12 @@ const SeaLevelWater: React.FC<SeaLevelWaterProps> = React.memo(({
         depthWrite={false}
         wireframe={wireframe}
         uniforms={uniforms}
-        vertexShader={`
-          varying vec2 vUv;
-          varying vec3 vWorldPos;
-          varying float vShoreDamp;
-          varying float vWaveCrest;
-
-          uniform float uTime;
-          uniform sampler2D uHeightMap;
-          uniform float uHasHeightMap;
-          uniform float uTerrainSize;
-          uniform float uDisplacementScale;
-          uniform float uSeaY;
-          uniform float uWaveHeight;
-          uniform float uWaveScale;
-          uniform float uWaveSpeed;
-          uniform float uChoppiness;
-          uniform vec2 uWindDir;
-
-          vec2 rotConst(vec2 v, float c, float s) {
-            return vec2(v.x * c - v.y * s, v.x * s + v.y * c);
-          }
-
-          void main() {
-            vUv = uv;
-            vec4 wp = modelMatrix * vec4(position, 1.0);
-
-            float shoreDamp = 1.0;
-            if (uHasHeightMap > 0.5) {
-              vec2 tUv = vec2(wp.x / uTerrainSize + 0.5, wp.z / uTerrainSize + 0.5);
-              float inBox = step(0.0, tUv.x) * step(tUv.x, 1.0) * step(0.0, tUv.y) * step(tUv.y, 1.0);
-              float terrainH = texture2D(uHeightMap, clamp(tUv, 0.002, 0.998)).r * uDisplacementScale;
-              float depth = mix(5.0, max(0.0, uSeaY - terrainH), inBox);
-              shoreDamp = smoothstep(0.04, 1.55, depth);
-            }
-            vShoreDamp = shoreDamp;
-
-            // 4 directional Gerstner swell waves using precomputed cos/sin offsets
-            vec2 p = wp.xz * uWaveScale;
-            float t = uTime * uWaveSpeed;
-            vec2 d1 = normalize(uWindDir);
-            vec2 d2 = rotConst(d1, 0.9131, 0.4078);
-            vec2 d3 = rotConst(d1, 0.8727, -0.4882);
-            vec2 d4 = rotConst(d1, 0.6372, 0.7707);
-
-            float p1 = dot(p, d1) * 0.34 + t * 1.18;
-            float p2 = dot(p, d2) * 0.56 + t * 1.48;
-            float p3 = dot(p, d3) * 0.86 - t * 1.72;
-            float p4 = dot(p, d4) * 1.32 + t * 2.08;
-
-            float s1 = sin(p1);
-            float s2 = sin(p2);
-            float s3 = sin(p3);
-            float s4 = sin(p4);
-
-            float amp = uWaveHeight * shoreDamp;
-            float dy = (s1 * 0.12 + s2 * 0.075 + s3 * 0.048 + s4 * 0.030) * amp;
-
-            float chop = uChoppiness * amp;
-            vec2 dxz = (
-              d1 * cos(p1) * 0.095 +
-              d2 * cos(p2) * 0.062 +
-              d3 * cos(p3) * 0.040 +
-              d4 * cos(p4) * 0.024
-            ) * chop;
-
-            float crest = (s1 * 0.42 + s2 * 0.28 + s3 * 0.19 + s4 * 0.11) * amp;
-            vWaveCrest = clamp(crest * 0.85 + 0.25, 0.0, 1.5);
-
-            wp.y += dy;
-            wp.xz += dxz;
-            vWorldPos = wp.xyz;
-            gl_Position = projectionMatrix * viewMatrix * wp;
-          }
-        `}
-        fragmentShader={`
-          varying vec2 vUv;
-          varying vec3 vWorldPos;
-          varying float vShoreDamp;
-          varying float vWaveCrest;
-
-          uniform float uTime;
-          uniform sampler2D uHeightMap;
-          uniform float uHasHeightMap;
-          uniform float uTerrainSize;
-          uniform float uDisplacementScale;
-          uniform float uSeaY;
-          uniform float uWaveHeight;
-          uniform float uWaveScale;
-          uniform float uWaveSpeed;
-          uniform float uChoppiness;
-          uniform float uFoamAmount;
-          uniform float uShoreWaves;
-          uniform float uClarity;
-          uniform vec2 uWindDir;
-          uniform vec3 uSunDir;
-          uniform vec3 uFillDir;
-          uniform vec3 uDeepColor;
-          uniform vec3 uMidColor;
-          uniform vec3 uShallowColor;
-          uniform vec3 uSunColor;
-          uniform vec3 uFillColor;
-          uniform vec3 uSkyHorizon;
-          uniform vec3 uSkyZenith;
-          uniform vec3 uFoamColor;
-          uniform vec3 uFogColor;
-          uniform float uFogNear;
-          uniform float uFogFar;
-          uniform float uWireframe;
-
-          vec2 rotConst(vec2 v, float c, float s) {
-            return vec2(v.x * c - v.y * s, v.x * s + v.y * c);
-          }
-
-          float hash21(vec2 p) {
-            p = fract(p * vec2(123.34, 456.21));
-            p += dot(p, p + 45.32);
-            return fract(p.x * p.y);
-          }
-
-          float vnoise(vec2 p) {
-            vec2 i = floor(p);
-            vec2 f = fract(p);
-            f = f * f * (3.0 - 2.0 * f);
-            float a = hash21(i);
-            float b = hash21(i + vec2(1.0, 0.0));
-            float c = hash21(i + vec2(0.0, 1.0));
-            float d = hash21(i + vec2(1.0, 1.0));
-            return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
-          }
-
-          float fbm2(vec2 p) {
-            float v = 0.65 * vnoise(p);
-            p = mat2(0.8, -0.6, 0.6, 0.8) * p * 2.1;
-            v += 0.35 * vnoise(p);
-            return v;
-          }
-
-          // Analytic surface normal with distance LOD gating
-          vec3 computeWaterNormal(vec2 xz, float detailFade, float shoreDamp, out float microCrest) {
-            float t = uTime * uWaveSpeed;
-            vec2 p = xz * uWaveScale;
-            float ampScale = mix(0.38, 1.0, shoreDamp) * max(0.15, uWaveHeight);
-
-            vec2 d1 = normalize(uWindDir);
-            vec2 d2 = rotConst(d1, 0.9131, 0.4078);
-            vec2 d3 = rotConst(d1, 0.8727, -0.4882);
-
-            float k1 = dot(p, d1) * 0.52 + t * 1.18;
-            float k2 = dot(p, d2) * 0.96 + t * 1.48;
-            float k3 = dot(p, d3) * 1.68 - t * 1.82;
-
-            vec2 grad = d1 * cos(k1) * 0.165 + d2 * cos(k2) * 0.125 + d3 * cos(k3) * 0.092;
-            float crestAccum = sin(k1) * 0.38 + sin(k2) * 0.30 + sin(k3) * 0.20;
-
-            if (detailFade > 0.02) {
-              vec2 d4 = rotConst(d1, 0.6372, 0.7707);
-              vec2 d5 = rotConst(d1, 0.5062, -0.8624);
-              float k4 = dot(p, d4) * 2.85 + t * 2.25;
-              float k5 = dot(p, d5) * 4.65 - t * 2.85;
-              grad += (d4 * cos(k4) * 0.072 + d5 * cos(k5) * 0.052) * detailFade;
-              crestAccum += sin(k4) * 0.12 * detailFade;
-
-              vec2 r1 = rotConst(p, 0.8021, 0.5972);
-              float c1 = sin(r1.x * 5.2 + r1.y * 3.4 + t * 2.9);
-              float c2 = cos(r1.x * -4.3 + r1.y * 5.8 - t * 2.5);
-              grad += vec2(c1, c2) * 0.042 * detailFade;
-            }
-
-            grad *= ampScale * (0.65 + 0.55 * uChoppiness);
-            microCrest = crestAccum * 0.5 + 0.5;
-            return normalize(vec3(-grad.x, 1.0, -grad.y));
-          }
-
-          void main() {
-            if (uWireframe > 0.5) {
-              gl_FragColor = vec4(0.11, 0.42, 0.48, 0.42);
-              return;
-            }
-
-            vec2 tUv = vec2(vWorldPos.x / uTerrainSize + 0.5, vWorldPos.z / uTerrainSize + 0.5);
-            vec2 clampedUv = clamp(tUv, 0.002, 0.998);
-            float outsideEdge = max(
-              max(-tUv.x, tUv.x - 1.0),
-              max(-tUv.y, tUv.y - 1.0)
-            );
-
-            float terrainH = uSeaY - 4.0;
-            if (uHasHeightMap > 0.5) {
-              terrainH = texture2D(uHeightMap, clampedUv).r * uDisplacementScale;
-            }
-
-            float rawDepth = uSeaY - terrainH;
-            if (uHasHeightMap > 0.5 && outsideEdge <= 0.0 && rawDepth < -0.06) {
-              discard;
-            }
-            float outsideBlend = smoothstep(0.0, 0.018, outsideEdge);
-            float waterDepth = mix(rawDepth, max(rawDepth, 4.5), outsideBlend);
-            float depthPos = max(0.0, waterDepth);
-
-            vec3 toCam = cameraPosition - vWorldPos;
-            float camDist = length(toCam);
-            vec3 V = toCam / max(camDist, 0.0001);
-
-            float sizeScale = max(1.0, uTerrainSize / 100.0);
-            float detailFade = 1.0 - smoothstep(45.0 * sizeScale, 155.0 * sizeScale, camDist);
-            float microCrest = 0.5;
-            vec3 N = computeWaterNormal(vWorldPos.xz, detailFade, vShoreDamp, microCrest);
-            float NdotV = max(dot(N, V), 0.001);
-
-            // Beer-Lambert exponential depth absorption with clarity control
-            float clarityInv = 1.0 / max(0.25, uClarity);
-            float shallowFactor = exp(-depthPos * 0.82 * clarityInv);
-            float midFactor = exp(-depthPos * 0.28 * clarityInv);
-            vec3 col = mix(uDeepColor, uMidColor, midFactor);
-            col = mix(col, uShallowColor, shallowFactor * 0.92);
-
-            // Subsurface turquoise wave-crest scattering
-            float backSun = pow(max(0.0, dot(V, -uSunDir) * 0.6 + 0.4), 2.0);
-            float sssFactor = clamp((vWaveCrest * 0.65 + microCrest * 0.35) - 0.35, 0.0, 1.0) * vShoreDamp;
-            col += uShallowColor * sssFactor * (0.28 + 0.32 * backSun) * min(1.4, uWaveHeight);
-
-            // Dual-rotated underwater caustics in shoals & lagoons
-            if (detailFade > 0.02) {
-              float causticMask = exp(-depthPos * 1.10 * clarityInv) * smoothstep(0.03, 0.30, depthPos) * detailFade * min(1.5, uClarity);
-              if (causticMask > 0.015) {
-                vec2 c1 = vWorldPos.xz * 0.72;
-                vec2 c2 = vec2(c1.x * 0.8 - c1.y * 0.6, c1.x * 0.6 + c1.y * 0.8) * 1.37;
-                float wA = sin(c1.x + sin(c1.y * 1.15 + uTime * 0.95));
-                float wB = cos(c2.y - sin(c2.x * 1.12 - uTime * 1.05));
-                float caustic = pow(clamp(1.0 - abs(wA + wB) * 0.52, 0.0, 1.0), 3.6);
-                col += (uShallowColor * 1.25 + vec3(0.18, 0.35, 0.36)) * caustic * causticMask * 0.24;
-              }
-            }
-
-            // Schlick Fresnel + sky reflection
-            float fresnel = 0.03 + 0.97 * pow(1.0 - NdotV, 5.0);
-            vec3 R = reflect(-V, N);
-            float skyT = pow(clamp(R.y, 0.0, 1.0), 0.55);
-            vec3 skyRefl = mix(uSkyHorizon, uSkyZenith, skyT);
-            float sunHalo = pow(max(dot(R, uSunDir), 0.0), 7.0);
-            float fillHalo = pow(max(dot(R, uFillDir), 0.0), 5.0);
-            skyRefl += uSunColor * sunHalo * 0.38 + uFillColor * fillHalo * 0.18;
-            col = mix(col, skyRefl, clamp(fresnel * 0.84, 0.0, 0.88));
-
-            // Dual light specular glints
-            vec3 Hsun = normalize(uSunDir + V);
-            float NdotHsun = max(dot(N, Hsun), 0.0);
-            float sunGlint = pow(NdotHsun, 210.0) * 1.65 * detailFade;
-            float sunSheen = pow(NdotHsun, 26.0) * 0.20;
-
-            vec3 Hfill = normalize(uFillDir + V);
-            float NdotHfill = max(dot(N, Hfill), 0.0);
-            float fillGlint = pow(NdotHfill, 96.0) * 0.58 * detailFade;
-
-            float specMask = smoothstep(0.0, 0.18, depthPos);
-            col += (uSunColor * (sunGlint + sunSheen) + uFillColor * fillGlint) * specMask;
-
-            // 1) Open-water wind-driven wave-crest whitecaps (distance faded)
-            float totalFoam = 0.0;
-            if (detailFade > 0.02 && uFoamAmount > 0.01 && uWaveHeight > 0.15) {
-              vec2 windFlow = normalize(uWindDir) * uTime * 0.32 * uWaveSpeed;
-              float fbmFoam = fbm2(vWorldPos.xz * 0.55 * uWaveScale - windFlow);
-              float crestScore = (vWaveCrest * 0.58 + microCrest * 0.42) * min(1.35, uWaveHeight * 0.85) + fbmFoam * 0.40;
-              float whitecap = smoothstep(0.92 - min(0.32, uFoamAmount * 0.16), 1.28, crestScore) * vShoreDamp;
-              float lacyWake = smoothstep(0.76, 1.12, crestScore) * smoothstep(0.40, 0.80, fbmFoam) * 0.42 * vShoreDamp;
-              totalFoam += clamp((whitecap + lacyWake) * uFoamAmount * detailFade, 0.0, 0.95);
-            }
-
-            // 2) Multi-band animated shoreline surf breakers & lacy receding beach foam
-            float shoreZone = (1.0 - smoothstep(0.02, 1.05, depthPos)) * smoothstep(-0.04, 0.04, waterDepth);
-            if (shoreZone > 0.005 && (uFoamAmount > 0.01 || uShoreWaves > 0.01)) {
-              float fn1 = vnoise(vWorldPos.xz * 1.35 + vec2(uTime * 0.18, -uTime * 0.14));
-              float fn2 = vnoise(vWorldPos.xz * 4.4 - vec2(uTime * 0.24, uTime * 0.20));
-              float fNoise = fn1 * 0.62 + fn2 * 0.38;
-
-              float surfPhase = depthPos * 13.5 - uTime * (2.35 * max(0.35, uWaveSpeed)) + fNoise * 4.2;
-              float breaker1 = pow(clamp(sin(surfPhase) * 0.5 + 0.5, 0.0, 1.0), 3.2);
-              float breaker2 = pow(clamp(sin(surfPhase * 0.55 + 1.7) * 0.5 + 0.5, 0.0, 1.0), 4.0);
-              float surfBands = (breaker1 * 0.72 + breaker2 * 0.48) * smoothstep(1.05, 0.06, depthPos) * uShoreWaves;
-
-              float waterline = (1.0 - smoothstep(0.0, 0.16, depthPos)) * (0.55 + 0.45 * fNoise);
-              float lacyWeb = smoothstep(0.46, 0.78, fn2) * (1.0 - smoothstep(0.05, 0.65, depthPos)) * 0.52;
-
-              float shoreFoam = clamp(
-                (surfBands * (0.55 + 0.45 * fNoise) + waterline * 0.85 + lacyWeb) * shoreZone * max(0.25, uFoamAmount),
-                0.0,
-                1.0
-              );
-              totalFoam = clamp(totalFoam + shoreFoam, 0.0, 1.0);
-            }
-
-            // Lit foam with subtle sun warmth
-            vec3 litFoam = uFoamColor * (0.78 + 0.28 * max(0.0, uSunDir.y)) + uSunColor * 0.10;
-            col = mix(col, litFoam, totalFoam * 0.82);
-
-            // Soft coastal translucency -> deep pelagic opacity
-            float shoreAlpha = smoothstep(-0.04, 0.12, waterDepth);
-            float depthAlpha = mix(0.54, 0.95, 1.0 - exp(-depthPos * 0.85));
-            float alpha = clamp((depthAlpha + totalFoam * 0.35) * shoreAlpha, 0.0, 0.97);
-
-            // Seamless scene distance fog
-            float fogFactor = smoothstep(uFogNear, uFogFar, camDist);
-            col = mix(col, uFogColor, fogFactor);
-            alpha = mix(alpha, 1.0, fogFactor * 0.85);
-
-            gl_FragColor = vec4(col, alpha);
-          }
-        `}
+        vertexShader={SEA_WATER_VERTEX_SHADER}
+        fragmentShader={SEA_WATER_FRAGMENT_SHADER}
       />
     </mesh>
   );
 });
-
-const TERRAIN_SHADER_COMMON = `
-  varying vec3 vTerrWorldPos;
-  varying vec3 vTerrWorldNormal;
-  uniform float uSeaY;
-  uniform float uDispScale;
-  uniform float uTerrainSize;
-  uniform float uShowBiome;
-  uniform sampler2D uPaintMap;
-  uniform float uHasPaintMap;
-  uniform float uColorRichness;
-  uniform float uSnowLine;
-  uniform float uRockContrast;
-  uniform float uBeachWidth;
-  uniform float uAridity;
-  uniform float uLushness;
-  vec2 tFineGrad = vec2(0.0);
-  float tStrataVal = 0.5;
-  float tBumpFade = 1.0;
-
-  float tHash21(vec2 p) {
-    p = fract(p * vec2(127.1, 311.7));
-    p += dot(p, p + 34.23);
-    return fract(p.x * p.y);
-  }
-
-  float tNoise(vec2 p) {
-    vec2 i = floor(p);
-    vec2 f = fract(p);
-    f = f * f * (3.0 - 2.0 * f);
-    float a = tHash21(i);
-    float b = tHash21(i + vec2(1.0, 0.0));
-    float c = tHash21(i + vec2(0.0, 1.0));
-    float d = tHash21(i + vec2(1.0, 1.0));
-    return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
-  }
-
-  float tFbm2(vec2 p) {
-    float v = 0.65 * tNoise(p);
-    p = mat2(0.8, -0.6, 0.6, 0.8) * p * 2.07;
-    v += 0.35 * tNoise(p);
-    return v;
-  }
-
-  vec3 tNoiseD(vec2 p) {
-    vec2 i = floor(p);
-    vec2 f = fract(p);
-    vec2 u = f * f * (3.0 - 2.0 * f);
-    vec2 du = 6.0 * f * (1.0 - f);
-    float a = tHash21(i);
-    float b = tHash21(i + vec2(1.0, 0.0));
-    float c = tHash21(i + vec2(0.0, 1.0));
-    float d = tHash21(i + vec2(1.0, 1.0));
-    float k1 = b - a;
-    float k2 = c - a;
-    float k3 = a - b - c + d;
-    float val = a + k1 * u.x + k2 * u.y + k3 * u.x * u.y;
-    vec2 grad = du * vec2(k1 + k3 * u.y, k2 + k3 * u.x);
-    return vec3(val, grad);
-  }
-
-  vec3 tFbm2D(vec2 p) {
-    vec3 n0 = tNoiseD(p);
-    vec3 n1 = tNoiseD(p * 2.07 + vec2(19.3, -7.1));
-    return vec3(
-      n0.x * 0.64 + n1.x * 0.36,
-      n0.yz * 0.64 + n1.yz * (0.36 * 2.07)
-    );
-  }
-`;
-
-const TERRAIN_MAP_CHUNK = `
-  vec3 tWPos = vTerrWorldPos;
-  vec3 tWNorm = normalize(vTerrWorldNormal);
-  float tSlope = clamp(1.0 - tWNorm.y, 0.0, 1.0);
-  float tAboveSea = tWPos.y - uSeaY;
-  float tHNorm = clamp(tWPos.y / max(uDispScale, 0.001), 0.0, 1.0);
-  vec2 tWorldUv = clamp(vec2(tWPos.x / max(uTerrainSize, 1.0) + 0.5, tWPos.z / max(uTerrainSize, 1.0) + 0.5), 0.001, 0.999);
-
-  float tCamDist = length(cameraPosition - tWPos);
-  tBumpFade = 1.0 - smoothstep(45.0, 150.0, tCamDist);
-
-  float fMacro = tFbm2(tWPos.xz * 0.045 + vec2(4.2, -3.1));
-  float fMoisture = tFbm2(tWPos.xz * 0.075 + vec2(-11.4, 8.7));
-  float fLarge = tFbm2(tWPos.xz * 0.18);
-  vec3 fineSample = tFbm2D(tWPos.xz * 0.95);
-  float fFine = fineSample.x;
-  tFineGrad = fineSample.yz;
-  tStrataVal = fLarge;
-  float strata = sin(tWPos.y * 3.8 + fLarge * 3.4) * 0.5 + 0.5;
-
-  if (uShowBiome > 0.5) {
-    // Rich multi-biome procedural palette in linear RGB
-    vec3 lushGrass = mix(vec3(0.022, 0.068, 0.018), vec3(0.055, 0.115, 0.026), fFine);
-    vec3 meadowGold = vec3(0.095, 0.110, 0.024);
-    vec3 borealForest = vec3(0.012, 0.042, 0.018);
-    vec3 savannaOchre = mix(vec3(0.115, 0.075, 0.022), vec3(0.155, 0.088, 0.028), fFine);
-    vec3 autumnAmber = vec3(0.135, 0.048, 0.014);
-    vec3 highlandHeather = mix(vec3(0.048, 0.036, 0.046), vec3(0.068, 0.058, 0.032), fFine);
-
-    // Blend baked albedo with rich world-space biome zones
-    vec3 vegCol = mix(lushGrass, meadowGold, smoothstep(0.52, 0.80, fLarge) * 0.55);
-    vegCol = mix(vegCol, borealForest, smoothstep(0.46, 0.76, fMoisture) * smoothstep(0.20, 0.55, tHNorm) * 0.72);
-
-    // Aridity / Savanna & Autumn forest patches
-    float dryZone = clamp((1.0 - fMoisture) * 0.75 + uAridity * 0.85 - 0.35, 0.0, 1.0);
-    vegCol = mix(vegCol, savannaOchre, dryZone * (1.0 - smoothstep(0.45, 0.68, tHNorm)) * 0.78);
-    float autumnPatch = smoothstep(0.62, 0.84, fMacro) * smoothstep(0.24, 0.52, tHNorm);
-    vegCol = mix(vegCol, autumnAmber, autumnPatch * 0.52 * uColorRichness);
-
-    // Highland heather & alpine tundra transition
-    float heatherZone = smoothstep(0.44, 0.64, tHNorm) * (1.0 - smoothstep(0.66, 0.80, tHNorm));
-    vegCol = mix(vegCol, highlandHeather, heatherZone * 0.75);
-
-    vec3 baseCol = mix(diffuseColor.rgb * mix(0.84, 1.28, fFine), vegCol, clamp(0.48 * uLushness * uColorRichness, 0.0, 0.88));
-
-    // Golden sandy beaches on gentle coastal slopes + wet coastal shingle
-    float beachBand = (1.0 - smoothstep(-0.15, 1.15 * max(0.2, uBeachWidth), tAboveSea)) * (1.0 - smoothstep(0.08, 0.22, tSlope));
-    vec3 drySand = mix(vec3(0.145, 0.112, 0.058), vec3(0.195, 0.152, 0.082), fFine);
-    baseCol = mix(baseCol, drySand, beachBand * 0.85);
-
-    float shoreWet = 1.0 - smoothstep(-0.25, 0.52, tAboveSea);
-    vec3 wetShore = mix(vec3(0.016, 0.022, 0.026), vec3(0.055, 0.044, 0.028), beachBand) * (0.8 + 0.4 * fFine);
-    baseCol = mix(baseCol, wetShore, shoreWet * 0.76);
-
-    // Hand-painted custom biome layer (blended before steep cliff rock so cliffs stay crisp)
-    if (uHasPaintMap > 0.5) {
-      vec4 pSample = texture2D(uPaintMap, tWorldUv);
-      if (pSample.a > 0.01) {
-        vec3 paintLin = pow(pSample.rgb, vec3(2.2)) * mix(0.82, 1.22, fFine);
-        baseCol = mix(baseCol, paintLin, clamp(pSample.a * 0.92, 0.0, 0.95));
-      }
-    }
-
-    // Stratified basalt, granite & warm canyon sandstone on steep slopes
-    float rockMask = smoothstep(0.12, 0.33, tSlope);
-    vec3 rockDark = mix(vec3(0.016, 0.018, 0.024), vec3(0.042, 0.022, 0.014), dryZone * 0.65);
-    vec3 rockLit = mix(vec3(0.062, 0.064, 0.074), vec3(0.125, 0.068, 0.036), dryZone * 0.70);
-    vec3 rockCol = mix(rockDark, rockLit, clamp((strata * 0.72 + fFine * 0.28) * uRockContrast, 0.0, 1.0));
-    baseCol = mix(baseCol, rockCol, rockMask * 0.90);
-
-    // Wind-swept alpine snow & glacial ice above snowLine
-    float snowStart = clamp(uSnowLine - 0.08, 0.15, 0.95);
-    float snowEnd = clamp(uSnowLine + 0.12, snowStart + 0.05, 1.02);
-    float snowFactor = smoothstep(snowStart, snowEnd, tHNorm + (fLarge - 0.5) * 0.14 - tSlope * 0.44);
-    vec3 snowCol = mix(vec3(0.34, 0.40, 0.48), vec3(0.64, 0.68, 0.74), fFine);
-    baseCol = mix(baseCol, snowCol, snowFactor * 0.94);
-
-    // Subtle color richness boost
-    float luma = dot(baseCol, vec3(0.2126, 0.7152, 0.0722));
-    baseCol = max(vec3(0.0), mix(vec3(luma), baseCol, clamp(uColorRichness, 0.4, 2.0)));
-
-    diffuseColor.rgb = baseCol;
-  } else {
-    // Architectural cartographic slate mode when Vegetation/Biome is toggled OFF (linear RGB)
-    vec3 clay = mix(vec3(0.018, 0.022, 0.032), vec3(0.065, 0.075, 0.095), tHNorm);
-    float contour = 1.0 - smoothstep(0.0, 0.055, abs(fract(tWPos.y * 0.85) - 0.5));
-    clay = mix(clay, vec3(0.38, 0.22, 0.05), contour * 0.55);
-    diffuseColor.rgb = clay;
-  }
-`;
-
-const TERRAIN_NORMAL_CHUNK = `
-  if (tBumpFade > 0.01) {
-    float tSlopeN = clamp(1.0 - normalize(vTerrWorldNormal).y, 0.0, 1.0);
-    float strataN = cos(vTerrWorldPos.y * 3.8 + tStrataVal * 3.4);
-    float microStrength = mix(0.28, 0.90, smoothstep(0.10, 0.36, tSlopeN)) * uRockContrast * tBumpFade;
-    vec3 gradWorld = vec3(
-      -tFineGrad.x * microStrength * 0.38,
-      strataN * tSlopeN * 0.18 * uRockContrast * tBumpFade,
-      -tFineGrad.y * microStrength * 0.38
-    );
-    normal = normalize(normal + (viewMatrix * vec4(gradWorld, 0.0)).xyz);
-  }
-`;
-
-const TERRAIN_ROUGHNESS_CHUNK = `
-  {
-    float tSlopeR = clamp(1.0 - normalize(vTerrWorldNormal).y, 0.0, 1.0);
-    float tAboveR = vTerrWorldPos.y - uSeaY;
-    float tHNormR = clamp(vTerrWorldPos.y / max(uDispScale, 0.001), 0.0, 1.0);
-    float wetR = 1.0 - smoothstep(-0.15, 0.55, tAboveR);
-    float snowR = smoothstep(uSnowLine - 0.05, uSnowLine + 0.12, tHNormR - tSlopeR * 0.45);
-    roughnessFactor = mix(0.88, 0.70, smoothstep(0.15, 0.4, tSlopeR));
-    roughnessFactor = mix(roughnessFactor, 0.52, snowR);
-    roughnessFactor = mix(roughnessFactor, 0.24, wetR * 0.85);
-  }
-`;
 
 type TerrainPatchUpdater = (minWx: number, maxWx: number, minWz: number, maxWz: number) => void;
 
@@ -946,6 +491,8 @@ interface DisplacedTerrainMeshProps {
   seaY: number;
   albedoTex: THREE.Texture | null;
   paintTex: THREE.Texture | null;
+  fogTex?: THREE.Texture | null;
+  fogGmAlpha?: number;
   terrainShading: TerrainShadingSettings;
   showBiome: boolean;
   wireframe: boolean;
@@ -967,6 +514,8 @@ const DisplacedTerrainMesh: React.FC<DisplacedTerrainMeshProps> = React.memo(({
   seaY,
   albedoTex,
   paintTex,
+  fogTex = null,
+  fogGmAlpha = 1.0,
   terrainShading,
   showBiome,
   wireframe,
@@ -1252,6 +801,9 @@ const DisplacedTerrainMesh: React.FC<DisplacedTerrainMeshProps> = React.memo(({
     uShowBiome: { value: showBiome ? 1.0 : 0.0 },
     uPaintMap: { value: paintTex },
     uHasPaintMap: { value: paintTex ? 1.0 : 0.0 },
+    uFogTex: { value: fogTex },
+    uHasFogTex: { value: fogTex ? 1.0 : 0.0 },
+    uFogGmAlpha: { value: fogGmAlpha },
     uColorRichness: { value: terrainShading.colorRichness ?? 1.15 },
     uSnowLine: { value: terrainShading.snowLine },
     uRockContrast: { value: terrainShading.rockContrast ?? 1.1 },
@@ -1267,13 +819,16 @@ const DisplacedTerrainMesh: React.FC<DisplacedTerrainMeshProps> = React.memo(({
     uniformsRef.current.uShowBiome.value = showBiome ? 1.0 : 0.0;
     uniformsRef.current.uPaintMap.value = paintTex;
     uniformsRef.current.uHasPaintMap.value = paintTex ? 1.0 : 0.0;
+    uniformsRef.current.uFogTex.value = fogTex;
+    uniformsRef.current.uHasFogTex.value = fogTex ? 1.0 : 0.0;
+    uniformsRef.current.uFogGmAlpha.value = fogGmAlpha;
     uniformsRef.current.uColorRichness.value = terrainShading.colorRichness ?? 1.15;
     uniformsRef.current.uSnowLine.value = terrainShading.snowLine;
     uniformsRef.current.uRockContrast.value = terrainShading.rockContrast ?? 1.1;
     uniformsRef.current.uBeachWidth.value = terrainShading.beachWidth;
     uniformsRef.current.uAridity.value = terrainShading.aridity;
     uniformsRef.current.uLushness.value = terrainShading.lushness ?? 1.0;
-  }, [seaY, displacementScale, terrainSize, showBiome, paintTex, terrainShading]);
+  }, [seaY, displacementScale, terrainSize, showBiome, paintTex, fogTex, fogGmAlpha, terrainShading]);
 
   const handleBeforeCompile = useMemo(
     () => (shader: THREE.WebGLProgramParametersWithUniforms) => {
@@ -1283,6 +838,9 @@ const DisplacedTerrainMesh: React.FC<DisplacedTerrainMeshProps> = React.memo(({
       shader.uniforms.uShowBiome = uniformsRef.current.uShowBiome;
       shader.uniforms.uPaintMap = uniformsRef.current.uPaintMap;
       shader.uniforms.uHasPaintMap = uniformsRef.current.uHasPaintMap;
+      shader.uniforms.uFogTex = uniformsRef.current.uFogTex;
+      shader.uniforms.uHasFogTex = uniformsRef.current.uHasFogTex;
+      shader.uniforms.uFogGmAlpha = uniformsRef.current.uFogGmAlpha;
       shader.uniforms.uColorRichness = uniformsRef.current.uColorRichness;
       shader.uniforms.uSnowLine = uniformsRef.current.uSnowLine;
       shader.uniforms.uRockContrast = uniformsRef.current.uRockContrast;
@@ -1305,7 +863,7 @@ const DisplacedTerrainMesh: React.FC<DisplacedTerrainMeshProps> = React.memo(({
   );
 
   const hasMap = Boolean(showBiome && albedoTex);
-  const matCacheKey = `aethelgard-terrain-pbr-v4-${hasMap ? 'map' : 'nomap'}`;
+  const matCacheKey = `aethelgard-terrain-pbr-v5-${hasMap ? 'map' : 'nomap'}`;
 
   return (
     <mesh
@@ -1800,12 +1358,20 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({
   terrainActionsRef,
   labelDraftRef,
   elementDraftRef,
+  fogDraftRef,
+  fogCommandSignal,
 }) => {
   const {
+    user,
+    campaignMembers,
     entities,
     mapPins,
     mapPaths,
-    gmMode,
+    mapFogStates,
+    mapFogShares,
+    questBoards,
+    guildQuests,
+    isEffectiveGm,
     mapRenderMode,
     mapCameraView,
     mapToolMode,
@@ -1855,12 +1421,22 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({
     createMapLabel,
     updateMapLabel,
     updateMapAssets,
+    updateMapFogState,
+    createQuestBoard,
+    setActiveQuestBoardModalId,
+    fogBrushTargetUserId,
   } = useVaultStore(
     useShallow((s) => ({
+      user: s.user,
+      campaignMembers: s.campaignMembers,
       entities: s.entities,
       mapPins: s.mapPins,
       mapPaths: s.mapPaths,
-      gmMode: s.gmMode,
+      mapFogStates: s.mapFogStates,
+      mapFogShares: s.mapFogShares,
+      questBoards: s.questBoards,
+      guildQuests: s.guildQuests,
+      isEffectiveGm: s.isEffectiveGm,
       mapRenderMode: s.mapRenderMode,
       mapCameraView: s.mapCameraView,
       mapToolMode: s.mapToolMode,
@@ -1910,8 +1486,14 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({
       createMapLabel: s.createMapLabel,
       updateMapLabel: s.updateMapLabel,
       updateMapAssets: s.updateMapAssets,
+      updateMapFogState: s.updateMapFogState,
+      createQuestBoard: s.createQuestBoard,
+      setActiveQuestBoardModalId: s.setActiveQuestBoardModalId,
+      fogBrushTargetUserId: s.fogBrushTargetUserId,
     }))
   );
+
+  const effectiveGm = isEffectiveGm();
 
   const controlsRef = useRef<OrbitControlsImpl>(null);
   const fogRef = useRef<THREE.Fog>(null);
@@ -1922,10 +1504,10 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({
   const { camera, gl } = useThree();
 
   useEffect(() => {
-    if (!worldsmithMode) {
+    if (!worldsmithMode && mapToolMode !== 'fog-brush') {
       brushCursorRef.current = null;
     }
-  }, [worldsmithMode]);
+  }, [worldsmithMode, mapToolMode]);
 
   const worldSize = getWorldSize(mapData);
   const terrainSegments = terrainSegmentsForWorldSize(worldSize);
@@ -1938,6 +1520,8 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({
   const [heightTex, setHeightTex] = useState<THREE.Texture | null>(null);
   const [albedoTex, setAlbedoTex] = useState<THREE.Texture | null>(null);
   const [paintTex, setPaintTex] = useState<THREE.Texture | null>(null);
+  const [fogTex, setFogTex] = useState<THREE.DataTexture | null>(null);
+  const [fogGmAlpha, setFogGmAlpha] = useState<number>(1.0);
   const [activeHeightData, setActiveHeightData] = useState<Float32Array>(() => procedural.heightData.slice());
   const [activeHeightRes, setActiveHeightRes] = useState<number>(procedural.resolution);
   const [terrainVersion, setTerrainVersion] = useState(0);
@@ -1951,6 +1535,12 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({
   const paintDataRef = useRef<Uint8Array>(new Uint8Array(procedural.resolution * procedural.resolution * 4));
   const liveHeightTexRef = useRef<THREE.DataTexture | null>(null);
   const livePaintTexRef = useRef<THREE.DataTexture | null>(null);
+  const liveFogTexRef = useRef<THREE.DataTexture | null>(null);
+  const fogMasksRef = useRef<Map<string, Uint8Array>>(new Map());
+  const fogMaskUrlCacheRef = useRef<Map<string, Uint8Array>>(new Map());
+  const isPaintingFogRef = useRef(false);
+  const didMutateFogRef = useRef(false);
+  const lastProcessedFogCmdSeqRef = useRef(fogCommandSignal.seq);
   const skipReloadHeightUrlRef = useRef<string | null>(null);
   const skipReloadPaintUrlRef = useRef<string | null>(null);
   const isSculptingRef = useRef(false);
@@ -1984,6 +1574,137 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({
   const effectiveDisplacementScale = mapLayers.terrain ? displacementScale : 0.4;
   const seaY = activeSeaNorm * effectiveDisplacementScale;
 
+  // Load & compose per-player + peer-shared Fog of War texture
+  useEffect(() => {
+    let cancelled = false;
+    const mapRows = mapFogStates.filter((f) => f.map_id === mapData.id);
+    const fogPreviewActive =
+      (effectiveGm && !worldsmithMode && mapToolMode === 'fog-brush') ||
+      (!effectiveGm && mapLayers.fogOfWar !== false && mapRows.length > 0);
+
+    if (!fogPreviewActive) {
+      setFogTex(null);
+      setFogGmAlpha(1.0);
+      return;
+    }
+
+    const resolveUrlMask = async (url: string): Promise<Uint8Array | null> => {
+      const cached = fogMaskUrlCacheRef.current.get(url);
+      if (cached) return cached;
+      const loaded = await loadMaskFromUrl(url);
+      if (loaded) fogMaskUrlCacheRef.current.set(url, loaded);
+      return loaded;
+    };
+
+    const syncFog = async () => {
+      if (effectiveGm) {
+        const targetId = fogBrushTargetUserId || '__all__';
+        let mask = fogMasksRef.current.get(targetId);
+        if (!mask) {
+          const matchingRows =
+            targetId === '__all__'
+              ? mapRows
+              : mapRows.filter((r) => r.user_id === targetId);
+          if (matchingRows.length > 0) {
+            const loaded = (
+              await Promise.all(matchingRows.map((r) => resolveUrlMask(r.mask_url)))
+            ).filter((m): m is Uint8Array => Boolean(m));
+            mask = loaded.length > 0 ? unionFogMasks(loaded) : createFogMask(0);
+          } else {
+            mask = createFogMask(0);
+          }
+          fogMasksRef.current.set(targetId, mask.slice());
+        }
+        if (cancelled) return;
+        const tex = buildFogDataTexture(mask, liveFogTexRef.current);
+        liveFogTexRef.current = tex;
+        setFogTex(tex);
+        setFogGmAlpha(0.52);
+        return;
+      }
+
+      // Player view: own fog row + any peer shares targeted at me or all
+      const shareRows = mapFogShares.filter(
+        (sh) =>
+          sh.map_id === mapData.id &&
+          (sh.share_all || (user?.id && sh.shared_with_user_id === user.id))
+      );
+      const allowedOwners = new Set<string>();
+      if (user?.id) allowedOwners.add(user.id);
+      shareRows.forEach((sh) => allowedOwners.add(sh.owner_user_id));
+
+      const urls = mapRows
+        .filter((r) => allowedOwners.has(r.user_id) && Boolean(r.mask_url))
+        .map((r) => r.mask_url);
+
+      const loaded = (await Promise.all(urls.map(resolveUrlMask))).filter(
+        (m): m is Uint8Array => Boolean(m)
+      );
+      if (cancelled) return;
+      const composite = loaded.length > 0 ? unionFogMasks(loaded) : createFogMask(0);
+      const tex = buildFogDataTexture(composite, liveFogTexRef.current);
+      liveFogTexRef.current = tex;
+      setFogTex(tex);
+      setFogGmAlpha(1.0);
+    };
+
+    syncFog();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    mapData.id,
+    mapFogStates,
+    mapFogShares,
+    effectiveGm,
+    worldsmithMode,
+    mapToolMode,
+    mapLayers.fogOfWar,
+    user?.id,
+    fogBrushTargetUserId,
+  ]);
+
+  const commitFogMask = useCallback(
+    async (targetUserId: string, mask: Uint8Array) => {
+      try {
+        const blob = await maskToCanvasBlob(mask);
+        const safeTarget = targetUserId.replace(/[^a-zA-Z0-9_-]/g, '_');
+        const url = await uploadAssetDataUrlOrBlob(
+          blob,
+          `fog/${mapData.id}`,
+          `fog-${safeTarget}-${Date.now()}.png`
+        );
+        fogMaskUrlCacheRef.current.set(url, mask.slice());
+        await updateMapFogState(mapData.id, targetUserId, url);
+      } catch (err) {
+        console.warn('Failed to upload 3D fog mask:', err);
+      }
+    },
+    [mapData.id, updateMapFogState]
+  );
+
+  // Handle Reveal All / Reset Shroud triggers from the Fog Brush toolbar
+  useEffect(() => {
+    if (
+      fogCommandSignal.seq === 0 ||
+      fogCommandSignal.seq === lastProcessedFogCmdSeqRef.current
+    ) {
+      return;
+    }
+    lastProcessedFogCmdSeqRef.current = fogCommandSignal.seq;
+    const targetId = fogDraftRef.current.targetUserId || '__all__';
+    const nextMask = createFogMask(fogCommandSignal.action === 'reveal-all' ? 255 : 0);
+    fogMasksRef.current.set(targetId, nextMask);
+    if (targetId === '__all__') {
+      campaignMembers.forEach((m) => fogMasksRef.current.set(m.user_id, nextMask.slice()));
+    }
+    const tex = buildFogDataTexture(nextMask, liveFogTexRef.current);
+    liveFogTexRef.current = tex;
+    setFogTex(tex);
+    setFogGmAlpha(0.52);
+    void commitFogMask(targetId, nextMask);
+  }, [fogCommandSignal, fogDraftRef, campaignMembers, commitFogMask]);
+
   const pushUndoSnapshot = useCallback(() => {
     const snap: TerrainHistorySnapshot = {
       height: heightDataRef.current.slice(),
@@ -1999,7 +1720,7 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({
   }, [worldSize]);
 
   const commitBakedTextures = useCallback(
-    (extraPatch?: Partial<VaultMap>) => {
+    async (extraPatch?: Partial<VaultMap>) => {
       const res = heightResRef.current;
       let hasAnyPaint = false;
       const pBuf = paintDataRef.current;
@@ -2016,12 +1737,44 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({
         hasAnyPaint ? pBuf : null,
         res
       );
-      skipReloadHeightUrlRef.current = baked.heightmapDataUrl;
-      if (baked.paintDataUrl) {
-        skipReloadPaintUrlRef.current = baked.paintDataUrl;
+
+      let finalHeightUrl = baked.heightmapDataUrl;
+      let finalAlbedoUrl = baked.albedoDataUrl;
+      let finalPaintUrl = baked.paintDataUrl ?? null;
+
+      try {
+        const [hUp, aUp, pUp] = await Promise.all([
+          uploadAssetDataUrlOrBlob(
+            baked.heightmapDataUrl,
+            `terrain/${mapData.id}`,
+            `height-${Date.now()}.png`
+          ),
+          uploadAssetDataUrlOrBlob(
+            baked.albedoDataUrl,
+            `terrain/${mapData.id}`,
+            `albedo-${Date.now()}.png`
+          ),
+          baked.paintDataUrl
+            ? uploadAssetDataUrlOrBlob(
+                baked.paintDataUrl,
+                `terrain/${mapData.id}`,
+                `paint-${Date.now()}.png`
+              )
+            : Promise.resolve(null),
+        ]);
+        finalHeightUrl = hUp;
+        finalAlbedoUrl = aUp;
+        finalPaintUrl = pUp;
+      } catch {
+        // Fallback to local baked data URLs when offline or unauthenticated
+      }
+
+      skipReloadHeightUrlRef.current = finalHeightUrl;
+      if (finalPaintUrl) {
+        skipReloadPaintUrlRef.current = finalPaintUrl;
       }
       const loader = new THREE.TextureLoader();
-      loader.load(baked.albedoDataUrl, (tex) => {
+      loader.load(finalAlbedoUrl, (tex) => {
         tex.colorSpace = THREE.SRGBColorSpace;
         tex.anisotropy = 8;
         tex.wrapS = THREE.ClampToEdgeWrapping;
@@ -2030,9 +1783,9 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({
         setAlbedoTex(tex);
       });
       updateMapAssets(mapData.id, {
-        heightmap_url: baked.heightmapDataUrl,
-        albedo_url: baked.albedoDataUrl,
-        paint_url: baked.paintDataUrl ?? null,
+        heightmap_url: finalHeightUrl,
+        albedo_url: finalAlbedoUrl,
+        paint_url: finalPaintUrl,
         ...extraPatch,
       });
     },
@@ -2108,7 +1861,7 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({
     });
   }, [mapData.id, mapData.heightmap_url, mapData.albedo_url, mapData.paint_url, procedural, worldSize]);
 
-  // Execute global terrain commands (Undo, Redo, Blank Canvas, Smooth All, Erode All, Noise Detail, Expand World, etc.)
+  // Execute global terrain commands (Undo, Redo, Save Textures, Blank Canvas, Smooth All, Erode All, Noise Detail, Expand World, etc.)
   useEffect(() => {
     if (
       terrainCommandSignal.seq === 0 ||
@@ -2137,6 +1890,11 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({
       setTerrainVersion((v) => v + 1);
     };
 
+    if (cmd.type === 'save-textures') {
+      void commitBakedTextures();
+      return;
+    }
+
     if (cmd.type === 'undo') {
       const prev = undoStackRef.current.pop();
       if (!prev) return;
@@ -2150,7 +1908,7 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({
       paintDataRef.current = prev.paint;
       heightResRef.current = prev.res;
       syncAllLiveTextures();
-      commitBakedTextures();
+      void commitBakedTextures();
       return;
     }
 
@@ -2167,7 +1925,7 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({
       paintDataRef.current = next.paint;
       heightResRef.current = next.res;
       syncAllLiveTextures();
-      commitBakedTextures();
+      void commitBakedTextures();
       return;
     }
 
@@ -2183,14 +1941,14 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({
       );
       paintDataRef.current.fill(0);
       syncAllLiveTextures();
-      commitBakedTextures();
+      void commitBakedTextures();
     } else if (cmd.type === 'smooth-all') {
       const passes = Math.max(1, cmd.iterations || 2);
       for (let i = 0; i < passes; i++) {
         applyGlobalSmooth(heightDataRef.current, heightResRef.current, 0.55);
       }
       syncAllLiveTextures();
-      commitBakedTextures();
+      void commitBakedTextures();
     } else if (cmd.type === 'erode-all') {
       applyGlobalThermalErosion(
         heightDataRef.current,
@@ -2198,7 +1956,7 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({
         cmd.iterations || 5
       );
       syncAllLiveTextures();
-      commitBakedTextures();
+      void commitBakedTextures();
     } else if (cmd.type === 'noise-all') {
       applyGlobalNoiseDetail(
         heightDataRef.current,
@@ -2207,15 +1965,15 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({
         Date.now() % 10000
       );
       syncAllLiveTextures();
-      commitBakedTextures();
+      void commitBakedTextures();
     } else if (cmd.type === 'raise-all') {
       applyGlobalHeightOffset(heightDataRef.current, cmd.delta);
       syncAllLiveTextures();
-      commitBakedTextures();
+      void commitBakedTextures();
     } else if (cmd.type === 'clear-paint') {
       paintDataRef.current.fill(0);
       syncAllLiveTextures();
-      commitBakedTextures({ paint_url: null });
+      void commitBakedTextures({ paint_url: null });
     } else if (cmd.type === 'expand') {
       const newSize = cmd.newWorldSize;
       const newRes = heightResForWorldSize(newSize);
@@ -2242,7 +2000,7 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({
       setActiveHeightRes(newRes);
       setTerrainVersion((v) => v + 1);
       updateMapEnvironment(mapData.id, { world_size: newSize });
-      commitBakedTextures({ world_size: newSize, paint_url: null });
+      void commitBakedTextures({ world_size: newSize, paint_url: null });
     }
   }, [
     terrainCommandSignal,
@@ -2281,41 +2039,13 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({
         }
         setTerrainVersion((v) => v + 1);
         finishRiver(mapData.id, name, width, depth);
-        commitBakedTextures();
+        void commitBakedTextures();
       },
     };
     return () => {
       terrainActionsRef.current = null;
     };
   }, [terrainActionsRef, displacementScale, activeSeaNorm, worldSize, finishRiver, mapData.id, commitBakedTextures, pushUndoSnapshot]);
-
-  // Ensure drag finishes cleanly even if pointer releases outside mesh
-  useEffect(() => {
-    const handleGlobalUp = () => {
-      if (isSculptingRef.current && didMutateTerrainRef.current) {
-        if (liveHeightTexRef.current) {
-          syncLiveHeightDataTexture(liveHeightTexRef.current, heightDataRef.current, heightResRef.current);
-        }
-        if (livePaintTexRef.current) {
-          syncLivePaintDataTexture(livePaintTexRef.current, paintDataRef.current);
-        }
-        setTerrainVersion((v) => v + 1);
-        didMutateTerrainRef.current = false;
-        commitBakedTextures();
-      }
-      isSculptingRef.current = false;
-      draggingPropIdRef.current = null;
-      draggingLabelIdRef.current = null;
-      draggingFogIdRef.current = null;
-      lastPaintPosRef.current = null;
-      lastBrushWorldPosRef.current = null;
-      if (controlsRef.current && !zoneDragRef.current) {
-        controlsRef.current.enabled = true;
-      }
-    };
-    window.addEventListener('pointerup', handleGlobalUp);
-    return () => window.removeEventListener('pointerup', handleGlobalUp);
-  }, [commitBakedTextures]);
 
   // Initialize OrbitControls target once on mount
   useEffect(() => {
@@ -2372,7 +2102,7 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({
     }
     if (!controlsRef.current) return;
     const dist = camera.position.distanceTo(controlsRef.current.target);
-    const computed = Math.max(5, Math.round((dist * mapData.scale_config.kmPerUnit) / 2.8 / 5) * 5);
+    const computed = Math.max(5, Math.round((dist * (mapData.scale_config?.kmPerUnit ?? 1.8)) / 2.8 / 5) * 5);
     if (computed !== lastKmRef.current) {
       lastKmRef.current = computed;
       setScaleBarKm(computed);
@@ -2799,12 +2529,13 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({
   ]);
 
   const handleSurfaceClick = (e: ThreeEvent<MouseEvent>) => {
-    if (worldsmithMode) return;
+    const live = useVaultStore.getState();
+    if (live.worldsmithMode) return;
     if (justFinishedZoneDragRef.current) return;
     if (e.delta > 6) return;
     e.stopPropagation();
 
-    if (mapToolMode === 'select') {
+    if (live.mapToolMode === 'select') {
       setSelectedPinId(null);
       setSelectedZoneId(null);
       setSelectedLabelId(null);
@@ -2813,11 +2544,38 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({
     }
   };
 
+  const paintFogAtPoint = useCallback(
+    (wx: number, wz: number) => {
+      const targetId = fogDraftRef.current.targetUserId || '__all__';
+      let mask = fogMasksRef.current.get(targetId);
+      if (!mask) {
+        mask = createFogMask(0);
+        fogMasksRef.current.set(targetId, mask);
+      }
+      const { u, v } = worldXZToMaskNorm(wx, wz, worldSize);
+      const radiusNorm = Math.max(0.015, fogDraftRef.current.radius / Math.max(1, worldSize));
+      const changed = paintFogCircle(mask, u, v, radiusNorm, fogDraftRef.current.reveal);
+      if (changed) {
+        didMutateFogRef.current = true;
+        const tex = buildFogDataTexture(mask, liveFogTexRef.current);
+        liveFogTexRef.current = tex;
+        setFogTex(tex);
+        setFogGmAlpha(0.52);
+      }
+    },
+    [worldSize, fogDraftRef]
+  );
+
   const handleTerrainPointerDown = (e: ThreeEvent<PointerEvent>) => {
     if (e.button !== 0) return;
+    const live = useVaultStore.getState();
+    const liveWorldsmith = live.worldsmithMode;
+    const liveToolMode = live.mapToolMode;
+    const liveWorldsmithTool = live.worldsmithTool;
+    const liveEffectiveGm = live.isEffectiveGm();
 
-    if (!worldsmithMode) {
-      if (mapToolMode === 'select' || mapToolMode === 'link') return;
+    if (!liveWorldsmith) {
+      if (!liveEffectiveGm || liveToolMode === 'select' || liveToolMode === 'link') return;
       e.stopPropagation();
       const pt = {
         x: Number(e.point.x.toFixed(2)),
@@ -2825,9 +2583,27 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({
         z: Number(e.point.z.toFixed(2)),
       };
 
-      if (mapToolMode === 'pin') {
+      if (liveToolMode === 'pin') {
         setPendingPinCoord(pt);
-      } else if (mapToolMode === 'text') {
+      } else if (liveToolMode === 'quest-board') {
+        void createQuestBoard({
+          map_id: mapData.id,
+          title: 'Guild Quest Board',
+          x: pt.x,
+          y: pt.y,
+          z: pt.z,
+        }).then((board) => {
+          if (board) setActiveQuestBoardModalId(board.id);
+        });
+        setMapToolMode('select');
+      } else if (liveToolMode === 'fog-brush') {
+        brushCursorRef.current = { x: e.point.x, y: e.point.y, z: e.point.z };
+        isPaintingFogRef.current = true;
+        didMutateFogRef.current = false;
+        paintFogAtPoint(e.point.x, e.point.z);
+        // Ensure a single click also persists an initial mask even if pointer moves 0px
+        didMutateFogRef.current = true;
+      } else if (liveToolMode === 'text') {
         const draft = labelDraftRef.current;
         createMapLabel(mapData.id, {
           text: draft.text.trim() || 'New Label',
@@ -2844,7 +2620,7 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({
           is_gm_only: false,
         });
         setMapToolMode('select');
-      } else if (mapToolMode === 'path' || mapToolMode === 'region' || mapToolMode === 'zone') {
+      } else if (liveToolMode === 'path' || liveToolMode === 'region' || liveToolMode === 'zone') {
         const snappedPt = snapPointToLandOrSea(
           e.point.x,
           e.point.z,
@@ -2855,7 +2631,7 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({
           worldSize
         );
         addDrawingPoint(snappedPt);
-      } else if (mapToolMode === 'element') {
+      } else if (liveToolMode === 'element') {
         const draft = elementDraftRef.current;
         const created = addMapProp(mapData.id, {
           kind: draft.kind,
@@ -2871,22 +2647,23 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({
       return;
     }
 
+    if (!liveEffectiveGm) return;
     e.stopPropagation();
 
     const pt = { x: e.point.x, y: e.point.y, z: e.point.z };
     brushCursorRef.current = pt;
 
-    if (isBrushTool(worldsmithTool)) {
+    if (isBrushTool(liveWorldsmithTool)) {
       pushUndoSnapshot();
       isSculptingRef.current = true;
       didMutateTerrainRef.current = false;
       lastBrushWorldPosRef.current = { x: pt.x, z: pt.z };
-      if (worldsmithTool === 'flatten') {
+      if (liveWorldsmithTool === 'flatten') {
         flattenTargetRef.current = e.point.y / Math.max(effectiveDisplacementScale, 0.01);
       }
       lastSculptTsRef.current = 0;
       applyBrushAtPoint(pt.x, pt.z, e.shiftKey);
-    } else if (worldsmithTool === 'stamp') {
+    } else if (liveWorldsmithTool === 'stamp') {
       pushUndoSnapshot();
       applyTerrainStamp(heightDataRef.current, heightResRef.current, pt.x, pt.z, {
         stamp: activeStampKind,
@@ -2900,13 +2677,13 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({
         syncLiveHeightDataTexture(liveHeightTexRef.current, heightDataRef.current, heightResRef.current);
       }
       setTerrainVersion((v) => v + 1);
-      commitBakedTextures();
-    } else if (worldsmithTool === 'paint-biome') {
+      void commitBakedTextures();
+    } else if (liveWorldsmithTool === 'paint-biome') {
       pushUndoSnapshot();
       isSculptingRef.current = true;
       didMutateTerrainRef.current = false;
       applyPaintAtPoint(pt.x, pt.z, e.shiftKey);
-    } else if (worldsmithTool === 'fog') {
+    } else if (liveWorldsmithTool === 'fog') {
       addFogVolume(
         mapData.id,
         {
@@ -2916,13 +2693,13 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({
         },
         activeFogPreset
       );
-    } else if (worldsmithTool === 'river') {
+    } else if (liveWorldsmithTool === 'river') {
       addRiverPoint(pt);
-    } else if (worldsmithTool === 'paint-flora') {
+    } else if (liveWorldsmithTool === 'paint-flora') {
       isSculptingRef.current = true;
       stampFloraAtPoint(pt.x, pt.z);
       lastPaintPosRef.current = { x: pt.x, z: pt.z };
-    } else if (worldsmithTool === 'place-mesh') {
+    } else if (liveWorldsmithTool === 'place-mesh') {
       const isFlora =
         activePropKind === 'pine' ||
         activePropKind === 'oak' ||
@@ -2937,10 +2714,10 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({
         scale: isFlora ? 0.85 : 1.15,
       });
       setSelectedPropId(created.id);
-    } else if (worldsmithTool === 'erase-mesh') {
+    } else if (liveWorldsmithTool === 'erase-mesh') {
       isSculptingRef.current = true;
       erasePropsWithinRadius(pt.x, pt.z);
-    } else if (worldsmithTool === 'edit-mesh') {
+    } else if (liveWorldsmithTool === 'edit-mesh') {
       setSelectedPropId(null);
       setSelectedFogId(null);
     }
@@ -2948,8 +2725,13 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({
 
   const handleSurfacePointerMove = (e: ThreeEvent<PointerEvent>) => {
     const pt = { x: e.point.x, y: e.point.y, z: e.point.z };
+    const live = useVaultStore.getState();
+    const liveEffectiveGm = live.isEffectiveGm();
+    const liveWorldsmith = live.worldsmithMode;
+    const liveToolMode = live.mapToolMode;
+    const liveWorldsmithTool = live.worldsmithTool;
 
-    if (draggingFogIdRef.current) {
+    if (liveEffectiveGm && draggingFogIdRef.current) {
       e.stopPropagation();
       updateFogVolume(mapData.id, draggingFogIdRef.current, {
         x: Number(pt.x.toFixed(2)),
@@ -2959,7 +2741,7 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({
       return;
     }
 
-    if (draggingLabelIdRef.current) {
+    if (liveEffectiveGm && draggingLabelIdRef.current) {
       e.stopPropagation();
       updateMapLabel(mapData.id, draggingLabelIdRef.current, {
         x: Number(pt.x.toFixed(2)),
@@ -2969,7 +2751,7 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({
       return;
     }
 
-    if (draggingPropIdRef.current && (!worldsmithMode || worldsmithTool === 'edit-mesh')) {
+    if (liveEffectiveGm && draggingPropIdRef.current && (!liveWorldsmith || liveWorldsmithTool === 'edit-mesh')) {
       e.stopPropagation();
       updateMapProp(mapData.id, draggingPropIdRef.current, {
         x: Number(pt.x.toFixed(2)),
@@ -2979,7 +2761,16 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({
       return;
     }
 
-    if (!worldsmithMode) {
+    if (!liveWorldsmith && liveToolMode === 'fog-brush' && liveEffectiveGm) {
+      brushCursorRef.current = pt;
+      if (isPaintingFogRef.current) {
+        e.stopPropagation();
+        paintFogAtPoint(pt.x, pt.z);
+      }
+      return;
+    }
+
+    if (!liveWorldsmith || !liveEffectiveGm) {
       brushCursorRef.current = null;
       return;
     }
@@ -2989,22 +2780,31 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({
     if (!isSculptingRef.current) return;
     e.stopPropagation();
 
-    if (isBrushTool(worldsmithTool)) {
+    if (isBrushTool(liveWorldsmithTool)) {
       applyBrushAtPoint(pt.x, pt.z, e.shiftKey);
-    } else if (worldsmithTool === 'paint-biome') {
+    } else if (liveWorldsmithTool === 'paint-biome') {
       applyPaintAtPoint(pt.x, pt.z, e.shiftKey);
-    } else if (worldsmithTool === 'paint-flora') {
+    } else if (liveWorldsmithTool === 'paint-flora') {
       const prev = lastPaintPosRef.current;
       if (!prev || Math.hypot(pt.x - prev.x, pt.z - prev.z) >= Math.max(1.5, brushRadius * 0.45)) {
         stampFloraAtPoint(pt.x, pt.z);
         lastPaintPosRef.current = { x: pt.x, z: pt.z };
       }
-    } else if (worldsmithTool === 'erase-mesh') {
+    } else if (liveWorldsmithTool === 'erase-mesh') {
       erasePropsWithinRadius(pt.x, pt.z);
     }
   };
 
   const handleTerrainPointerUp = useCallback(() => {
+    if (isPaintingFogRef.current) {
+      isPaintingFogRef.current = false;
+      if (didMutateFogRef.current) {
+        didMutateFogRef.current = false;
+        const targetId = fogDraftRef.current.targetUserId || '__all__';
+        const mask = fogMasksRef.current.get(targetId) || createFogMask(0);
+        void commitFogMask(targetId, mask);
+      }
+    }
     if (isSculptingRef.current && didMutateTerrainRef.current) {
       if (liveHeightTexRef.current) {
         syncLiveHeightDataTexture(liveHeightTexRef.current, heightDataRef.current, heightResRef.current);
@@ -3014,7 +2814,7 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({
       }
       setTerrainVersion((v) => v + 1);
       didMutateTerrainRef.current = false;
-      commitBakedTextures();
+      void commitBakedTextures();
     }
     isSculptingRef.current = false;
     draggingPropIdRef.current = null;
@@ -3025,7 +2825,7 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({
     if (controlsRef.current && !zoneDragRef.current) {
       controlsRef.current.enabled = true;
     }
-  }, [commitBakedTextures]);
+  }, [commitBakedTextures, commitFogMask, fogDraftRef]);
 
   useEffect(() => {
     window.addEventListener('pointerup', handleTerrainPointerUp);
@@ -3038,6 +2838,7 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({
 
   const handleSelectProp = useCallback(
     (prop: MapProp) => {
+      if (!effectiveGm) return;
       if (worldsmithMode) {
         if (worldsmithTool === 'erase-mesh') {
           deleteMapProp(mapData.id, prop.id);
@@ -3057,11 +2858,12 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({
         if (controlsRef.current) controlsRef.current.enabled = false;
       }
     },
-    [worldsmithMode, worldsmithTool, mapToolMode, deleteMapProp, mapData.id, setSelectedPropId]
+    [effectiveGm, worldsmithMode, worldsmithTool, mapToolMode, deleteMapProp, mapData.id, setSelectedPropId]
   );
 
   const handleSelectFog = useCallback(
     (fog: FogVolume, e?: ThreeEvent<PointerEvent>) => {
+      if (!effectiveGm) return;
       setSelectedFogId(fog.id);
       const isPointerDown = Boolean(e && 'point' in e);
       if (
@@ -3073,57 +2875,62 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({
         if (controlsRef.current) controlsRef.current.enabled = false;
       }
     },
-    [worldsmithMode, worldsmithTool, setSelectedFogId]
+    [effectiveGm, worldsmithMode, worldsmithTool, setSelectedFogId]
   );
 
   const handleSelectLabel = useCallback(
     (label: WorldMapLabel) => {
+      if (!effectiveGm) return;
       setSelectedLabelId(label.id);
       if (!worldsmithMode && mapToolMode === 'select') {
         draggingLabelIdRef.current = label.id;
         if (controlsRef.current) controlsRef.current.enabled = false;
       }
     },
-    [worldsmithMode, mapToolMode, setSelectedLabelId]
+    [effectiveGm, worldsmithMode, mapToolMode, setSelectedLabelId]
   );
 
   const visiblePins = useMemo(
     () =>
       mapPins.filter(
-        (p) => p.map_id === mapData.id && (gmMode || !p.is_gm_only) && mapLayers.locations
+        (p) => p.map_id === mapData.id && (effectiveGm || !p.is_gm_only) && mapLayers.locations
       ),
-    [mapPins, mapData.id, gmMode, mapLayers.locations]
+    [mapPins, mapData.id, effectiveGm, mapLayers.locations]
   );
 
   const visiblePaths = useMemo(
     () =>
       mapPaths.filter((p) => {
         if (p.map_id !== mapData.id) return false;
-        if (!gmMode && p.is_gm_only) return false;
+        if (!effectiveGm && p.is_gm_only) return false;
         if (p.style === 'region-polygon') return mapLayers.regions;
         return mapLayers.paths;
       }),
-    [mapPaths, mapData.id, gmMode, mapLayers.paths, mapLayers.regions]
+    [mapPaths, mapData.id, effectiveGm, mapLayers.paths, mapLayers.regions]
   );
 
+  const isFogBrushActive = !worldsmithMode && effectiveGm && mapToolMode === 'fog-brush';
   const showBrushRing =
-    worldsmithMode &&
-    (isBrushTool(worldsmithTool) ||
-      worldsmithTool === 'stamp' ||
-      worldsmithTool === 'paint-biome' ||
-      worldsmithTool === 'paint-flora' ||
-      worldsmithTool === 'erase-mesh');
+    isFogBrushActive ||
+    (worldsmithMode &&
+      effectiveGm &&
+      (isBrushTool(worldsmithTool) ||
+        worldsmithTool === 'stamp' ||
+        worldsmithTool === 'paint-biome' ||
+        worldsmithTool === 'paint-flora' ||
+        worldsmithTool === 'erase-mesh'));
 
-  const brushRingColor =
-    worldsmithTool === 'erase-mesh'
-      ? '#f87171'
-      : worldsmithTool === 'valley' || worldsmithTool === 'coast' || worldsmithTool === 'erode'
-      ? '#38bdf8'
-      : worldsmithTool === 'paint-flora' || worldsmithTool === 'paint-biome'
-      ? '#4ade80'
-      : worldsmithTool === 'stamp'
-      ? '#c084fc'
-      : '#facc15';
+  const brushRingColor = isFogBrushActive
+    ? '#38bdf8'
+    : worldsmithTool === 'erase-mesh'
+    ? '#f87171'
+    : worldsmithTool === 'valley' || worldsmithTool === 'coast' || worldsmithTool === 'erode'
+    ? '#38bdf8'
+    : worldsmithTool === 'paint-flora' || worldsmithTool === 'paint-biome'
+    ? '#4ade80'
+    : worldsmithTool === 'stamp'
+    ? '#c084fc'
+    : '#facc15';
 
   const atmosphere = useMemo(
     () => ATMOSPHERE_PRESETS[mapData.atmosphere || 'golden-hour'] || ATMOSPHERE_PRESETS['golden-hour'],
@@ -3236,7 +3043,7 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({
         }
       />
 
-      {/* CPU-Displaced 3D Terrain Mesh with Multi-Biome, Hand-Painted Biomes, Strata & Wet-Shore PBR */}
+      {/* CPU-Displaced 3D Terrain Mesh with Multi-Biome, Hand-Painted Biomes, Fog of War & Wet-Shore PBR */}
       <DisplacedTerrainMesh
         meshRef={terrainMeshRef}
         patchHandleRef={terrainPatchHandleRef}
@@ -3249,6 +3056,8 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({
         seaY={seaY}
         albedoTex={albedoTex}
         paintTex={paintTex}
+        fogTex={fogTex}
+        fogGmAlpha={fogGmAlpha}
         terrainShading={terrainShading}
         showBiome={mapLayers.vegetation}
         wireframe={mapRenderMode === 'terrain'}
@@ -3281,8 +3090,9 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({
         visible={mapLayers.vegetation && mapRenderMode === 'map'}
         selectedPropId={selectedPropId}
         interactive={
-          (worldsmithMode && (worldsmithTool === 'edit-mesh' || worldsmithTool === 'erase-mesh')) ||
-          (!worldsmithMode && mapToolMode === 'select')
+          effectiveGm &&
+          ((worldsmithMode && (worldsmithTool === 'edit-mesh' || worldsmithTool === 'erase-mesh')) ||
+            (!worldsmithMode && mapToolMode === 'select'))
         }
         onSelectProp={handleSelectProp}
       />
@@ -3312,11 +3122,11 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({
         seaY={seaY}
         terrainVersion={terrainVersion}
         terrainSize={worldSize}
-        gmMode={gmMode}
+        gmMode={effectiveGm}
         showRegionsLayer={mapLayers.regions}
         showLabelsLayer={mapLayers.labels}
         selectedZoneId={selectedZoneId}
-        interactive={!worldsmithMode && mapToolMode === 'select'}
+        interactive={effectiveGm && !worldsmithMode && mapToolMode === 'select'}
         onSelectZone={handleSelectZone}
         onStartGizmoDrag={startZoneGizmoDrag}
         onStartVertexDrag={startZoneVertexDrag}
@@ -3333,14 +3143,14 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({
         displacementScale={effectiveDisplacementScale}
         seaY={seaY}
         terrainSize={worldSize}
-        gmMode={gmMode}
+        gmMode={effectiveGm}
         visible={mapLayers.labels}
         selectedLabelId={selectedLabelId}
-        interactive={!worldsmithMode && mapToolMode === 'select'}
+        interactive={effectiveGm && !worldsmithMode && mapToolMode === 'select'}
         onSelectLabel={handleSelectLabel}
       />
 
-      {/* 3D Sculpt / Paint Brush Cursor Ring */}
+      {/* 3D Sculpt / Paint / Fog Brush Cursor Ring */}
       <BrushCursorRing
         cursorRef={brushCursorRef}
         radius={brushRadius}
@@ -3353,6 +3163,8 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({
         seaY={seaY}
         terrainSize={worldSize}
         heightTex={heightTex}
+        fogTex={fogTex}
+        fogGmAlpha={fogGmAlpha}
         displacementScale={effectiveDisplacementScale}
         waterSettings={waterSettings}
         wireframe={mapRenderMode === 'terrain'}
@@ -3380,17 +3192,31 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({
         seaY={seaY}
         sunPos={atmosphere.sunPos}
         sunColor={atmosphere.sunColor}
-        gmMode={gmMode}
+        gmMode={effectiveGm}
         visible={mapRenderMode === 'map'}
         selectedFogId={selectedFogId}
         showGizmos={
+          effectiveGm &&
           worldsmithMode &&
           (worldsmithTool === 'fog' || worldsmithTool === 'edit-mesh' || selectedFogId !== null)
         }
         interactive={
-          worldsmithMode && (worldsmithTool === 'fog' || worldsmithTool === 'edit-mesh')
+          effectiveGm && worldsmithMode && (worldsmithTool === 'fog' || worldsmithTool === 'edit-mesh')
         }
         onSelectFog={handleSelectFog}
+      />
+
+      {/* 3D Interactive Guild Quest Boards (West Marches) */}
+      <QuestBoards3D
+        boards={questBoards.filter((b) => b.map_id === mapData.id)}
+        quests={guildQuests}
+        heightData={activeHeightData}
+        heightRes={activeHeightRes}
+        terrainSize={worldSize}
+        displacementScale={effectiveDisplacementScale}
+        seaY={seaY}
+        visible={mapRenderMode === 'map' && mapLayers.questBoards !== false && !worldsmithMode}
+        onOpenBoard={setActiveQuestBoardModalId}
       />
 
       {/* Subtle Atmospheric Mist (hidden in crisp whole-world top view) */}
@@ -3455,6 +3281,10 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({
 export const MapViewport3D: React.FC<{ mapId: string }> = ({ mapId }) => {
   const {
     maps,
+    campaignMembers,
+    isEffectiveGm,
+    rightInspectorCollapsed,
+    inspectorWidth,
     mapRenderMode,
     setMapRenderMode,
     mapCameraView,
@@ -3480,6 +3310,12 @@ export const MapViewport3D: React.FC<{ mapId: string }> = ({ mapId }) => {
     setWorldsmithMode,
     worldsmithTool,
     setWorldsmithTool,
+    brushRadius,
+    setBrushRadius,
+    fogBrushTargetUserId,
+    setFogBrushTargetUserId,
+    fogBrushRevealMode,
+    setFogBrushRevealMode,
     riverDrawingPoints,
     clearRiverPoints,
     setMapGeneratorModalOpen,
@@ -3492,6 +3328,10 @@ export const MapViewport3D: React.FC<{ mapId: string }> = ({ mapId }) => {
   } = useVaultStore(
     useShallow((s) => ({
       maps: s.maps,
+      campaignMembers: s.campaignMembers,
+      isEffectiveGm: s.isEffectiveGm,
+      rightInspectorCollapsed: s.rightInspectorCollapsed,
+      inspectorWidth: s.inspectorWidth,
       mapRenderMode: s.mapRenderMode,
       setMapRenderMode: s.setMapRenderMode,
       mapCameraView: s.mapCameraView,
@@ -3517,6 +3357,12 @@ export const MapViewport3D: React.FC<{ mapId: string }> = ({ mapId }) => {
       setWorldsmithMode: s.setWorldsmithMode,
       worldsmithTool: s.worldsmithTool,
       setWorldsmithTool: s.setWorldsmithTool,
+      brushRadius: s.brushRadius,
+      setBrushRadius: s.setBrushRadius,
+      fogBrushTargetUserId: s.fogBrushTargetUserId,
+      setFogBrushTargetUserId: s.setFogBrushTargetUserId,
+      fogBrushRevealMode: s.fogBrushRevealMode,
+      setFogBrushRevealMode: s.setFogBrushRevealMode,
       riverDrawingPoints: s.riverDrawingPoints,
       clearRiverPoints: s.clearRiverPoints,
       setMapGeneratorModalOpen: s.setMapGeneratorModalOpen,
@@ -3528,6 +3374,18 @@ export const MapViewport3D: React.FC<{ mapId: string }> = ({ mapId }) => {
       dispatchTerrainCommand: s.dispatchTerrainCommand,
     }))
   );
+
+  const effectiveGm = isEffectiveGm();
+  const rightInsetPx = rightInspectorCollapsed ? 12 : inspectorWidth + 12;
+
+  useEffect(() => {
+    if (!effectiveGm && worldsmithMode) {
+      setWorldsmithMode(false);
+    }
+    if (!effectiveGm && mapToolMode !== 'select') {
+      setMapToolMode('select');
+    }
+  }, [effectiveGm, worldsmithMode, mapToolMode, setWorldsmithMode, setMapToolMode]);
 
   const [layersDropdownOpen, setLayersDropdownOpen] = useState(false);
   const [toolsDropdownOpen, setToolsDropdownOpen] = useState(false);
@@ -3557,6 +3415,12 @@ export const MapViewport3D: React.FC<{ mapId: string }> = ({ mapId }) => {
   const [newLayerName, setNewLayerName] = useState('');
   const [newLayerCat, setNewLayerCat] = useState<WorldLayerCategory>('custom');
 
+  // 3D Fog Brush commands (Reveal All / Reset Shroud)
+  const [fogCommandSignal, setFogCommandSignal] = useState<{
+    seq: number;
+    action: 'reveal-all' | 'reset-shroud';
+  }>({ seq: 0, action: 'reveal-all' });
+
   const terrainActionsRef = useRef<TerrainActionsHandle | null>(null);
   const labelDraftRef = useRef<LabelDraftConfig>({
     text: '',
@@ -3569,6 +3433,11 @@ export const MapViewport3D: React.FC<{ mapId: string }> = ({ mapId }) => {
     kind: 'castle',
     name: '',
     scale: 1.15,
+  });
+  const fogDraftRef = useRef<FogBrushDraftConfig>({
+    targetUserId: fogBrushTargetUserId,
+    reveal: fogBrushRevealMode,
+    radius: brushRadius,
   });
 
   labelDraftRef.current = {
@@ -3585,6 +3454,12 @@ export const MapViewport3D: React.FC<{ mapId: string }> = ({ mapId }) => {
     scale: elementScale,
   };
 
+  fogDraftRef.current = {
+    targetUserId: fogBrushTargetUserId,
+    reveal: fogBrushRevealMode,
+    radius: brushRadius,
+  };
+
   const activeMap = maps.find((m) => m.id === mapId) || maps[0];
   const worldLayers = useMemo(
     () =>
@@ -3594,21 +3469,11 @@ export const MapViewport3D: React.FC<{ mapId: string }> = ({ mapId }) => {
     [activeMap?.layers]
   );
 
-  // Keyboard shortcuts: T toggles Whole World Top View, Esc exits active Atlas tool, Ctrl+Z/Y undoes/redoes terrain sculpts
+  // Keyboard shortcuts: T toggles Whole World Top View, Esc exits active Atlas tool (Ctrl+Z/Y handled globally in App.tsx)
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement | null)?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
-      if (worldsmithMode && (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
-        e.preventDefault();
-        dispatchTerrainCommand({ type: e.shiftKey ? 'redo' : 'undo' });
-        return;
-      }
-      if (worldsmithMode && (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') {
-        e.preventDefault();
-        dispatchTerrainCommand({ type: 'redo' });
-        return;
-      }
       if ((e.key === 't' || e.key === 'T') && !e.metaKey && !e.ctrlKey && !e.altKey) {
         e.preventDefault();
         if (mapCameraView === 'top') triggerCameraReset();
@@ -3626,7 +3491,6 @@ export const MapViewport3D: React.FC<{ mapId: string }> = ({ mapId }) => {
     worldsmithMode,
     mapToolMode,
     setMapToolMode,
-    dispatchTerrainCommand,
   ]);
 
   if (!activeMap) return null;
@@ -3643,7 +3507,9 @@ export const MapViewport3D: React.FC<{ mapId: string }> = ({ mapId }) => {
       mapToolMode === 'path' ||
       mapToolMode === 'region' ||
       mapToolMode === 'zone' ||
-      mapToolMode === 'element'
+      mapToolMode === 'element' ||
+      mapToolMode === 'quest-board' ||
+      mapToolMode === 'fog-brush'
     ? 'cursor-crosshair'
     : 'cursor-grab active:cursor-grabbing';
 
@@ -3684,6 +3550,8 @@ export const MapViewport3D: React.FC<{ mapId: string }> = ({ mapId }) => {
           terrainActionsRef={terrainActionsRef}
           labelDraftRef={labelDraftRef}
           elementDraftRef={elementDraftRef}
+          fogDraftRef={fogDraftRef}
+          fogCommandSignal={fogCommandSignal}
         />
       </Canvas>
 
@@ -3716,33 +3584,37 @@ export const MapViewport3D: React.FC<{ mapId: string }> = ({ mapId }) => {
             </button>
           </div>
 
-          <span className="w-px h-4 bg-[#171c26]" />
+          {effectiveGm && (
+            <>
+              <span className="w-px h-4 bg-[#171c26]" />
 
-          {/* Atlas | Worldsmith */}
-          <div className="flex items-center p-0.5 rounded-lg bg-[#050608]/90">
-            <button
-              onClick={() => setWorldsmithMode(false)}
-              className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-[11.5px] font-medium transition-all ${
-                !worldsmithMode
-                  ? 'bg-[#12161f] text-[#d6b16a] border border-[#b68d40]/45 font-semibold'
-                  : 'text-[#8e96a3] hover:text-white'
-              }`}
-            >
-              <Compass className="w-3 h-3" />
-              <span>Atlas</span>
-            </button>
-            <button
-              onClick={() => setWorldsmithMode(true)}
-              className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-[11.5px] font-medium transition-all ${
-                worldsmithMode
-                  ? 'btn-gold-metallic font-semibold'
-                  : 'text-[#8e96a3] hover:text-white'
-              }`}
-            >
-              <Hammer className="w-3 h-3" />
-              <span>Worldsmith</span>
-            </button>
-          </div>
+              {/* Atlas | Worldsmith */}
+              <div className="flex items-center p-0.5 rounded-lg bg-[#050608]/90">
+                <button
+                  onClick={() => setWorldsmithMode(false)}
+                  className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-[11.5px] font-medium transition-all ${
+                    !worldsmithMode
+                      ? 'bg-[#12161f] text-[#d6b16a] border border-[#b68d40]/45 font-semibold'
+                      : 'text-[#8e96a3] hover:text-white'
+                  }`}
+                >
+                  <Compass className="w-3 h-3" />
+                  <span>Atlas</span>
+                </button>
+                <button
+                  onClick={() => setWorldsmithMode(true)}
+                  className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-[11.5px] font-medium transition-all ${
+                    worldsmithMode
+                      ? 'btn-gold-metallic font-semibold'
+                      : 'text-[#8e96a3] hover:text-white'
+                  }`}
+                >
+                  <Hammer className="w-3 h-3" />
+                  <span>Worldsmith</span>
+                </button>
+              </div>
+            </>
+          )}
 
           <span className="w-px h-4 bg-[#171c26]" />
 
@@ -3776,7 +3648,7 @@ export const MapViewport3D: React.FC<{ mapId: string }> = ({ mapId }) => {
         </div>
 
         {/* Contextual Instruction Prompt Below Top Pill (Only When Sculpting or Drawing) */}
-        {worldsmithMode ? (
+        {worldsmithMode && effectiveGm ? (
           <div className="px-3 py-1 rounded-full bg-[#100d07]/92 border border-[#b68d40]/45 text-[11px] text-[#d6b16a] flex items-center gap-2 shadow-gold-sm pointer-events-auto">
             <span>
               {worldsmithTool === 'raise' && 'Left-drag: Raise Mountain (Shift: Lower) • Right-drag: Orbit'}
@@ -3808,6 +3680,8 @@ export const MapViewport3D: React.FC<{ mapId: string }> = ({ mapId }) => {
           <div className="px-3 py-1 rounded-full bg-[#100d07]/92 border border-[#b68d40]/45 text-[11px] text-[#d6b16a] flex items-center gap-2 shadow-gold-sm pointer-events-auto">
             <span>
               {mapToolMode === 'pin' && 'Click terrain or sea to drop a Location Pin • Right-drag: Orbit'}
+              {mapToolMode === 'quest-board' && 'Click terrain or sea to place a West Marches Guild Quest Board • Right-drag: Orbit'}
+              {mapToolMode === 'fog-brush' && 'Left-drag terrain or sea to reveal/hide Fog of War for target players • Right-drag: Orbit'}
               {mapToolMode === 'text' && 'Configure label below, then click the world to place text • Right-drag: Orbit'}
               {(mapToolMode === 'zone' || mapToolMode === 'region') &&
                 'Click boundary points (min 3), choose Layer & Save Zone • Right-drag: Orbit'}
@@ -4147,11 +4021,92 @@ export const MapViewport3D: React.FC<{ mapId: string }> = ({ mapId }) => {
         </div>
       )}
 
+      {/* Interactive 3D Fog of War Brush Bar (Stacked above Bottom Dock) */}
+      {effectiveGm && !worldsmithMode && mapToolMode === 'fog-brush' && (
+        <div className="absolute bottom-[68px] left-1/2 -translate-x-1/2 z-30 flex flex-wrap items-center gap-2 px-3 py-2 rounded-lg dark-glass shadow-glass border border-[#b68d40]/35 max-w-[94vw]">
+          <EyeOff className="w-3.5 h-3.5 text-[#c9a050] shrink-0" />
+          <select
+            aria-label="Target Player"
+            value={fogBrushTargetUserId}
+            onChange={(e) => setFogBrushTargetUserId(e.target.value)}
+            className="bg-[#040507] border border-[#181e28] rounded px-2 py-1 text-xs text-[#e8dfd0]"
+          >
+            <option value="__all__">All Players</option>
+            {campaignMembers.map((m) => (
+              <option key={m.user_id} value={m.user_id}>
+                {m.profile?.display_name || m.user_id.slice(0, 8)}
+              </option>
+            ))}
+          </select>
+          <div className="flex items-center p-0.5 rounded bg-[#050608] border border-[#181e28]">
+            <button
+              type="button"
+              onClick={() => setFogBrushRevealMode(true)}
+              className={`px-2 py-1 rounded text-xs font-medium transition-colors ${
+                fogBrushRevealMode
+                  ? 'btn-gold-metallic font-semibold'
+                  : 'text-[#8e96a3] hover:text-white'
+              }`}
+            >
+              Reveal
+            </button>
+            <button
+              type="button"
+              onClick={() => setFogBrushRevealMode(false)}
+              className={`px-2 py-1 rounded text-xs font-medium transition-colors ${
+                !fogBrushRevealMode
+                  ? 'bg-red-950/80 text-red-200 border border-red-400/50 font-semibold'
+                  : 'text-[#8e96a3] hover:text-white'
+              }`}
+            >
+              Hide
+            </button>
+          </div>
+          <label className="flex items-center gap-1.5 text-[11px] text-[#aba496]">
+            <span>Radius {Math.round(brushRadius)}m</span>
+            <input
+              type="range"
+              min={3}
+              max={30}
+              step={1}
+              value={brushRadius}
+              onChange={(e) => setBrushRadius(Number(e.target.value))}
+              className="w-20 accent-[#b68d40]"
+            />
+          </label>
+          <button
+            type="button"
+            onClick={() =>
+              setFogCommandSignal((s) => ({ seq: s.seq + 1, action: 'reveal-all' }))
+            }
+            className="px-2 py-1 rounded bg-[#0e1218] hover:bg-[#171c26] border border-[#242b38] text-[11px] text-[#e8dfd0]"
+          >
+            Reveal All
+          </button>
+          <button
+            type="button"
+            onClick={() =>
+              setFogCommandSignal((s) => ({ seq: s.seq + 1, action: 'reset-shroud' }))
+            }
+            className="px-2 py-1 rounded bg-[#0e1218] hover:bg-[#171c26] border border-[#242b38] text-[11px] text-[#d6b16a]"
+          >
+            Reset Shroud
+          </button>
+          <button
+            type="button"
+            onClick={() => setMapToolMode('select')}
+            className="px-2.5 py-1 rounded bg-[#0e1218] hover:bg-[#171c26] text-xs text-[#ded8cc]"
+          >
+            Done
+          </button>
+        </div>
+      )}
+
       {/* Option A: Bottom-Center Studio Tool & Layer Dock */}
       <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1 px-1.5 py-1 rounded-xl dark-glass shadow-glass border border-[#171c26] max-w-[96vw]">
         {/* Active Tool Buttons */}
         <div className="flex items-center gap-0.5 flex-wrap justify-center">
-          {worldsmithMode ? (
+          {worldsmithMode && effectiveGm ? (
             <>
               <button
                 title="Undo Terrain Sculpt (Ctrl+Z)"
@@ -4213,40 +4168,44 @@ export const MapViewport3D: React.FC<{ mapId: string }> = ({ mapId }) => {
           ) : (
             (
               [
-                { id: 'select', icon: MousePointer, label: 'Select / Move / Inspect' },
-                { id: 'pin', icon: MapPin, label: 'Add Location Pin' },
-                { id: 'text', icon: Type, label: 'Add Text Label' },
-                { id: 'zone', icon: Pentagon, label: 'Draw Country / Region / Layer Zone' },
-                { id: 'path', icon: Route, label: 'Draw Path / Route' },
-                { id: 'element', icon: Castle, label: 'Place 3D Element' },
-                { id: 'link', icon: Link2, label: 'Link Note' },
+                { id: 'select', icon: MousePointer, label: 'Select / Move / Inspect', gmOnly: false },
+                { id: 'pin', icon: MapPin, label: 'Add Location Pin', gmOnly: true },
+                { id: 'text', icon: Type, label: 'Add Text Label', gmOnly: true },
+                { id: 'zone', icon: Pentagon, label: 'Draw Country / Region / Layer Zone', gmOnly: true },
+                { id: 'path', icon: Route, label: 'Draw Path / Route', gmOnly: true },
+                { id: 'element', icon: Castle, label: 'Place 3D Element', gmOnly: true },
+                { id: 'quest-board', icon: ScrollText, label: 'Place Guild Quest Board', gmOnly: true },
+                { id: 'fog-brush', icon: EyeOff, label: '3D Fog Brush', gmOnly: true },
+                { id: 'link', icon: Link2, label: 'Link Note', gmOnly: true },
               ] as const
-            ).map((tool) => {
-              const Icon = tool.icon;
-              const active =
-                mapToolMode === tool.id || (tool.id === 'zone' && mapToolMode === 'region');
-              return (
-                <button
-                  key={tool.id}
-                  title={tool.label}
-                  aria-label={tool.label}
-                  onClick={() => {
-                    if (tool.id === 'link') {
-                      openNewEntryModal('Location', 'encyclopedia');
-                    } else {
-                      setMapToolMode(tool.id);
-                    }
-                  }}
-                  className={`p-2 rounded-lg transition-all ${
-                    active
-                      ? 'bg-[#b68d40]/20 text-[#d6b16a] border border-[#b68d40]/55 shadow-gold-sm'
-                      : 'text-[#848d9c] hover:text-[#e8dfd0] hover:bg-[#10141c]'
-                  }`}
-                >
-                  <Icon className="w-4 h-4" />
-                </button>
-              );
-            })
+            )
+              .filter((tool) => !tool.gmOnly || effectiveGm)
+              .map((tool) => {
+                const Icon = tool.icon;
+                const active =
+                  mapToolMode === tool.id || (tool.id === 'zone' && mapToolMode === 'region');
+                return (
+                  <button
+                    key={tool.id}
+                    title={tool.label}
+                    aria-label={tool.label}
+                    onClick={() => {
+                      if (tool.id === 'link') {
+                        openNewEntryModal('Location', 'encyclopedia');
+                      } else {
+                        setMapToolMode(tool.id);
+                      }
+                    }}
+                    className={`p-2 rounded-lg transition-all ${
+                      active
+                        ? 'bg-[#b68d40]/20 text-[#d6b16a] border border-[#b68d40]/55 shadow-gold-sm'
+                        : 'text-[#848d9c] hover:text-[#e8dfd0] hover:bg-[#10141c]'
+                    }`}
+                  >
+                    <Icon className="w-4 h-4" />
+                  </button>
+                );
+              })
           )}
         </div>
 
@@ -4293,6 +4252,8 @@ export const MapViewport3D: React.FC<{ mapId: string }> = ({ mapId }) => {
                     ['paths', 'Paths / Trails'],
                     ['regions', 'Countries & Zones'],
                     ['labels', 'Map Text Labels'],
+                    ['questBoards', 'Guild Quest Boards'],
+                    ['fogOfWar', 'Fog of War Shroud'],
                   ] as Array<[keyof typeof mapLayers, string]>
                 ).map(([key, label]) => (
                   <button
@@ -4353,167 +4314,190 @@ export const MapViewport3D: React.FC<{ mapId: string }> = ({ mapId }) => {
                   ))}
                 </div>
 
-                {!newLayerOpen ? (
-                  <button
-                    onClick={() => setNewLayerOpen(true)}
-                    className="w-full py-1 px-2 rounded bg-[#0a0d12] hover:bg-[#12161f] border border-[#181e28] text-[11px] text-[#c9a050] flex items-center justify-center gap-1"
-                  >
-                    <Plus className="w-3 h-3" />
-                    <span>Add Layer (Country / Religion...)</span>
-                  </button>
-                ) : (
-                  <div className="p-1.5 rounded bg-[#050608] border border-[#171c25] space-y-1.5">
-                    <input
-                      type="text"
-                      value={newLayerName}
-                      onChange={(e) => setNewLayerName(e.target.value)}
-                      placeholder="Layer name (e.g. Magic Leylines)"
-                      className="w-full bg-[#090b0f] border border-[#1a202b] rounded px-2 py-1 text-[11px] text-[#e8dfd0] focus:outline-none focus:border-[#b68d40]"
-                    />
-                    <div className="flex items-center gap-1">
-                      <select
-                        value={newLayerCat}
-                        onChange={(e) => setNewLayerCat(e.target.value as WorldLayerCategory)}
-                        className="flex-1 bg-[#090b0f] border border-[#1a202b] rounded px-1.5 py-1 text-[11px] text-[#ccc6ba]"
-                      >
-                        {(Object.keys(LAYER_CATEGORY_META) as WorldLayerCategory[]).map((cat) => (
-                          <option key={cat} value={cat}>
-                            {LAYER_CATEGORY_META[cat].label}
-                          </option>
-                        ))}
-                      </select>
-                      <button
-                        onClick={() => {
-                          if (!newLayerName.trim()) return;
-                          addWorldLayer(activeMap.id, {
-                            name: newLayerName,
-                            category: newLayerCat,
-                            color: LAYER_CATEGORY_META[newLayerCat].defaultColor,
-                          });
-                          setNewLayerName('');
-                          setNewLayerOpen(false);
-                        }}
-                        className="px-2 py-1 rounded btn-gold-metallic text-[11px] font-semibold"
-                      >
-                        Add
-                      </button>
-                      <button
-                        onClick={() => setNewLayerOpen(false)}
-                        className="p-1 rounded bg-[#0e1218] text-[#7a8291] hover:text-white"
-                      >
-                        <X className="w-3 h-3" />
-                      </button>
+                {effectiveGm &&
+                  (!newLayerOpen ? (
+                    <button
+                      onClick={() => setNewLayerOpen(true)}
+                      className="w-full py-1 px-2 rounded bg-[#0a0d12] hover:bg-[#12161f] border border-[#181e28] text-[11px] text-[#c9a050] flex items-center justify-center gap-1"
+                    >
+                      <Plus className="w-3 h-3" />
+                      <span>Add Layer (Country / Religion...)</span>
+                    </button>
+                  ) : (
+                    <div className="p-1.5 rounded bg-[#050608] border border-[#171c25] space-y-1.5">
+                      <input
+                        type="text"
+                        value={newLayerName}
+                        onChange={(e) => setNewLayerName(e.target.value)}
+                        placeholder="Layer name (e.g. Magic Leylines)"
+                        className="w-full bg-[#090b0f] border border-[#1a202b] rounded px-2 py-1 text-[11px] text-[#e8dfd0] focus:outline-none focus:border-[#b68d40]"
+                      />
+                      <div className="flex items-center gap-1">
+                        <select
+                          value={newLayerCat}
+                          onChange={(e) => setNewLayerCat(e.target.value as WorldLayerCategory)}
+                          className="flex-1 bg-[#090b0f] border border-[#1a202b] rounded px-1.5 py-1 text-[11px] text-[#ccc6ba]"
+                        >
+                          {(Object.keys(LAYER_CATEGORY_META) as WorldLayerCategory[]).map((cat) => (
+                            <option key={cat} value={cat}>
+                              {LAYER_CATEGORY_META[cat].label}
+                            </option>
+                          ))}
+                        </select>
+                        <button
+                          onClick={() => {
+                            if (!newLayerName.trim()) return;
+                            addWorldLayer(activeMap.id, {
+                              name: newLayerName,
+                              category: newLayerCat,
+                              color: LAYER_CATEGORY_META[newLayerCat].defaultColor,
+                            });
+                            setNewLayerName('');
+                            setNewLayerOpen(false);
+                          }}
+                          className="px-2 py-1 rounded btn-gold-metallic text-[11px] font-semibold"
+                        >
+                          Add
+                        </button>
+                        <button
+                          onClick={() => setNewLayerOpen(false)}
+                          className="p-1 rounded bg-[#0e1218] text-[#7a8291] hover:text-white"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                )}
+                  ))}
               </div>
             </div>
           )}
         </div>
 
-        {/* Map Tools Upward Popover */}
-        <div className="relative">
-          <button
-            onClick={() => {
-              setToolsDropdownOpen((v) => !v);
-              setLayersDropdownOpen(false);
-            }}
-            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-              toolsDropdownOpen
-                ? 'bg-[#b68d40]/18 text-[#d6b16a] border border-[#b68d40]/50'
-                : 'text-[#ccc6ba] hover:bg-[#10141c]'
-            }`}
-            title="World Generator, Atmosphere, Heightmap & Quick Actions"
-          >
-            <Wrench className="w-3.5 h-3.5 text-[#b68d40]" />
-            <span>Map Tools</span>
-          </button>
-          {toolsDropdownOpen && (
-            <div className="absolute right-0 bottom-full mb-2 w-60 rounded-lg dark-glass shadow-glass p-1.5 space-y-0.5 z-40 border border-[#b68d40]/35">
-              <button
-                onClick={() => {
-                  setWorldsmithMode(false);
-                  setMapToolMode('text');
-                  setToolsDropdownOpen(false);
-                }}
-                className="w-full text-left px-2.5 py-1.5 rounded text-xs text-[#ded8cc] hover:bg-[#b68d40]/15"
-              >
-                + Add Map Text Label
-              </button>
-              <button
-                onClick={() => {
-                  setWorldsmithMode(false);
-                  setMapToolMode('zone');
-                  setToolsDropdownOpen(false);
-                }}
-                className="w-full text-left px-2.5 py-1.5 rounded text-xs text-[#ded8cc] hover:bg-[#b68d40]/15"
-              >
-                + Draw Country / Region / Layer
-              </button>
-              <button
-                onClick={() => {
-                  setWorldsmithMode(false);
-                  setMapToolMode('element');
-                  setToolsDropdownOpen(false);
-                }}
-                className="w-full text-left px-2.5 py-1.5 rounded text-xs text-[#ded8cc] hover:bg-[#b68d40]/15"
-              >
-                + Place 3D Element (Castle, Ship...)
-              </button>
-              <button
-                onClick={() => {
-                  setWorldsmithMode(false);
-                  setMapToolMode('pin');
-                  setToolsDropdownOpen(false);
-                }}
-                className="w-full text-left px-2.5 py-1.5 rounded text-xs text-[#ded8cc] hover:bg-[#b68d40]/15"
-              >
-                + Place Location Pin
-              </button>
-              <button
-                onClick={() => {
-                  setWorldsmithMode(false);
-                  setMapToolMode('path');
-                  setToolsDropdownOpen(false);
-                }}
-                className="w-full text-left px-2.5 py-1.5 rounded text-xs text-[#ded8cc] hover:bg-[#b68d40]/15"
-              >
-                + Draw Terrain Route
-              </button>
-              <div className="my-1 border-t border-[#141821]" />
-              <button
-                onClick={() => {
-                  setMapGeneratorModalOpen(true, '3d');
-                  setToolsDropdownOpen(false);
-                }}
-                className="w-full text-left px-2.5 py-1.5 rounded text-xs text-[#c9a050] hover:bg-[#b68d40]/15"
-              >
-                Generate New 3D World...
-              </button>
-              <button
-                onClick={() => {
-                  setMapGeneratorModalOpen(true, '3d', mapId);
-                  setToolsDropdownOpen(false);
-                }}
-                className="w-full text-left px-2.5 py-1.5 rounded text-xs text-[#ccc6ba] hover:bg-[#b68d40]/15"
-              >
-                Edit Map &amp; Atmosphere...
-              </button>
-              <button
-                onClick={() => {
-                  setSettingsModalOpen(true);
-                  setToolsDropdownOpen(false);
-                }}
-                className="w-full text-left px-2.5 py-1.5 rounded text-xs text-[#b68d40] hover:bg-[#b68d40]/15"
-              >
-                Upload Heightmap / Albedo...
-              </button>
-            </div>
-          )}
-        </div>
+        {/* Map Tools Upward Popover (GM Only) */}
+        {effectiveGm && (
+          <div className="relative">
+            <button
+              onClick={() => {
+                setToolsDropdownOpen((v) => !v);
+                setLayersDropdownOpen(false);
+              }}
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                toolsDropdownOpen
+                  ? 'bg-[#b68d40]/18 text-[#d6b16a] border border-[#b68d40]/50'
+                  : 'text-[#ccc6ba] hover:bg-[#10141c]'
+              }`}
+              title="World Generator, Atmosphere, Heightmap & Quick Actions"
+            >
+              <Wrench className="w-3.5 h-3.5 text-[#b68d40]" />
+              <span>Map Tools</span>
+            </button>
+            {toolsDropdownOpen && (
+              <div className="absolute right-0 bottom-full mb-2 w-60 rounded-lg dark-glass shadow-glass p-1.5 space-y-0.5 z-40 border border-[#b68d40]/35">
+                <button
+                  onClick={() => {
+                    setWorldsmithMode(false);
+                    setMapToolMode('text');
+                    setToolsDropdownOpen(false);
+                  }}
+                  className="w-full text-left px-2.5 py-1.5 rounded text-xs text-[#ded8cc] hover:bg-[#b68d40]/15"
+                >
+                  + Add Map Text Label
+                </button>
+                <button
+                  onClick={() => {
+                    setWorldsmithMode(false);
+                    setMapToolMode('zone');
+                    setToolsDropdownOpen(false);
+                  }}
+                  className="w-full text-left px-2.5 py-1.5 rounded text-xs text-[#ded8cc] hover:bg-[#b68d40]/15"
+                >
+                  + Draw Country / Region / Layer
+                </button>
+                <button
+                  onClick={() => {
+                    setWorldsmithMode(false);
+                    setMapToolMode('element');
+                    setToolsDropdownOpen(false);
+                  }}
+                  className="w-full text-left px-2.5 py-1.5 rounded text-xs text-[#ded8cc] hover:bg-[#b68d40]/15"
+                >
+                  + Place 3D Element (Castle, Ship...)
+                </button>
+                <button
+                  onClick={() => {
+                    setWorldsmithMode(false);
+                    setMapToolMode('pin');
+                    setToolsDropdownOpen(false);
+                  }}
+                  className="w-full text-left px-2.5 py-1.5 rounded text-xs text-[#ded8cc] hover:bg-[#b68d40]/15"
+                >
+                  + Place Location Pin
+                </button>
+                <button
+                  onClick={() => {
+                    setWorldsmithMode(false);
+                    setMapToolMode('path');
+                    setToolsDropdownOpen(false);
+                  }}
+                  className="w-full text-left px-2.5 py-1.5 rounded text-xs text-[#ded8cc] hover:bg-[#b68d40]/15"
+                >
+                  + Draw Terrain Route
+                </button>
+                <button
+                  onClick={() => {
+                    setWorldsmithMode(false);
+                    setMapToolMode('quest-board');
+                    setToolsDropdownOpen(false);
+                  }}
+                  className="w-full text-left px-2.5 py-1.5 rounded text-xs text-[#ded8cc] hover:bg-[#b68d40]/15"
+                >
+                  + Place Guild Quest Board
+                </button>
+                <button
+                  onClick={() => {
+                    setWorldsmithMode(false);
+                    setMapToolMode('fog-brush');
+                    setToolsDropdownOpen(false);
+                  }}
+                  className="w-full text-left px-2.5 py-1.5 rounded text-xs text-[#ded8cc] hover:bg-[#b68d40]/15"
+                >
+                  + 3D Fog of War Brush
+                </button>
+                <div className="my-1 border-t border-[#141821]" />
+                <button
+                  onClick={() => {
+                    setMapGeneratorModalOpen(true, '3d');
+                    setToolsDropdownOpen(false);
+                  }}
+                  className="w-full text-left px-2.5 py-1.5 rounded text-xs text-[#c9a050] hover:bg-[#b68d40]/15"
+                >
+                  Generate New 3D World...
+                </button>
+                <button
+                  onClick={() => {
+                    setMapGeneratorModalOpen(true, '3d', mapId);
+                    setToolsDropdownOpen(false);
+                  }}
+                  className="w-full text-left px-2.5 py-1.5 rounded text-xs text-[#ccc6ba] hover:bg-[#b68d40]/15"
+                >
+                  Edit Map &amp; Atmosphere...
+                </button>
+                <button
+                  onClick={() => {
+                    setSettingsModalOpen(true);
+                    setToolsDropdownOpen(false);
+                  }}
+                  className="w-full text-left px-2.5 py-1.5 rounded text-xs text-[#b68d40] hover:bg-[#b68d40]/15"
+                >
+                  Upload Heightmap / Albedo...
+                </button>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Worldsmith Brush / Mesh Settings Trigger */}
-        {worldsmithMode && (
+        {worldsmithMode && effectiveGm && (
           <button
             onClick={() => setRightInspectorCollapsed(false)}
             className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-[#0e1218] border border-[#b68d40]/35 text-[#d6b16a] hover:border-[#b68d40]"
@@ -4567,7 +4551,11 @@ export const MapViewport3D: React.FC<{ mapId: string }> = ({ mapId }) => {
       </div>
 
       {/* Bottom-Right Compact Camera Zoom & View Controls */}
-      <div className="absolute bottom-3.5 right-3.5 z-20 flex flex-col gap-1.5">
+      <div
+        data-testid="viewport-hud"
+        style={{ right: rightInsetPx }}
+        className="absolute bottom-3.5 z-20 flex flex-col gap-1.5"
+      >
         <button
           onClick={() => (mapCameraView === 'top' ? triggerCameraReset() : triggerTopView())}
           title={
@@ -4612,6 +4600,9 @@ export const MapViewport3D: React.FC<{ mapId: string }> = ({ mapId }) => {
 
       {/* Slide-Over Entity Card when a 3D Pin is Clicked */}
       <PinEntitySlideOver />
+
+      {/* West Marches Guild Quest Board Modal */}
+      <GuildQuestBoardModal />
     </div>
   );
 };

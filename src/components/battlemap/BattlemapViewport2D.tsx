@@ -19,17 +19,30 @@ import {
   Play,
   Plus,
   Ruler,
+  ScrollText,
   Settings2,
   Shield,
   Skull,
   Sparkles,
   Sun,
+  Target,
   UserPlus,
   Wand2,
 } from 'lucide-react';
 import { computeVisibilityPolygon, Segment2D } from '../../lib/battlemapLighting';
+import {
+  FOG_MASK_SIZE,
+  createFogMask,
+  loadMaskFromUrl,
+  maskToCanvasBlob,
+  paintFogCircle,
+  unionFogMasks,
+} from '../../lib/fogOfWarMask';
+import { uploadAssetDataUrlOrBlob } from '../../lib/supabase';
 import { useVaultStore } from '../../store/useVaultStore';
 import {
+  AoeTemplateShape,
+  BattlemapAoeTemplate,
   BattlemapDoor,
   BattlemapLight,
   BattlemapProp,
@@ -37,6 +50,8 @@ import {
   BattlemapToken,
   TokenDisposition,
 } from '../../types/vault';
+import { GuildQuestBoardModal } from '../quests/GuildQuestBoardModal';
+import { InitiativeTrackerBar } from './InitiativeTrackerBar';
 
 const LIGHT_PRESETS = [
   { label: 'Wall Torch', radiusFt: 30, color: '#f59e0b', intensity: 0.92, flicker: true },
@@ -91,8 +106,25 @@ const PARTY_PRESETS = [
 
 export const BattlemapViewport2D: React.FC<{ mapId: string }> = ({ mapId }) => {
   const {
+    user,
     maps,
-    gmMode,
+    campaignMembers,
+    isEffectiveGm,
+    canEditToken,
+    rightInspectorCollapsed,
+    inspectorWidth,
+    mapFogStates,
+    mapFogShares,
+    updateMapFogState,
+    setBattlemapFogUrl,
+    fogBrushTargetUserId,
+    setFogBrushTargetUserId,
+    fogBrushRevealMode,
+    setFogBrushRevealMode,
+    questBoards,
+    guildQuests,
+    createQuestBoard,
+    setActiveQuestBoardModalId,
     battlemapMode,
     setBattlemapMode,
     battlemapTool,
@@ -108,10 +140,10 @@ export const BattlemapViewport2D: React.FC<{ mapId: string }> = ({ mapId }) => {
     snapToGrid,
     setSnapToGrid,
     updateBattlemap,
+    moveBattlemapToken,
     toggleBattlemapDoor,
     toggleBattlemapLight,
     addBattlemapToken,
-    updateBattlemapToken,
     deleteBattlemapToken,
     addBattlemapWall,
     deleteBattlemapWall,
@@ -122,21 +154,69 @@ export const BattlemapViewport2D: React.FC<{ mapId: string }> = ({ mapId }) => {
     addBattlemapProp,
     updateBattlemapProp,
     deleteBattlemapProp,
+    addAoeTemplate,
+    deleteAoeTemplate,
     setMapGeneratorModalOpen,
   } = useVaultStore();
 
+  const effectiveGm = isEffectiveGm();
+  const rightInsetPx = rightInspectorCollapsed ? 12 : inspectorWidth + 12;
+
   const mapData = maps.find((m) => m.id === mapId);
-  const bm = mapData?.battlemap;
+  const bm = useMemo(() => {
+    if (!mapData) return undefined;
+    const raw = (mapData.battlemap || {}) as Partial<NonNullable<typeof mapData.battlemap>> & {
+      widthCells?: number;
+      heightCells?: number;
+    };
+    const gridSizePx = raw.gridSizePx || 48;
+    const width = raw.width || (raw.widthCells ? raw.widthCells * gridSizePx : 960);
+    const height = raw.height || (raw.heightCells ? raw.heightCells * gridSizePx : 720);
+    return {
+      theme: raw.theme || 'stone-dungeon',
+      backgroundUrl: raw.backgroundUrl ?? null,
+      width,
+      height,
+      gridSizePx,
+      showGrid: raw.showGrid ?? true,
+      gridOpacity: raw.gridOpacity ?? 0.28,
+      ambientLight: raw.ambientLight ?? 0.85,
+      dynamicLighting: raw.dynamicLighting ?? false,
+      fogOfWarEnabled: raw.fogOfWarEnabled ?? false,
+      revealedMaskUrl: raw.revealedMaskUrl ?? null,
+      tokens: raw.tokens || [],
+      walls: raw.walls || [],
+      doors: raw.doors || [],
+      lights: raw.lights || [],
+      props: raw.props || [],
+      aoeTemplates: raw.aoeTemplates || [],
+      sceneNotes: raw.sceneNotes,
+    };
+  }, [mapData]);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const fogCanvasRef = useRef<HTMLCanvasElement>(null);
   const lightCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const bgImageRef = useRef<HTMLImageElement | null>(null);
+  const fogMaskRef = useRef<Uint8Array>(createFogMask(255));
+  const [fogMaskSeq, setFogMaskSeq] = useState(0);
   const [bgLoadedSeq, setBgLoadedSeq] = useState(0);
 
   // Camera Pan & Zoom
   const [zoom, setZoom] = useState(0.82);
   const [pan, setPan] = useState({ x: 40, y: 30 });
+
+  // Fog Brush & AoE Draft Settings
+  const [fogBrushRadiusCells, setFogBrushRadiusCells] = useState(2);
+  const [aoeShape, setAoeShape] = useState<AoeTemplateShape>('circle');
+  const [aoeRadiusFt, setAoeRadiusFt] = useState(20);
+  const [aoeColor, setAoeColor] = useState('#ef4444');
+  const [dragTokenPreview, setDragTokenPreview] = useState<{
+    id: string;
+    x: number;
+    y: number;
+  } | null>(null);
 
   // Enemy/Party & Scene Prep Preset Selection
   const [enemyPresetIdx, setEnemyPresetIdx] = useState(0);
@@ -160,10 +240,21 @@ export const BattlemapViewport2D: React.FC<{ mapId: string }> = ({ mapId }) => {
     | { kind: 'token'; tokenId: string; startX: number; startY: number; origX: number; origY: number }
     | { kind: 'prop'; propId: string; startX: number; startY: number; origX: number; origY: number }
     | { kind: 'light'; lightId: string; startX: number; startY: number; origX: number; origY: number }
+    | { kind: 'fog'; reveal: boolean }
     | { kind: 'line'; tool: 'draw-wall' | 'draw-door' | 'measure'; x1: number; y1: number; x2: number; y2: number }
   >(null);
 
-  // Keyboard shortcuts: Delete selected element (in Prepare Scene) / Escape cancel
+  // Auto-exit GM prep/tools when role switches to Player
+  useEffect(() => {
+    if (!effectiveGm) {
+      if (battlemapMode === 'prep') setBattlemapMode('play');
+      if (battlemapTool !== 'select' && battlemapTool !== 'measure') {
+        setBattlemapTool('select');
+      }
+    }
+  }, [effectiveGm, battlemapMode, battlemapTool, setBattlemapMode, setBattlemapTool]);
+
+  // Keyboard shortcuts: Delete selected element (GM Prepare Scene) / Escape cancel
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
@@ -178,13 +269,15 @@ export const BattlemapViewport2D: React.FC<{ mapId: string }> = ({ mapId }) => {
       }
       if (e.key === 'Escape') {
         setDragState(null);
+        setDragTokenPreview(null);
         setSelectedTokenId(null);
         setSelectedDoorId(null);
         setSelectedLightId(null);
         setSelectedPropId2D(null);
+        if (battlemapTool !== 'select') setBattlemapTool('select');
         return;
       }
-      if ((e.key === 'Delete' || e.key === 'Backspace') && battlemapMode === 'prep') {
+      if ((e.key === 'Delete' || e.key === 'Backspace') && effectiveGm && battlemapMode === 'prep') {
         if (selectedPropId2D) {
           e.preventDefault();
           deleteBattlemapProp(mapId, selectedPropId2D);
@@ -203,7 +296,9 @@ export const BattlemapViewport2D: React.FC<{ mapId: string }> = ({ mapId }) => {
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [
+    effectiveGm,
     battlemapMode,
+    battlemapTool,
     mapId,
     selectedPropId2D,
     selectedLightId,
@@ -217,6 +312,7 @@ export const BattlemapViewport2D: React.FC<{ mapId: string }> = ({ mapId }) => {
     setSelectedDoorId,
     setSelectedLightId,
     setSelectedPropId2D,
+    setBattlemapTool,
   ]);
 
   // Load background floor image
@@ -245,6 +341,154 @@ export const BattlemapViewport2D: React.FC<{ mapId: string }> = ({ mapId }) => {
       y: Math.round((rect.height - bm.height * z) / 2),
     });
   }, [mapId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Sync persisted 2D Fog of War mask (per-player + shared showings + fallback revealedMaskUrl)
+  useEffect(() => {
+    let cancelled = false;
+    const syncFog2D = async () => {
+      if (!bm) return;
+      const fallbackUrl = mapData?.fog_of_war_2d || bm.revealedMaskUrl || null;
+      if (effectiveGm) {
+        const targetId =
+          fogBrushTargetUserId === '__all__'
+            ? mapFogStates.find((f) => f.map_id === mapId)?.user_id
+            : fogBrushTargetUserId;
+        const row = targetId
+          ? mapFogStates.find((f) => f.map_id === mapId && f.user_id === targetId)
+          : undefined;
+        const maskUrl = row?.mask_url || fallbackUrl;
+        if (maskUrl) {
+          const loaded = await loadMaskFromUrl(maskUrl);
+          if (!cancelled) {
+            fogMaskRef.current = loaded ?? createFogMask(bm.fogOfWarEnabled ? 0 : 255);
+            setFogMaskSeq((s) => s + 1);
+          }
+        } else if (!cancelled) {
+          fogMaskRef.current = createFogMask(bm.fogOfWarEnabled ? 0 : 255);
+          setFogMaskSeq((s) => s + 1);
+        }
+        return;
+      }
+
+      if (!user) return;
+      const ownRow = mapFogStates.find((f) => f.map_id === mapId && f.user_id === user.id);
+      const sharedOwners = new Set<string>();
+      for (const sh of mapFogShares) {
+        if (sh.map_id !== mapId) continue;
+        if (sh.share_all || sh.shared_with_user_id === user.id) {
+          sharedOwners.add(sh.owner_user_id);
+        }
+      }
+      const urls = new Set<string>();
+      if (ownRow?.mask_url) urls.add(ownRow.mask_url);
+      for (const ownerId of sharedOwners) {
+        const peerRow = mapFogStates.find((f) => f.map_id === mapId && f.user_id === ownerId);
+        if (peerRow?.mask_url) urls.add(peerRow.mask_url);
+      }
+      if (urls.size === 0 && fallbackUrl) {
+        urls.add(fallbackUrl);
+      }
+      if (urls.size === 0) {
+        if (!cancelled) {
+          fogMaskRef.current = createFogMask(bm.fogOfWarEnabled ? 0 : 255);
+          setFogMaskSeq((s) => s + 1);
+        }
+        return;
+      }
+      const loaded = (await Promise.all(Array.from(urls).map((u) => loadMaskFromUrl(u)))).filter(
+        (m): m is Uint8Array => m !== null,
+      );
+      if (!cancelled) {
+        fogMaskRef.current =
+          loaded.length > 0 ? unionFogMasks(loaded) : createFogMask(bm.fogOfWarEnabled ? 0 : 255);
+        setFogMaskSeq((s) => s + 1);
+      }
+    };
+    void syncFog2D();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    mapId,
+    bm?.fogOfWarEnabled,
+    bm?.revealedMaskUrl,
+    mapData?.fog_of_war_2d,
+    mapFogStates,
+    mapFogShares,
+    effectiveGm,
+    fogBrushTargetUserId,
+    user,
+  ]);
+
+  const paintFogAtStagePoint = useCallback(
+    (x: number, y: number, reveal: boolean) => {
+      if (!bm) return;
+      const normX = Math.max(0, Math.min(1, x / bm.width));
+      const normY = Math.max(0, Math.min(1, y / bm.height));
+      const radiusNorm = (fogBrushRadiusCells * bm.gridSizePx) / Math.max(bm.width, bm.height);
+      paintFogCircle(fogMaskRef.current, normX, normY, radiusNorm, reveal);
+      setFogMaskSeq((s) => s + 1);
+    },
+    [bm, fogBrushRadiusCells]
+  );
+
+  const commitFog2DMask = useCallback(
+    async (explicitMask?: Uint8Array) => {
+      if (!effectiveGm || !bm) return;
+      const maskToSave = explicitMask || fogMaskRef.current;
+      const blob = await maskToCanvasBlob(maskToSave);
+      if (!blob) return;
+      const url = await uploadAssetDataUrlOrBlob(
+        blob,
+        `fog-2d-${mapId}-${Date.now()}.png`,
+        'image/png'
+      );
+      await updateMapFogState(mapId, fogBrushTargetUserId, url);
+      setBattlemapFogUrl(mapId, url);
+    },
+    [effectiveGm, bm, mapId, fogBrushTargetUserId, updateMapFogState, setBattlemapFogUrl]
+  );
+
+  // Render 2D Fog of War Canvas Overlay
+  useEffect(() => {
+    if (!bm || !fogCanvasRef.current) return;
+    const fCanvas = fogCanvasRef.current;
+    fCanvas.width = bm.width;
+    fCanvas.height = bm.height;
+    const fCtx = fCanvas.getContext('2d');
+    if (!fCtx) return;
+
+    fCtx.clearRect(0, 0, bm.width, bm.height);
+    const hasSavedMask = Boolean(
+      bm.fogOfWarEnabled ||
+        bm.revealedMaskUrl ||
+        mapData?.fog_of_war_2d ||
+        mapFogStates.some((f) => f.map_id === mapId)
+    );
+    if (!hasSavedMask) return;
+
+    const mask = fogMaskRef.current;
+    const tmp = document.createElement('canvas');
+    tmp.width = FOG_MASK_SIZE;
+    tmp.height = FOG_MASK_SIZE;
+    const tCtx = tmp.getContext('2d');
+    if (!tCtx) return;
+
+    const imgData = tCtx.createImageData(FOG_MASK_SIZE, FOG_MASK_SIZE);
+    const maxAlpha = effectiveGm ? 148 : 244;
+    for (let i = 0; i < FOG_MASK_SIZE * FOG_MASK_SIZE; i++) {
+      const idx = i * 4;
+      const revealed = mask[i];
+      const shroudAlpha = Math.round(((255 - revealed) / 255) * maxAlpha);
+      imgData.data[idx] = 5;
+      imgData.data[idx + 1] = 7;
+      imgData.data[idx + 2] = 12;
+      imgData.data[idx + 3] = shroudAlpha;
+    }
+    tCtx.putImageData(imgData, 0, 0);
+    fCtx.imageSmoothingEnabled = true;
+    fCtx.drawImage(tmp, 0, 0, bm.width, bm.height);
+  }, [bm, mapData?.fog_of_war_2d, mapFogStates, mapId, effectiveGm, fogMaskSeq]);
 
   const screenToMap = useCallback(
     (clientX: number, clientY: number) => {
@@ -353,14 +597,13 @@ export const BattlemapViewport2D: React.FC<{ mapId: string }> = ({ mapId }) => {
       lCanvas.height = bm.height;
       const lCtx = lCanvas.getContext('2d')!;
 
-      const effectiveAmbient = gmMode
+      const effectiveAmbient = effectiveGm
         ? Math.min(1, bm.ambientLight + 0.08 * (1 - bm.ambientLight))
         : bm.ambientLight;
       lCtx.globalCompositeOperation = 'source-over';
       lCtx.fillStyle = `rgba(5, 7, 12, ${Math.max(0, 1 - effectiveAmbient)})`;
       lCtx.fillRect(0, 0, bm.width, bm.height);
 
-      // Collect all light emitters (scene lights + token torches/vision)
       const emitters: Array<{
         x: number;
         y: number;
@@ -382,8 +625,11 @@ export const BattlemapViewport2D: React.FC<{ mapId: string }> = ({ mapId }) => {
       });
 
       bm.tokens.forEach((tok) => {
-        if (tok.isHidden && !gmMode) return;
-        const rFt = Math.max(tok.lightRadiusFt, tok.disposition === 'party' ? tok.visionRangeFt * 0.45 : 0);
+        if (tok.isHidden && !effectiveGm) return;
+        const rFt = Math.max(
+          tok.lightRadiusFt,
+          tok.disposition === 'party' ? tok.visionRangeFt * 0.45 : 0
+        );
         if (rFt <= 0) return;
         emitters.push({
           x: tok.x,
@@ -395,7 +641,7 @@ export const BattlemapViewport2D: React.FC<{ mapId: string }> = ({ mapId }) => {
       });
 
       (bm.props || []).forEach((p, idx) => {
-        if (p.kind !== 'campfire' || (p.isSecret && !gmMode)) return;
+        if (p.kind !== 'campfire' || (p.isSecret && !effectiveGm)) return;
         const flick = 1 + Math.sin(flickerTick * 0.55 + idx * 1.7) * 0.05;
         emitters.push({
           x: p.x,
@@ -406,7 +652,6 @@ export const BattlemapViewport2D: React.FC<{ mapId: string }> = ({ mapId }) => {
         });
       });
 
-      // Punch out visibility polygons from darkness mask & tint warm/colored light
       for (const em of emitters) {
         const poly = computeVisibilityPolygon(
           em.x,
@@ -436,7 +681,6 @@ export const BattlemapViewport2D: React.FC<{ mapId: string }> = ({ mapId }) => {
         lCtx.fillRect(em.x - em.radiusPx, em.y - em.radiusPx, em.radiusPx * 2, em.radiusPx * 2);
         lCtx.restore();
 
-        // Colored light wash directly onto scene
         ctx.save();
         ctx.beginPath();
         ctx.moveTo(poly[0].x, poly[0].y);
@@ -455,15 +699,11 @@ export const BattlemapViewport2D: React.FC<{ mapId: string }> = ({ mapId }) => {
         ctx.restore();
       }
 
-      // Composite darkness shadow mask
       ctx.drawImage(lCanvas, 0, 0);
     }
 
     // 4. Walls & Pillars rendered crisp on top of shadows
     for (const w of bm.walls) {
-      if (w.kind === 'secret-wall' && !gmMode) {
-        // Disguised as normal wall to players
-      }
       ctx.save();
       ctx.lineCap = 'round';
       ctx.strokeStyle = '#090b0f';
@@ -473,9 +713,9 @@ export const BattlemapViewport2D: React.FC<{ mapId: string }> = ({ mapId }) => {
       ctx.lineTo(w.x2, w.y2);
       ctx.stroke();
 
-      ctx.strokeStyle = w.kind === 'secret-wall' && gmMode ? '#d4a853' : '#64748b';
+      ctx.strokeStyle = w.kind === 'secret-wall' && effectiveGm ? '#d4a853' : '#64748b';
       ctx.lineWidth = w.kind === 'pillar' ? 7 : 5;
-      if (w.kind === 'secret-wall' && gmMode) ctx.setLineDash([6, 4]);
+      if (w.kind === 'secret-wall' && effectiveGm) ctx.setLineDash([6, 4]);
       ctx.beginPath();
       ctx.moveTo(w.x1, w.y1);
       ctx.lineTo(w.x2, w.y2);
@@ -485,8 +725,7 @@ export const BattlemapViewport2D: React.FC<{ mapId: string }> = ({ mapId }) => {
 
     // 5. Doors rendered visually (open vs closed swing)
     for (const d of bm.doors) {
-      if (d.isSecret && !gmMode && !d.isOpen) {
-        // Hidden secret door disguised as stone wall for players
+      if (d.isSecret && !effectiveGm && !d.isOpen) {
         ctx.save();
         ctx.strokeStyle = '#64748b';
         ctx.lineWidth = 5;
@@ -526,7 +765,12 @@ export const BattlemapViewport2D: React.FC<{ mapId: string }> = ({ mapId }) => {
     // 6. Live drawing / ruler overlay
     if (dragState?.kind === 'line') {
       ctx.save();
-      ctx.strokeStyle = dragState.tool === 'measure' ? '#eab308' : dragState.tool === 'draw-door' ? '#38bdf8' : '#cbd5e1';
+      ctx.strokeStyle =
+        dragState.tool === 'measure'
+          ? '#eab308'
+          : dragState.tool === 'draw-door'
+          ? '#38bdf8'
+          : '#cbd5e1';
       ctx.lineWidth = 3;
       ctx.setLineDash([7, 5]);
       ctx.beginPath();
@@ -535,12 +779,13 @@ export const BattlemapViewport2D: React.FC<{ mapId: string }> = ({ mapId }) => {
       ctx.stroke();
       ctx.restore();
     }
-  }, [bm, gmMode, blockerSegments, flickerTick, bgLoadedSeq, dragState]);
+  }, [bm, effectiveGm, blockerSegments, flickerTick, bgLoadedSeq, dragState]);
 
   if (!mapData || !bm) return null;
 
+  const mapBoards = questBoards.filter((b) => b.map_id === mapId);
+
   const handleCanvasPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
-    // Middle or Right mouse pans
     if (e.button === 1 || e.button === 2) {
       e.preventDefault();
       setDragState({
@@ -566,7 +811,39 @@ export const BattlemapViewport2D: React.FC<{ mapId: string }> = ({ mapId }) => {
       return;
     }
 
-    if (battlemapTool === 'place-enemy') {
+    if (effectiveGm && (battlemapTool === 'fog-reveal' || battlemapTool === 'fog-hide')) {
+      const reveal = battlemapTool === 'fog-reveal' ? fogBrushRevealMode : false;
+      paintFogAtStagePoint(pt.x, pt.y, reveal);
+      setDragState({ kind: 'fog', reveal });
+      return;
+    }
+
+    if (effectiveGm && battlemapTool === 'aoe') {
+      addAoeTemplate(mapId, {
+        shape: aoeShape,
+        label: `${aoeRadiusFt}ft ${aoeShape}`,
+        x: snapCoord(pt.x, bm.gridSizePx, true),
+        y: snapCoord(pt.y, bm.gridSizePx, true),
+        radiusFt: aoeRadiusFt,
+        angleDeg: 0,
+        color: aoeColor,
+      });
+      return;
+    }
+
+    if (effectiveGm && battlemapTool === 'place-quest-board') {
+      void createQuestBoard({
+        map_id: mapId,
+        title: `Guild Bounty Board #${mapBoards.length + 1}`,
+        x: Math.round(snapCoord(pt.x, bm.gridSizePx, true)),
+        y: Math.round(snapCoord(pt.y, bm.gridSizePx, true)),
+        z: 0,
+      });
+      setBattlemapTool('select');
+      return;
+    }
+
+    if (effectiveGm && battlemapTool === 'place-enemy') {
       const preset = ENEMY_PRESETS[enemyPresetIdx];
       addBattlemapToken(mapId, {
         name: preset.name,
@@ -586,7 +863,7 @@ export const BattlemapViewport2D: React.FC<{ mapId: string }> = ({ mapId }) => {
       return;
     }
 
-    if (battlemapTool === 'place-party') {
+    if (effectiveGm && battlemapTool === 'place-party') {
       const preset = PARTY_PRESETS[partyPresetIdx];
       addBattlemapToken(mapId, {
         name: preset.name,
@@ -606,7 +883,7 @@ export const BattlemapViewport2D: React.FC<{ mapId: string }> = ({ mapId }) => {
       return;
     }
 
-    if (battlemapTool === 'place-light') {
+    if (effectiveGm && battlemapTool === 'place-light') {
       const lp = LIGHT_PRESETS[lightPresetIdx] || LIGHT_PRESETS[0];
       addBattlemapLight(mapId, {
         label: `${lp.label} #${bm.lights.length + 1}`,
@@ -621,7 +898,7 @@ export const BattlemapViewport2D: React.FC<{ mapId: string }> = ({ mapId }) => {
       return;
     }
 
-    if (battlemapTool === 'place-prop') {
+    if (effectiveGm && battlemapTool === 'place-prop') {
       const pp = PROP_PRESETS[propPresetIdx] || PROP_PRESETS[0];
       addBattlemapProp(mapId, {
         kind: pp.kind,
@@ -638,15 +915,13 @@ export const BattlemapViewport2D: React.FC<{ mapId: string }> = ({ mapId }) => {
       return;
     }
 
-    if (battlemapTool === 'erase') {
-      // Check nearest wall segment within 14px
+    if (effectiveGm && battlemapTool === 'erase') {
       for (const w of bm.walls) {
         if (distToSegment(pt.x, pt.y, w.x1, w.y1, w.x2, w.y2) <= 14) {
           deleteBattlemapWall(mapId, w.id);
           return;
         }
       }
-      // Check doors
       for (const d of bm.doors) {
         if (distToSegment(pt.x, pt.y, d.x1, d.y1, d.x2, d.y2) <= 16) {
           deleteBattlemapDoor(mapId, d.id);
@@ -656,14 +931,16 @@ export const BattlemapViewport2D: React.FC<{ mapId: string }> = ({ mapId }) => {
       return;
     }
 
-    if (battlemapTool === 'draw-wall' || battlemapTool === 'draw-door' || battlemapTool === 'measure') {
+    if (
+      battlemapTool === 'measure' ||
+      (effectiveGm && (battlemapTool === 'draw-wall' || battlemapTool === 'draw-door'))
+    ) {
       const sx = snapCoord(pt.x, bm.gridSizePx, false);
       const sy = snapCoord(pt.y, bm.gridSizePx, false);
       setDragState({ kind: 'line', tool: battlemapTool, x1: sx, y1: sy, x2: sx, y2: sy });
       return;
     }
 
-    // Select background pan if dragging empty space
     setSelectedTokenId(null);
     setSelectedPropId2D(null);
     setDragState({
@@ -682,19 +959,22 @@ export const BattlemapViewport2D: React.FC<{ mapId: string }> = ({ mapId }) => {
         x: dragState.origPanX + (e.clientX - dragState.startX),
         y: dragState.origPanY + (e.clientY - dragState.startY),
       });
+    } else if (dragState.kind === 'fog') {
+      const pt = screenToMap(e.clientX, e.clientY);
+      paintFogAtStagePoint(pt.x, pt.y, dragState.reveal);
     } else if (dragState.kind === 'token') {
       const dx = (e.clientX - dragState.startX) / zoom;
       const dy = (e.clientY - dragState.startY) / zoom;
       const nx = Math.max(20, Math.min(bm.width - 20, dragState.origX + dx));
       const ny = Math.max(20, Math.min(bm.height - 20, dragState.origY + dy));
-      updateBattlemapToken(mapId, dragState.tokenId, { x: nx, y: ny });
-    } else if (dragState.kind === 'prop') {
+      setDragTokenPreview({ id: dragState.tokenId, x: nx, y: ny });
+    } else if (dragState.kind === 'prop' && effectiveGm) {
       const dx = (e.clientX - dragState.startX) / zoom;
       const dy = (e.clientY - dragState.startY) / zoom;
       const nx = Math.max(16, Math.min(bm.width - 16, dragState.origX + dx));
       const ny = Math.max(16, Math.min(bm.height - 16, dragState.origY + dy));
       updateBattlemapProp(mapId, dragState.propId, { x: nx, y: ny });
-    } else if (dragState.kind === 'light') {
+    } else if (dragState.kind === 'light' && effectiveGm) {
       const dx = (e.clientX - dragState.startX) / zoom;
       const dy = (e.clientY - dragState.startY) / zoom;
       const nx = Math.max(10, Math.min(bm.width - 10, dragState.origX + dx));
@@ -715,15 +995,23 @@ export const BattlemapViewport2D: React.FC<{ mapId: string }> = ({ mapId }) => {
 
   const handlePointerUp = () => {
     if (!dragState) return;
-    if (dragState.kind === 'token') {
+    if (dragState.kind === 'fog') {
+      void commitFog2DMask();
+    } else if (dragState.kind === 'token') {
       const tok = bm.tokens.find((t) => t.id === dragState.tokenId);
-      if (tok && snapToGrid) {
-        updateBattlemapToken(mapId, tok.id, {
-          x: snapCoord(tok.x, bm.gridSizePx, true),
-          y: snapCoord(tok.y, bm.gridSizePx, true),
-        });
+      const pos =
+        dragTokenPreview && dragTokenPreview.id === dragState.tokenId
+          ? { x: dragTokenPreview.x, y: dragTokenPreview.y }
+          : tok
+          ? { x: tok.x, y: tok.y }
+          : null;
+      if (tok && pos) {
+        const finalX = snapToGrid ? snapCoord(pos.x, bm.gridSizePx, true) : pos.x;
+        const finalY = snapToGrid ? snapCoord(pos.y, bm.gridSizePx, true) : pos.y;
+        void moveBattlemapToken(mapId, tok.id, finalX, finalY);
       }
-    } else if (dragState.kind === 'prop') {
+      setDragTokenPreview(null);
+    } else if (dragState.kind === 'prop' && effectiveGm) {
       const prop = (bm.props || []).find((p) => p.id === dragState.propId);
       if (prop && snapToGrid) {
         updateBattlemapProp(mapId, prop.id, {
@@ -731,7 +1019,7 @@ export const BattlemapViewport2D: React.FC<{ mapId: string }> = ({ mapId }) => {
           y: snapCoord(prop.y, bm.gridSizePx, true),
         });
       }
-    } else if (dragState.kind === 'light') {
+    } else if (dragState.kind === 'light' && effectiveGm) {
       const light = bm.lights.find((l) => l.id === dragState.lightId);
       if (light && snapToGrid) {
         const sx = snapCoord(light.x, bm.gridSizePx, true);
@@ -743,7 +1031,7 @@ export const BattlemapViewport2D: React.FC<{ mapId: string }> = ({ mapId }) => {
       }
     } else if (dragState.kind === 'line') {
       const len = Math.hypot(dragState.x2 - dragState.x1, dragState.y2 - dragState.y1);
-      if (len > 12) {
+      if (len > 12 && effectiveGm) {
         if (dragState.tool === 'draw-wall') {
           addBattlemapWall(mapId, {
             x1: dragState.x1,
@@ -772,14 +1060,29 @@ export const BattlemapViewport2D: React.FC<{ mapId: string }> = ({ mapId }) => {
     setDragState(null);
   };
 
+  // Cursor-centered smooth wheel zoom
   const handleWheel = (e: React.WheelEvent<HTMLDivElement>) => {
-    const delta = e.deltaY > 0 ? 0.9 : 1.1;
-    setZoom((z) => Math.max(0.35, Math.min(2.2, Number((z * delta).toFixed(2)))));
+    const rect = containerRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const cursorX = e.clientX - rect.left;
+    const cursorY = e.clientY - rect.top;
+    const worldX = (cursorX - pan.x) / zoom;
+    const worldY = (cursorY - pan.y) / zoom;
+    const factor = e.deltaY > 0 ? 0.9 : 1.1;
+    const nextZoom = Math.max(0.35, Math.min(2.2, Number((zoom * factor).toFixed(3))));
+    setZoom(nextZoom);
+    setPan({
+      x: cursorX - worldX * nextZoom,
+      y: cursorY - worldY * nextZoom,
+    });
   };
 
-  const visibleTokens = bm.tokens.filter((t) => gmMode || !t.isHidden);
-  const visibleDoors = bm.doors.filter((d) => gmMode || !d.isSecret || d.isOpen);
-  const visibleProps = (bm.props || []).filter((p) => gmMode || !p.isSecret);
+  const visibleTokens = bm.tokens.filter(
+    (t) => effectiveGm || !(t.isHidden || (t as unknown as { hiddenFromPlayers?: boolean; hidden?: boolean }).hiddenFromPlayers || (t as unknown as { hidden?: boolean }).hidden)
+  );
+  const visibleDoors = bm.doors.filter((d) => effectiveGm || !d.isSecret || d.isOpen);
+  const visibleProps = (bm.props || []).filter((p) => effectiveGm || !p.isSecret);
+  const aoeTemplates = bm.aoeTemplates || [];
 
   const dispRing = (disp: TokenDisposition) => {
     if (disp === 'party') return 'border-[#d4a853] bg-[#1c170f] text-[#f5d88b]';
@@ -835,12 +1138,12 @@ export const BattlemapViewport2D: React.FC<{ mapId: string }> = ({ mapId }) => {
               key={prop.id}
               onPointerDown={(e) => {
                 e.stopPropagation();
-                if (battlemapTool === 'erase') {
+                if (effectiveGm && battlemapTool === 'erase') {
                   deleteBattlemapProp(mapId, prop.id);
                   return;
                 }
                 setSelectedPropId2D(prop.id);
-                if (battlemapMode === 'prep') {
+                if (effectiveGm && battlemapMode === 'prep') {
                   setDragState({
                     kind: 'prop',
                     propId: prop.id,
@@ -868,7 +1171,7 @@ export const BattlemapViewport2D: React.FC<{ mapId: string }> = ({ mapId }) => {
                   : `${prop.color}42`,
               }}
               className={`group absolute flex items-center justify-center border-2 ${
-                battlemapMode === 'prep' ? 'cursor-move' : 'cursor-pointer'
+                effectiveGm && battlemapMode === 'prep' ? 'cursor-move' : 'cursor-pointer'
               } transition-shadow ${
                 isRound ? 'rounded-full' : 'rounded-md'
               } ${isTrap || isMarker ? 'border-dashed' : ''} ${
@@ -906,7 +1209,119 @@ export const BattlemapViewport2D: React.FC<{ mapId: string }> = ({ mapId }) => {
           );
         })}
 
-        {/* Interactive Doors Overlay (GM can steer Open/Close directly on map) */}
+        {/* AoE Spell / Effect Templates Overlay */}
+        {aoeTemplates.length > 0 && (
+          <svg
+            width={bm.width}
+            height={bm.height}
+            viewBox={`0 0 ${bm.width} ${bm.height}`}
+            className="pointer-events-none absolute inset-0 z-10"
+          >
+            {aoeTemplates.map((tpl: BattlemapAoeTemplate) => {
+              const rPx = Math.max(16, (tpl.radiusFt / 5) * bm.gridSizePx);
+              if (tpl.shape === 'circle') {
+                return (
+                  <g key={tpl.id}>
+                    <circle
+                      cx={tpl.x}
+                      cy={tpl.y}
+                      r={rPx}
+                      fill={tpl.color}
+                      fillOpacity={0.22}
+                      stroke={tpl.color}
+                      strokeWidth={2}
+                      strokeDasharray="6 4"
+                    />
+                    <text
+                      x={tpl.x}
+                      y={tpl.y - rPx - 6}
+                      textAnchor="middle"
+                      fill="#f5ead3"
+                      fontSize="11"
+                      fontFamily="monospace"
+                    >
+                      {tpl.label}
+                    </text>
+                  </g>
+                );
+              }
+              if (tpl.shape === 'square') {
+                return (
+                  <g key={tpl.id}>
+                    <rect
+                      x={tpl.x - rPx}
+                      y={tpl.y - rPx}
+                      width={rPx * 2}
+                      height={rPx * 2}
+                      fill={tpl.color}
+                      fillOpacity={0.22}
+                      stroke={tpl.color}
+                      strokeWidth={2}
+                      strokeDasharray="6 4"
+                    />
+                  </g>
+                );
+              }
+              if (tpl.shape === 'line') {
+                const rad = (tpl.angleDeg * Math.PI) / 180;
+                const x2 = tpl.x + Math.cos(rad) * rPx * 1.5;
+                const y2 = tpl.y + Math.sin(rad) * rPx * 1.5;
+                return (
+                  <g key={tpl.id}>
+                    <line
+                      x1={tpl.x}
+                      y1={tpl.y}
+                      x2={x2}
+                      y2={y2}
+                      stroke={tpl.color}
+                      strokeOpacity={0.55}
+                      strokeWidth={Math.max(14, bm.gridSizePx * 0.4)}
+                      strokeLinecap="round"
+                    />
+                  </g>
+                );
+              }
+              const halfAngle = Math.PI / 6;
+              const baseRad = (tpl.angleDeg * Math.PI) / 180;
+              const ax = tpl.x + Math.cos(baseRad - halfAngle) * rPx * 1.3;
+              const ay = tpl.y + Math.sin(baseRad - halfAngle) * rPx * 1.3;
+              const bx = tpl.x + Math.cos(baseRad + halfAngle) * rPx * 1.3;
+              const by = tpl.y + Math.sin(baseRad + halfAngle) * rPx * 1.3;
+              return (
+                <g key={tpl.id}>
+                  <polygon
+                    points={`${tpl.x},${tpl.y} ${ax},${ay} ${bx},${by}`}
+                    fill={tpl.color}
+                    fillOpacity={0.24}
+                    stroke={tpl.color}
+                    strokeWidth={2}
+                    strokeDasharray="5 3"
+                  />
+                </g>
+              );
+            })}
+          </svg>
+        )}
+
+        {effectiveGm &&
+          aoeTemplates.map((tpl) => (
+            <button
+              key={`del-${tpl.id}`}
+              type="button"
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation();
+                deleteAoeTemplate(mapId, tpl.id);
+              }}
+              style={{ left: tpl.x, top: tpl.y }}
+              title={`Remove ${tpl.label}`}
+              className="absolute -translate-x-1/2 -translate-y-1/2 z-20 px-1.5 py-0.5 rounded-full bg-[#0c0e14]/90 border border-[#b68d40]/60 text-[9px] font-mono text-[#f0cf85] hover:text-red-300"
+            >
+              × {tpl.radiusFt}ft
+            </button>
+          ))}
+
+        {/* Interactive Doors Overlay */}
         {visibleDoors.map((d: BattlemapDoor) => {
           const mx = (d.x1 + d.x2) / 2;
           const my = (d.y1 + d.y2) / 2;
@@ -916,19 +1331,19 @@ export const BattlemapViewport2D: React.FC<{ mapId: string }> = ({ mapId }) => {
               key={d.id}
               onPointerDown={(e) => {
                 e.stopPropagation();
-                if (battlemapTool === 'erase') {
+                if (effectiveGm && battlemapTool === 'erase') {
                   deleteBattlemapDoor(mapId, d.id);
                 }
               }}
               onClick={(e) => {
                 e.stopPropagation();
-                if (battlemapTool === 'erase') return;
+                if (effectiveGm && battlemapTool === 'erase') return;
                 setSelectedDoorId(d.id);
-                if (gmMode || !d.isLocked) {
+                if (effectiveGm) {
                   toggleBattlemapDoor(mapId, d.id);
                 }
               }}
-              title={`${d.label} — Click to ${d.isOpen ? 'Close' : 'Open'}${d.isLocked ? ' (Locked)' : ''}`}
+              title={`${d.label} — ${effectiveGm ? `Click to ${d.isOpen ? 'Close' : 'Open'}` : d.isOpen ? 'Open' : 'Closed'}${d.isLocked ? ' (Locked)' : ''}`}
               style={{ left: mx, top: my }}
               className={`absolute -translate-x-1/2 -translate-y-1/2 w-7 h-7 rounded-full flex items-center justify-center border shadow-md transition-transform hover:scale-110 ${
                 d.isOpen
@@ -949,8 +1364,8 @@ export const BattlemapViewport2D: React.FC<{ mapId: string }> = ({ mapId }) => {
           );
         })}
 
-        {/* Interactive Lights Overlay (GM can steer On/Off & reposition lights) */}
-        {gmMode &&
+        {/* Interactive Lights Overlay (GM Only) */}
+        {effectiveGm &&
           bm.lights.map((l: BattlemapLight) => {
             const isSel = selectedLightId === l.id;
             return (
@@ -991,9 +1406,49 @@ export const BattlemapViewport2D: React.FC<{ mapId: string }> = ({ mapId }) => {
             );
           })}
 
-        {/* Draggable Tokens (Party & Enemies) */}
+        {/* 2D West Marches Guild Quest Board Pins */}
+        {mapBoards.map((board) => {
+          const openCount = guildQuests.filter(
+            (q) => q.board_id === board.id && (q.status === 'open' || q.status === 'in_progress')
+          ).length;
+          const boardX =
+            board.x > 0 && board.x < 40 && board.y > 0 && board.y < 40
+              ? board.x * bm.gridSizePx
+              : Math.max(40, Math.min(bm.width - 40, board.x || bm.width * 0.5));
+          const boardY =
+            board.x > 0 && board.x < 40 && board.y > 0 && board.y < 40
+              ? board.y * bm.gridSizePx
+              : Math.max(40, Math.min(bm.height - 40, board.y || bm.height * 0.5));
+          return (
+            <button
+              key={board.id}
+              type="button"
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation();
+                setActiveQuestBoardModalId(board.id);
+              }}
+              style={{ left: boardX, top: boardY }}
+              title={`${board.title} (${openCount} active quests)`}
+              className="absolute -translate-x-1/2 -translate-y-1/2 z-20 flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-[#141008]/95 border border-[#d4a853] text-[#f5df9d] shadow-[0_6px_18px_rgba(0,0,0,0.8)] hover:scale-105 transition-transform"
+            >
+              <ScrollText className="w-3.5 h-3.5 text-[#d4a853] shrink-0" />
+              <span className="text-[11px] font-serif font-semibold whitespace-nowrap">
+                {board.title}
+              </span>
+              <span className="px-1.5 py-0.5 rounded-full bg-[#d4a853] text-black font-mono text-[10px] font-bold leading-none">
+                {openCount}
+              </span>
+            </button>
+          );
+        })}
+
+        {/* Draggable Tokens (Ownership-enforced for Players & GM) */}
         {visibleTokens.map((tok: BattlemapToken) => {
-          const diam = tok.sizeCells * bm.gridSizePx * 0.82;
+          const editable = canEditToken(tok);
+          const posX = dragTokenPreview?.id === tok.id ? dragTokenPreview.x : tok.x;
+          const posY = dragTokenPreview?.id === tok.id ? dragTokenPreview.y : tok.y;
+          const diam = (tok.sizeCells || 1) * bm.gridSizePx * 0.82;
           const isSel = selectedTokenId === tok.id;
           const hpPct = Math.max(0, Math.min(100, (tok.hp / Math.max(1, tok.maxHp)) * 100));
           const initials = tok.name
@@ -1008,11 +1463,12 @@ export const BattlemapViewport2D: React.FC<{ mapId: string }> = ({ mapId }) => {
               key={tok.id}
               onPointerDown={(e) => {
                 e.stopPropagation();
-                if (battlemapTool === 'erase') {
+                if (effectiveGm && battlemapTool === 'erase') {
                   deleteBattlemapToken(mapId, tok.id);
                   return;
                 }
                 setSelectedTokenId(tok.id);
+                if (!editable) return;
                 setDragState({
                   kind: 'token',
                   tokenId: tok.id,
@@ -1023,12 +1479,14 @@ export const BattlemapViewport2D: React.FC<{ mapId: string }> = ({ mapId }) => {
                 });
               }}
               style={{
-                left: tok.x,
-                top: tok.y,
+                left: posX,
+                top: posY,
                 width: diam,
                 height: diam,
               }}
-              className={`absolute -translate-x-1/2 -translate-y-1/2 rounded-full border-2 flex flex-col items-center justify-center cursor-pointer shadow-[0_6px_18px_rgba(0,0,0,0.7)] transition-shadow ${dispRing(
+              className={`absolute -translate-x-1/2 -translate-y-1/2 rounded-full border-2 flex flex-col items-center justify-center ${
+                editable ? 'cursor-pointer' : 'cursor-not-allowed'
+              } shadow-[0_6px_18px_rgba(0,0,0,0.7)] transition-shadow ${dispRing(
                 tok.disposition
               )} ${tok.isHidden ? 'opacity-60 border-dashed' : ''} ${
                 isSel ? 'ring-2 ring-[#eab308] ring-offset-2 ring-offset-[#090b0e]' : ''
@@ -1059,15 +1517,29 @@ export const BattlemapViewport2D: React.FC<{ mapId: string }> = ({ mapId }) => {
           );
         })}
 
+        {/* Persistent 2D Fog of War Canvas Overlay */}
+        <canvas
+          ref={fogCanvasRef}
+          className="pointer-events-none absolute inset-0 w-full h-full z-10"
+        />
+
         {/* Ruler Measure Badge */}
         {dragState?.kind === 'line' && dragState.tool === 'measure' && (
           <div
             style={{ left: dragState.x2 + 10, top: dragState.y2 - 22 }}
-            className="pointer-events-none absolute px-2 py-0.5 rounded bg-[#0b0d10]/95 border border-[#d4a853] font-mono text-[11px] text-[#f3d488]"
+            className="pointer-events-none absolute px-2 py-0.5 rounded bg-[#0b0d10]/95 border border-[#d4a853] font-mono text-[11px] text-[#f3d488] z-30"
           >
             {measureDistanceFt} ft ({Math.round(measureDistanceFt / 5)} sq)
           </div>
         )}
+      </div>
+
+      {/* Initiative Tracker Bar Overlay */}
+      <div
+        onPointerDown={(e) => e.stopPropagation()}
+        className="absolute top-14 left-3 z-20 pointer-events-none"
+      >
+        <InitiativeTrackerBar mapId={mapId} />
       </div>
 
       {/* Unified Top Control Overlay (Play vs Prep Scene + Map Tools) */}
@@ -1077,61 +1549,67 @@ export const BattlemapViewport2D: React.FC<{ mapId: string }> = ({ mapId }) => {
           onPointerDown={(e) => e.stopPropagation()}
           className="flex items-center gap-1.5 flex-wrap pointer-events-auto"
         >
-          {/* Play | Prepare Scene Switcher */}
-          <div className="flex items-center p-0.5 rounded-md dark-glass shadow-glass">
-            <button
-              onClick={() => {
-                setBattlemapMode('play');
-                if (
-                  battlemapTool === 'place-light' ||
-                  battlemapTool === 'place-prop' ||
-                  battlemapTool === 'draw-wall' ||
-                  battlemapTool === 'draw-door' ||
-                  battlemapTool === 'erase'
-                ) {
-                  setBattlemapTool('select');
-                }
-              }}
-              className={`flex items-center gap-1 px-2 py-1 rounded text-xs font-medium transition-all ${
-                battlemapMode === 'play'
-                  ? 'bg-[#232934] text-[#f5df9d] border border-[#d4a853]/45 font-semibold'
-                  : 'text-[#b5b0a5] hover:text-white'
-              }`}
-            >
-              <Play className="w-3 h-3" />
-              <span>Play</span>
-            </button>
-            <button
-              onClick={() => {
-                setBattlemapMode('prep');
-                if (battlemapTool === 'select') {
-                  setBattlemapTool('place-light');
-                }
-              }}
-              className={`flex items-center gap-1 px-2 py-1 rounded text-xs font-medium transition-all ${
-                battlemapMode === 'prep'
-                  ? 'btn-gold-metallic font-semibold'
-                  : 'text-[#b5b0a5] hover:text-white'
-              }`}
-            >
-              <Hammer className="w-3 h-3" />
-              <span>Prepare Scene</span>
-            </button>
-          </div>
+          {effectiveGm && (
+            <>
+              {/* Play | Prepare Scene Switcher */}
+              <div className="flex items-center p-0.5 rounded-md dark-glass shadow-glass">
+                <button
+                  onClick={() => {
+                    setBattlemapMode('play');
+                    if (
+                      battlemapTool === 'place-light' ||
+                      battlemapTool === 'place-prop' ||
+                      battlemapTool === 'draw-wall' ||
+                      battlemapTool === 'draw-door' ||
+                      battlemapTool === 'erase'
+                    ) {
+                      setBattlemapTool('select');
+                    }
+                  }}
+                  className={`flex items-center gap-1 px-2 py-1 rounded text-xs font-medium transition-all ${
+                    battlemapMode === 'play'
+                      ? 'bg-[#232934] text-[#f5df9d] border border-[#d4a853]/45 font-semibold'
+                      : 'text-[#b5b0a5] hover:text-white'
+                  }`}
+                >
+                  <Play className="w-3 h-3" />
+                  <span>Play</span>
+                </button>
+                <button
+                  onClick={() => {
+                    setBattlemapMode('prep');
+                    if (battlemapTool === 'select') {
+                      setBattlemapTool('place-light');
+                    }
+                  }}
+                  className={`flex items-center gap-1 px-2 py-1 rounded text-xs font-medium transition-all ${
+                    battlemapMode === 'prep'
+                      ? 'btn-gold-metallic font-semibold'
+                      : 'text-[#b5b0a5] hover:text-white'
+                  }`}
+                >
+                  <Hammer className="w-3 h-3" />
+                  <span>Prepare Scene</span>
+                </button>
+              </div>
+
+              <button
+                onClick={() => setMapGeneratorModalOpen(true, '2d', mapId)}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md dark-glass-subtle hover:border-[#d4a853]/50 text-xs text-[#f0cf85]"
+                title="Edit Map Title, Dimensions, Theme, or Floor Art"
+              >
+                <Settings2 className="w-3.5 h-3.5 text-[#d4a853]" />
+                <span>Edit Map</span>
+              </button>
+            </>
+          )}
 
           <button
-            onClick={() => setMapGeneratorModalOpen(true, '2d', mapId)}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md dark-glass-subtle hover:border-[#d4a853]/50 text-xs text-[#f0cf85]"
-            title="Edit Map Title, Dimensions, Theme, or Floor Art"
-          >
-            <Settings2 className="w-3.5 h-3.5 text-[#d4a853]" />
-            <span>Edit Map</span>
-          </button>
-
-          <button
-            onClick={() =>
-              updateBattlemap(mapId, (cur) => ({ ...cur, showGrid: !cur.showGrid }))
-            }
+            onClick={() => {
+              if (effectiveGm) {
+                updateBattlemap(mapId, (cur) => ({ ...cur, showGrid: !cur.showGrid }));
+              }
+            }}
             className={`flex items-center gap-1 px-2 py-1.5 rounded-md text-xs border transition-colors ${
               bm.showGrid
                 ? 'dark-glass text-[#f0cf85] border-[#d4a853]/45'
@@ -1142,85 +1620,304 @@ export const BattlemapViewport2D: React.FC<{ mapId: string }> = ({ mapId }) => {
             <span>Grid</span>
           </button>
 
-          <button
-            onClick={() =>
-              updateBattlemap(mapId, (cur) => ({ ...cur, dynamicLighting: !cur.dynamicLighting }))
-            }
-            className={`flex items-center gap-1 px-2 py-1.5 rounded-md text-xs border transition-colors ${
-              bm.dynamicLighting
-                ? 'dark-glass text-[#f0cf85] border-[#d4a853]/45'
-                : 'dark-glass-subtle text-[#8b93a1]'
-            }`}
-          >
-            <Sun className="w-3.5 h-3.5" />
-            <span>Lighting</span>
-          </button>
+          {effectiveGm && (
+            <>
+              <button
+                onClick={() =>
+                  updateBattlemap(mapId, (cur) => ({
+                    ...cur,
+                    dynamicLighting: !cur.dynamicLighting,
+                  }))
+                }
+                className={`flex items-center gap-1 px-2 py-1.5 rounded-md text-xs border transition-colors ${
+                  bm.dynamicLighting
+                    ? 'dark-glass text-[#f0cf85] border-[#d4a853]/45'
+                    : 'dark-glass-subtle text-[#8b93a1]'
+                }`}
+              >
+                <Sun className="w-3.5 h-3.5" />
+                <span>Lighting</span>
+              </button>
 
-          <button
-            onClick={() => setSnapToGrid(!snapToGrid)}
-            className={`flex items-center gap-1 px-2 py-1.5 rounded-md text-xs border transition-colors ${
-              snapToGrid
-                ? 'dark-glass text-[#e5be58] border-[#d4a853]/35'
-                : 'dark-glass-subtle text-[#8b93a1]'
-            }`}
-          >
-            <span>Snap 5ft</span>
-          </button>
+              <button
+                onClick={() => setSnapToGrid(!snapToGrid)}
+                className={`flex items-center gap-1 px-2 py-1.5 rounded-md text-xs border transition-colors ${
+                  snapToGrid
+                    ? 'dark-glass text-[#e5be58] border-[#d4a853]/35'
+                    : 'dark-glass-subtle text-[#8b93a1]'
+                }`}
+              >
+                <span>Snap 5ft</span>
+              </button>
 
-          <button
-            onClick={() => setMapGeneratorModalOpen(true, '2d')}
-            className="flex items-center gap-1 px-2.5 py-1.5 rounded-md dark-glass-subtle hover:border-[#d4a853]/50 text-xs text-[#e7e2d8]"
-          >
-            <Sparkles className="w-3.5 h-3.5 text-[#d4a853]" />
-            <span>New Map</span>
-          </button>
+              <button
+                onClick={() => setMapGeneratorModalOpen(true, '2d')}
+                className="flex items-center gap-1 px-2.5 py-1.5 rounded-md dark-glass-subtle hover:border-[#d4a853]/50 text-xs text-[#e7e2d8]"
+              >
+                <Sparkles className="w-3.5 h-3.5 text-[#d4a853]" />
+                <span>New Map</span>
+              </button>
+            </>
+          )}
         </div>
 
         {/* Top-Right Scene Prep & Tactical Tool Palette */}
         <div
           onPointerDown={(e) => e.stopPropagation()}
+          style={{ marginRight: rightInsetPx - 12 }}
           className="flex flex-col items-end gap-2 pointer-events-auto"
         >
           <div className="flex items-center gap-0.5 p-1 rounded-lg dark-glass shadow-glass">
             {(
               [
-                { id: 'select', icon: MousePointer, label: 'Select / Steer Doors, Lights & Props', modes: ['play', 'prep'] },
-                { id: 'place-party', icon: UserPlus, label: 'Place Party / Ally Token', modes: ['play', 'prep'] },
-                { id: 'place-enemy', icon: Skull, label: 'Place Enemy Token', modes: ['play', 'prep'] },
-                { id: 'place-light', icon: Lightbulb, label: 'Place Scene Light', modes: ['prep'] },
-                { id: 'place-prop', icon: Package, label: 'Place Furniture, Traps & Markers', modes: ['prep'] },
-                { id: 'draw-wall', icon: Shield, label: 'Draw Wall / Pillar / Secret Wall', modes: ['prep'] },
-                { id: 'draw-door', icon: DoorClosed, label: 'Draw Interactive Door', modes: ['prep'] },
-                { id: 'erase', icon: Eraser, label: 'Erase Wall, Door, Light, Prop or Token', modes: ['prep'] },
-                { id: 'measure', icon: Ruler, label: 'Measure Distance (5ft)', modes: ['play', 'prep'] },
+                {
+                  id: 'select',
+                  icon: MousePointer,
+                  label: 'Select / Move / Inspect',
+                  modes: ['play', 'prep'],
+                  gmOnly: false,
+                },
+                {
+                  id: 'place-party',
+                  icon: UserPlus,
+                  label: 'Place Party / Ally Token',
+                  modes: ['play', 'prep'],
+                  gmOnly: true,
+                },
+                {
+                  id: 'place-enemy',
+                  icon: Skull,
+                  label: 'Place Enemy Token',
+                  modes: ['play', 'prep'],
+                  gmOnly: true,
+                },
+                {
+                  id: 'fog-reveal',
+                  icon: EyeOff,
+                  label: 'Fog of War Brush',
+                  modes: ['play', 'prep'],
+                  gmOnly: true,
+                },
+                {
+                  id: 'aoe',
+                  icon: Target,
+                  label: 'Place AoE Template',
+                  modes: ['play', 'prep'],
+                  gmOnly: true,
+                },
+                {
+                  id: 'place-quest-board',
+                  icon: ScrollText,
+                  label: 'Place Guild Quest Board',
+                  modes: ['play', 'prep'],
+                  gmOnly: true,
+                },
+                {
+                  id: 'place-light',
+                  icon: Lightbulb,
+                  label: 'Place Scene Light',
+                  modes: ['prep'],
+                  gmOnly: true,
+                },
+                {
+                  id: 'place-prop',
+                  icon: Package,
+                  label: 'Place Furniture, Traps & Markers',
+                  modes: ['prep'],
+                  gmOnly: true,
+                },
+                {
+                  id: 'draw-wall',
+                  icon: Shield,
+                  label: 'Draw Wall / Pillar / Secret Wall',
+                  modes: ['prep'],
+                  gmOnly: true,
+                },
+                {
+                  id: 'draw-door',
+                  icon: DoorClosed,
+                  label: 'Draw Interactive Door',
+                  modes: ['prep'],
+                  gmOnly: true,
+                },
+                {
+                  id: 'erase',
+                  icon: Eraser,
+                  label: 'Erase Wall, Door, Light, Prop or Token',
+                  modes: ['prep'],
+                  gmOnly: true,
+                },
+                {
+                  id: 'measure',
+                  icon: Ruler,
+                  label: 'Measure Distance (5ft)',
+                  modes: ['play', 'prep'],
+                  gmOnly: false,
+                },
               ] as const
             )
-              .filter((tool) => (tool.modes as readonly string[]).includes(battlemapMode))
+              .filter(
+                (tool) =>
+                  (!tool.gmOnly || effectiveGm) &&
+                  (tool.modes as readonly string[]).includes(battlemapMode)
+              )
               .map((tool) => {
-              const Icon = tool.icon;
-              const active = battlemapTool === tool.id;
-              return (
-                <button
-                  key={tool.id}
-                  onClick={() => setBattlemapTool(tool.id)}
-                  title={tool.label}
-                  aria-label={tool.label}
-                  className={`p-2 rounded-md transition-all ${
-                    active
-                      ? tool.id === 'erase'
-                        ? 'bg-red-950/70 text-red-200 border border-red-400/60'
-                        : 'bg-[#d4a853]/25 text-[#f7d983] border border-[#d4a853]/60'
-                      : 'text-[#9aa3b2] hover:text-white hover:bg-[#1b2029]'
-                  }`}
-                >
-                  <Icon className="w-4 h-4" />
-                </button>
-              );
-            })}
+                const Icon = tool.icon;
+                const active =
+                  battlemapTool === tool.id ||
+                  (tool.id === 'fog-reveal' && battlemapTool === 'fog-hide');
+                return (
+                  <button
+                    key={tool.id}
+                    onClick={() => setBattlemapTool(tool.id)}
+                    title={tool.label}
+                    aria-label={tool.label}
+                    className={`p-2 rounded-md transition-all ${
+                      active
+                        ? tool.id === 'erase'
+                          ? 'bg-red-950/70 text-red-200 border border-red-400/60'
+                          : 'bg-[#d4a853]/25 text-[#f7d983] border border-[#d4a853]/60'
+                        : 'text-[#9aa3b2] hover:text-white hover:bg-[#1b2029]'
+                    }`}
+                  >
+                    <Icon className="w-4 h-4" />
+                  </button>
+                );
+              })}
           </div>
 
+          {/* Contextual 2D Fog of War Brush Bar */}
+          {effectiveGm && (battlemapTool === 'fog-reveal' || battlemapTool === 'fog-hide') && (
+            <div className="rounded-lg dark-glass p-2 flex flex-wrap items-center gap-2 text-xs max-w-lg justify-end">
+              <select
+                aria-label="Target Player"
+                value={fogBrushTargetUserId}
+                onChange={(e) => setFogBrushTargetUserId(e.target.value)}
+                className="bg-[#0b0d10] border border-[#242a35] rounded px-2 py-1 text-xs text-[#f3ead8]"
+              >
+                <option value="__all__">All Players</option>
+                {campaignMembers.map((m) => (
+                  <option key={m.user_id} value={m.user_id}>
+                    {m.profile?.display_name || m.user_id.slice(0, 8)}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                onClick={() => {
+                  setFogBrushRevealMode(true);
+                  setBattlemapTool('fog-reveal');
+                }}
+                className={`px-2 py-1 rounded text-xs font-medium ${
+                  battlemapTool === 'fog-reveal' && fogBrushRevealMode
+                    ? 'btn-gold-metallic font-semibold'
+                    : 'bg-[#0e1218] text-[#9aa3b2] hover:text-white'
+                }`}
+              >
+                Reveal
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setFogBrushRevealMode(false);
+                  setBattlemapTool('fog-hide');
+                }}
+                className={`px-2 py-1 rounded text-xs font-medium ${
+                  battlemapTool === 'fog-hide' || !fogBrushRevealMode
+                    ? 'bg-red-950/80 text-red-200 border border-red-400/50 font-semibold'
+                    : 'bg-[#0e1218] text-[#9aa3b2] hover:text-white'
+                }`}
+              >
+                Hide
+              </button>
+              <label className="flex items-center gap-1 text-[11px] text-[#c9c3b8]">
+                <span>Size {fogBrushRadiusCells}sq</span>
+                <input
+                  type="range"
+                  min={1}
+                  max={5}
+                  step={1}
+                  value={fogBrushRadiusCells}
+                  onChange={(e) => setFogBrushRadiusCells(Number(e.target.value))}
+                  className="w-16 accent-[#d4a853]"
+                />
+              </label>
+              <button
+                type="button"
+                onClick={() => {
+                  const next = createFogMask(255);
+                  fogMaskRef.current = next;
+                  setFogMaskSeq((s) => s + 1);
+                  void commitFog2DMask(next);
+                }}
+                className="px-2 py-1 rounded bg-[#0e1218] border border-[#242a35] text-[11px] text-[#e7e2d8]"
+              >
+                Reveal All
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const next = createFogMask(0);
+                  fogMaskRef.current = next;
+                  setFogMaskSeq((s) => s + 1);
+                  void commitFog2DMask(next);
+                }}
+                className="px-2 py-1 rounded bg-[#0e1218] border border-[#242a35] text-[11px] text-[#d4a853]"
+              >
+                Reset Shroud
+              </button>
+            </div>
+          )}
+
+          {/* Contextual AoE Template Placement Bar */}
+          {effectiveGm && battlemapTool === 'aoe' && (
+            <div className="rounded-lg dark-glass p-2 flex flex-wrap items-center gap-2 text-xs max-w-md justify-end">
+              {(
+                [
+                  ['circle', 'Sphere'],
+                  ['cone', 'Cone'],
+                  ['line', 'Line'],
+                  ['square', 'Cube'],
+                ] as const
+              ).map(([sh, lbl]) => (
+                <button
+                  key={sh}
+                  type="button"
+                  onClick={() => setAoeShape(sh)}
+                  className={`px-2 py-1 rounded text-[11px] ${
+                    aoeShape === sh
+                      ? 'btn-gold-metallic font-semibold'
+                      : 'bg-[#0b0d10] text-[#9aa3b2] hover:text-white'
+                  }`}
+                >
+                  {lbl}
+                </button>
+              ))}
+              <label className="flex items-center gap-1 text-[11px] text-[#c9c3b8]">
+                <span>Radius</span>
+                <input
+                  type="number"
+                  min={5}
+                  max={60}
+                  step={5}
+                  value={aoeRadiusFt}
+                  onChange={(e) => setAoeRadiusFt(Number(e.target.value) || 20)}
+                  className="w-12 bg-[#0b0d10] border border-[#242a35] rounded px-1.5 py-0.5 font-mono text-[11px] text-[#e5be58]"
+                />
+                <span>ft</span>
+              </label>
+              <input
+                type="color"
+                value={aoeColor}
+                onChange={(e) => setAoeColor(e.target.value)}
+                className="w-5 h-5 rounded cursor-pointer bg-transparent border-0"
+                title="AoE Color"
+              />
+            </div>
+          )}
+
           {/* Contextual Scene Light Placement Bar */}
-          {battlemapTool === 'place-light' && (
+          {effectiveGm && battlemapTool === 'place-light' && (
             <div className="rounded-lg dark-glass p-2 flex flex-wrap items-center gap-2 text-xs max-w-md justify-end">
               <select
                 value={lightPresetIdx}
@@ -1275,7 +1972,7 @@ export const BattlemapViewport2D: React.FC<{ mapId: string }> = ({ mapId }) => {
           )}
 
           {/* Contextual Scene Props / Traps / Markers Bar */}
-          {battlemapTool === 'place-prop' && (
+          {effectiveGm && battlemapTool === 'place-prop' && (
             <div className="rounded-lg dark-glass p-2 flex flex-wrap items-center gap-2 text-xs max-w-md justify-end">
               <select
                 value={propPresetIdx}
@@ -1306,7 +2003,7 @@ export const BattlemapViewport2D: React.FC<{ mapId: string }> = ({ mapId }) => {
           )}
 
           {/* Contextual Wall Brush Bar */}
-          {battlemapTool === 'draw-wall' && (
+          {effectiveGm && battlemapTool === 'draw-wall' && (
             <div className="rounded-lg dark-glass p-1.5 flex items-center gap-1 text-[11px]">
               {(
                 [
@@ -1331,7 +2028,7 @@ export const BattlemapViewport2D: React.FC<{ mapId: string }> = ({ mapId }) => {
           )}
 
           {/* Contextual Door Brush Bar */}
-          {battlemapTool === 'draw-door' && (
+          {effectiveGm && battlemapTool === 'draw-door' && (
             <div className="rounded-lg dark-glass p-1.5 flex items-center gap-1 text-[11px]">
               {(
                 [
@@ -1355,14 +2052,14 @@ export const BattlemapViewport2D: React.FC<{ mapId: string }> = ({ mapId }) => {
             </div>
           )}
 
-          {battlemapTool === 'erase' && (
+          {effectiveGm && battlemapTool === 'erase' && (
             <div className="rounded-lg bg-red-950/80 border border-red-500/45 px-2.5 py-1 text-[11px] text-red-200">
               Click any wall, door, light, prop, or token to delete it
             </div>
           )}
 
           {/* Contextual Spawner Bar for Enemies / Party */}
-          {battlemapTool === 'place-enemy' && (
+          {effectiveGm && battlemapTool === 'place-enemy' && (
             <div className="rounded-lg dark-glass p-2 flex items-center gap-2 text-xs">
               <select
                 value={enemyPresetIdx}
@@ -1387,7 +2084,7 @@ export const BattlemapViewport2D: React.FC<{ mapId: string }> = ({ mapId }) => {
             </div>
           )}
 
-          {battlemapTool === 'place-party' && (
+          {effectiveGm && battlemapTool === 'place-party' && (
             <div className="rounded-lg dark-glass p-2 flex items-center gap-2 text-xs">
               <select
                 value={partyPresetIdx}
@@ -1422,8 +2119,10 @@ export const BattlemapViewport2D: React.FC<{ mapId: string }> = ({ mapId }) => {
 
       {/* Bottom-Right Zoom Controls */}
       <div
+        data-testid="viewport-hud"
         onPointerDown={(e) => e.stopPropagation()}
-        className="absolute bottom-3 right-3 z-20 flex flex-col gap-1.5"
+        style={{ right: rightInsetPx }}
+        className="absolute bottom-3 z-20 flex flex-col gap-1.5"
       >
         <button
           onClick={() => setZoom((z) => Math.min(2.2, Number((z * 1.15).toFixed(2))))}
@@ -1457,6 +2156,9 @@ export const BattlemapViewport2D: React.FC<{ mapId: string }> = ({ mapId }) => {
           <Wand2 className="w-4 h-4" />
         </button>
       </div>
+
+      {/* West Marches Guild Quest Board Modal */}
+      <GuildQuestBoardModal />
     </div>
   );
 };

@@ -17,6 +17,8 @@ export const SettingsModal: React.FC = () => {
     syncStatus,
     lastSyncError,
     isAuthenticated,
+    userEmail,
+    isEffectiveGm,
   } = useVaultStore();
 
   const [url, setUrl] = useState('');
@@ -67,6 +69,9 @@ export const SettingsModal: React.FC = () => {
       className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4"
     >
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="Supabase Backend & 3D Terrain Settings"
         onClick={(e) => e.stopPropagation()}
         className="w-full max-w-lg rounded-xl dark-glass shadow-glass border border-[#d4a853]/40 overflow-hidden"
       >
@@ -74,7 +79,7 @@ export const SettingsModal: React.FC = () => {
           <div className="flex items-center gap-2">
             <Database className="w-4 h-4 text-[#eab308]" />
             <h3 className="font-serif text-base font-semibold text-[#f3ead8]">
-              Vault, Supabase &amp; 3D Terrain Settings
+              Supabase Backend &amp; 3D Terrain Settings
             </h3>
           </div>
           <button
@@ -94,13 +99,14 @@ export const SettingsModal: React.FC = () => {
                 <span>Supabase Realtime Backend</span>
               </h4>
               <span className="font-mono text-[10.5px] text-[#8b93a1]">
-                Status: {syncStatus} {isAuthenticated ? '(GM Unlocked)' : '(Demo)'}
+                Status: {syncStatus}{' '}
+                {isAuthenticated ? `(${userEmail || 'Signed in'})` : '(Signed Out)'}
               </span>
             </div>
 
             <div>
               <label className="block text-[11px] text-[#9aa3b2] mb-1">
-                Supabase Project URL (`VITE_SUPABASE_URL`)
+                Supabase Project URL (<code className="font-mono">VITE_SUPABASE_URL</code>)
               </label>
               <input
                 value={url}
@@ -112,7 +118,7 @@ export const SettingsModal: React.FC = () => {
 
             <div>
               <label className="block text-[11px] text-[#9aa3b2] mb-1">
-                Supabase Anon Key (`VITE_SUPABASE_ANON_KEY`)
+                Supabase Anon Key (<code className="font-mono">VITE_SUPABASE_ANON_KEY</code>)
               </label>
               <input
                 type="password"
@@ -138,8 +144,8 @@ export const SettingsModal: React.FC = () => {
             </button>
           </form>
 
-          {/* 3D Map Textures & Displacement */}
-          {primaryMap && (
+          {/* 3D Map Textures & Displacement (GM Only) */}
+          {primaryMap && isEffectiveGm() && (
             <div className="pt-4 border-t border-[#1d222b] space-y-3">
               <h4 className="text-xs font-semibold uppercase tracking-wider text-[#d4a853] flex items-center gap-1.5">
                 <Mountain className="w-3.5 h-3.5" />

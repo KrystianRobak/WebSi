@@ -199,10 +199,32 @@ function parseImageModifiers(rawAlt: string): ParsedImageModifiers {
   return { alt: labelParts.join(' | '), ...state };
 }
 
+export function sanitizeAssetOrLinkUrl(raw: string): string {
+  let cleaned = '';
+  for (let i = 0; i < raw.length; i += 1) {
+    const code = raw.charCodeAt(i);
+    if (code > 31 && code !== 127) {
+      cleaned += raw[i];
+    }
+  }
+  cleaned = cleaned.trim();
+  if (!cleaned) return '';
+  const compact = cleaned.replace(/\s+/g, '').toLowerCase();
+  if (
+    compact.startsWith('javascript:') ||
+    compact.startsWith('vbscript:') ||
+    compact.startsWith('data:text/html') ||
+    compact.startsWith('data:application/')
+  ) {
+    return '';
+  }
+  return cleaned;
+}
+
 function buildImgTag(rawUrl: string, rawAlt: string, assets: VaultAsset[]): string {
   const { alt, opacity, align, width, height, radius } = parseImageModifiers(rawAlt);
   const trimmedRef = rawUrl.trim();
-  const resolved = resolveAssetUrl(trimmedRef, assets) || trimmedRef;
+  const resolved = sanitizeAssetOrLinkUrl(resolveAssetUrl(trimmedRef, assets) || trimmedRef);
   const isAssetRef = trimmedRef.startsWith('asset://') || trimmedRef.startsWith('asset:');
   const safeSrc = resolved.replace(/"/g, '&quot;');
   const safeAlt = alt.replace(/"/g, '&quot;');
@@ -271,12 +293,24 @@ export function getEntityCustomCss(
   return typeof metadata._custom_css === 'string' ? metadata._custom_css : '';
 }
 
+export function sanitizeCssFragment(css: string): string {
+  return css
+    .replace(/<script\b[\s\S]*?>[\s\S]*?<\/script>/gi, '')
+    .replace(/<\/?\s*[a-zA-Z][^>]*>/g, '')
+    .replace(/@import\b[^;\r\n]*(?:;|$)/gim, '')
+    .replace(/expression\s*\(/gi, 'invalid-expr(')
+    .replace(/behavior\s*:/gi, 'invalid-behavior:')
+    .replace(/-moz-binding\s*:/gi, 'invalid-binding:')
+    .replace(/(javascript|vbscript|data\s*:\s*text\/html)\s*:/gi, 'invalid:');
+}
+
 /**
  * Prefixes CSS rules with `.${scopeClass}` so per-note custom CSS stays isolated to that note.
  */
 export function scopeCustomCss(css: string, scopeClass: string): string {
   if (!css.trim()) return '';
-  return css.replace(/([^{}@]+)\{/g, (match, selectorGroup: string) => {
+  const cleaned = sanitizeCssFragment(css);
+  return cleaned.replace(/([^{}@]+)\{/g, (match, selectorGroup: string) => {
     const trimmed = selectorGroup.trim();
     if (!trimmed || trimmed.startsWith('@') || trimmed.startsWith('from') || trimmed.startsWith('to')) {
       return match;
@@ -287,7 +321,7 @@ export function scopeCustomCss(css: string, scopeClass: string): string {
         const s = sel.trim();
         if (!s) return s;
         if (s.includes(scopeClass)) return s;
-        if (s === ':root' || s === 'body' || s === '.note') return `.${scopeClass}`;
+        if (s === ':root' || s === 'body' || s === 'html' || s === '.note') return `.${scopeClass}`;
         return `.${scopeClass} ${s}`;
       })
       .join(', ');
@@ -296,14 +330,35 @@ export function scopeCustomCss(css: string, scopeClass: string): string {
 }
 
 /**
- * Strips unsafe script/iframe/event-handler attributes while preserving rich HTML styling tags.
+ * Strips unsafe script/iframe/object/embed/meta/link/event-handler/scheme vectors while preserving safe HTML styling.
  */
 export function sanitizeNoteHtml(html: string): string {
   return html
-    .replace(/<script[\s\S]*?>[\s\S]*?<\/script>/gi, '')
-    .replace(/<iframe[\s\S]*?>[\s\S]*?<\/iframe>/gi, '')
-    .replace(/\son\w+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '')
-    .replace(/javascript:/gi, '');
+    .replace(/<script\b[\s\S]*?>[\s\S]*?<\/script>/gi, '')
+    .replace(/<script\b[^>]*\/?>/gi, '')
+    .replace(/<iframe\b[\s\S]*?>[\s\S]*?<\/iframe>/gi, '')
+    .replace(/<iframe\b[^>]*\/?>/gi, '')
+    .replace(/<object\b[\s\S]*?>[\s\S]*?<\/object>/gi, '')
+    .replace(/<embed\b[^>]*\/?>/gi, '')
+    .replace(/<applet\b[\s\S]*?>[\s\S]*?<\/applet>/gi, '')
+    .replace(/<\/?(meta|link|base|form)\b[^>]*>/gi, '')
+    .replace(/<style\b[^>]*>([\s\S]*?)<\/style>/gi, (_, inner: string) => {
+      return `<style>${sanitizeCssFragment(inner)}</style>`;
+    })
+    .replace(/\son\w+\s*=\s*(?:"[^"]*"|'[^']*'|`[^`]*`|[^\s>]+)/gi, '')
+    .replace(/\s(src)\s*=\s*(?:"([^"]*)"|'([^']*)')/gi, (full, attr: string, q1: string, q2: string) => {
+      const val = (q1 ?? q2 ?? '').trim();
+      if (
+        !val ||
+        /^(https?:\/\/|blob:|data:image\/|\/|\.\/|\.\.\/|#)/i.test(val)
+      ) {
+        return full;
+      }
+      return '';
+    })
+    .replace(/(javascript|vbscript)\s*:/gi, '')
+    .replace(/data\s*:\s*text\/html/gi, 'data:text/plain')
+    .replace(/data\s*:\s*application\//gi, 'data:text/plain');
 }
 
 const FONT_FAMILY_MAP: Record<string, string> = {
@@ -675,7 +730,12 @@ export function markdownToHtml(
       .replace(/\*([^*]+)\*/g, '<em>$1</em>')
       .replace(/~~([^~]+)~~/g, '<del>$1</del>')
       .replace(/==([^=]+)==/g, '<mark class="vault-mark">$1</mark>')
-      .replace(/\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>')
+      .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, (_, label: string, url: string) => {
+        const safeUrl = sanitizeAssetOrLinkUrl(url);
+        return safeUrl
+          ? `<a href="${escapeHtml(safeUrl)}" target="_blank" rel="noopener noreferrer">${label}</a>`
+          : label;
+      })
       .replace(WIKILINK_REGEX, (_, inner: string) => {
         const [target, alias] = inner.split('|').map((s: string) => s.trim());
         return `<span data-wikilink="${escapeHtml(target)}" class="wikilink-pill">[[${escapeHtml(alias || target)}]]</span>`;

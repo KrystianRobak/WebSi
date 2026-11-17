@@ -183,6 +183,7 @@ export const WorldsmithInspectorSection: React.FC<{ activeMap: VaultMap }> = ({
           <button
             onClick={() => dispatchTerrainCommand({ type: 'undo' })}
             title="Undo Sculpt (Ctrl+Z)"
+            aria-label="Undo Sculpt"
             className="p-1.5 rounded bg-[#171b23] hover:bg-[#222834] border border-[#2a313e] text-[#cfc8ba] hover:text-white"
           >
             <Undo2 className="w-3.5 h-3.5" />
@@ -190,9 +191,17 @@ export const WorldsmithInspectorSection: React.FC<{ activeMap: VaultMap }> = ({
           <button
             onClick={() => dispatchTerrainCommand({ type: 'redo' })}
             title="Redo Sculpt (Ctrl+Shift+Z)"
+            aria-label="Redo Sculpt"
             className="p-1.5 rounded bg-[#171b23] hover:bg-[#222834] border border-[#2a313e] text-[#cfc8ba] hover:text-white"
           >
             <Redo2 className="w-3.5 h-3.5" />
+          </button>
+          <button
+            onClick={() => dispatchTerrainCommand({ type: 'save-textures' })}
+            title="Upload Baked Heightmap & Albedo to Supabase Storage"
+            className="px-2 py-1 rounded text-[10.5px] btn-gold-metallic font-semibold"
+          >
+            Save Terrain
           </button>
           <button
             onClick={() => setWorldsmithMode(false)}

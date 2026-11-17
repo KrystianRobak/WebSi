@@ -59,7 +59,7 @@ export const RightInspector: React.FC = () => {
     assets,
     templates,
     entityLinks,
-    gmMode,
+    isEffectiveGm,
     mapLayers,
     toggleMapLayer,
     mapCameraView,
@@ -94,8 +94,14 @@ export const RightInspector: React.FC = () => {
     worldsmithMode,
     setWorldsmithMode,
     setRightInspectorCollapsed,
+    user,
+    campaignMembers,
+    mapFogShares,
+    upsertMapFogShare,
+    revokeMapFogShare,
   } = useVaultStore();
 
+  const canGmEdit = isEffectiveGm();
   const [mapInspectorTab, setMapInspectorTab] = useState<'layers' | 'elements'>('layers');
   const [newLayerOpen, setNewLayerOpen] = useState(false);
   const [newLayerName, setNewLayerName] = useState('');
@@ -120,10 +126,10 @@ export const RightInspector: React.FC = () => {
   );
 
   const zonesOnMap = activeMap
-    ? (activeMap.zones || []).filter((z) => gmMode || !z.is_gm_only)
+    ? (activeMap.zones || []).filter((z) => canGmEdit || !z.is_gm_only)
     : [];
   const labelsOnMap = activeMap
-    ? (activeMap.labels || []).filter((l) => gmMode || !l.is_gm_only)
+    ? (activeMap.labels || []).filter((l) => canGmEdit || !l.is_gm_only)
     : [];
   const heroPropsOnMap = activeMap
     ? (activeMap.props || []).filter(
@@ -136,16 +142,18 @@ export const RightInspector: React.FC = () => {
     : [];
 
   const selectedZone = selectedZoneId
-    ? (activeMap?.zones || []).find((z) => z.id === selectedZoneId) || null
+    ? (activeMap?.zones || []).find((z) => z.id === selectedZoneId && (canGmEdit || !z.is_gm_only)) || null
     : null;
   const selectedLabel = selectedLabelId
-    ? (activeMap?.labels || []).find((l) => l.id === selectedLabelId) || null
+    ? (activeMap?.labels || []).find((l) => l.id === selectedLabelId && (canGmEdit || !l.is_gm_only)) || null
     : null;
   const selectedProp = selectedPropId
     ? (activeMap?.props || []).find((p) => p.id === selectedPropId) || null
     : null;
 
-  const focusedPin = selectedPinId ? mapPins.find((p) => p.id === selectedPinId) : null;
+  const focusedPin = selectedPinId
+    ? mapPins.find((p) => p.id === selectedPinId && (canGmEdit || !p.is_gm_only))
+    : null;
   const focusedEntityId = isMapFocused
     ? focusedPin?.entity_id || selectedZone?.entityId || null
     : activeTab?.kind === 'entity'
@@ -165,11 +173,11 @@ export const RightInspector: React.FC = () => {
     : null;
 
   const pinsOnMap = activeMap
-    ? mapPins.filter((p) => p.map_id === activeMap.id && (gmMode || !p.is_gm_only))
+    ? mapPins.filter((p) => p.map_id === activeMap.id && (canGmEdit || !p.is_gm_only))
     : [];
 
   const pathsOnMap = activeMap
-    ? mapPaths.filter((p) => p.map_id === activeMap.id && (gmMode || !p.is_gm_only))
+    ? mapPaths.filter((p) => p.map_id === activeMap.id && (canGmEdit || !p.is_gm_only))
     : [];
 
   // Backlinks & Outgoing links for focused entity (or all map entities when map is active)
@@ -232,7 +240,7 @@ export const RightInspector: React.FC = () => {
           <>
             {isMapFocused && activeMap?.kind === '2d' ? (
               <BattlemapInspectorSection activeMap={activeMap} />
-            ) : isMapFocused && activeMap && worldsmithMode ? (
+            ) : isMapFocused && activeMap && worldsmithMode && canGmEdit ? (
               <WorldsmithInspectorSection activeMap={activeMap} />
             ) : isMapFocused && activeMap ? (
               <>
@@ -248,7 +256,7 @@ export const RightInspector: React.FC = () => {
                           {activeMap.name}
                         </h2>
                         <div className="text-[10px] font-mono text-[#6d7686]">
-                          {activeMap.scale_config.ratio} · {activeMap.width}×{activeMap.height}
+                          {activeMap.scale_config?.ratio || '1 : 250 000'} · {activeMap.width || 8192}×{activeMap.height || 8192}
                         </div>
                       </div>
                     </div>
@@ -689,7 +697,7 @@ export const RightInspector: React.FC = () => {
                 )}
 
                 {/* Contextual Selected 3D Element Editor */}
-                {selectedProp && (
+                {canGmEdit && selectedProp && (
                   <div className="rounded-lg bg-[#090b0f] border border-[#b68d40]/40 p-2.5 space-y-2 text-[11.5px]">
                     <div className="flex items-center justify-between">
                       <span className="text-[10.5px] font-mono uppercase tracking-wider text-[#c9a050] flex items-center gap-1.5">
@@ -809,17 +817,19 @@ export const RightInspector: React.FC = () => {
                       >
                         All On
                       </button>
-                      <button
-                        onClick={() => setNewLayerOpen((v) => !v)}
-                        className="text-[10.5px] text-[#c9a050] hover:underline flex items-center gap-0.5"
-                      >
-                        <Plus className="w-3 h-3" />
-                        Layer
-                      </button>
+                      {canGmEdit && (
+                        <button
+                          onClick={() => setNewLayerOpen((v) => !v)}
+                          className="text-[10.5px] text-[#c9a050] hover:underline flex items-center gap-0.5"
+                        >
+                          <Plus className="w-3 h-3" />
+                          Layer
+                        </button>
+                      )}
                     </div>
                   </div>
 
-                  {newLayerOpen && (
+                  {canGmEdit && newLayerOpen && (
                     <div className="p-2 rounded-md bg-[#090b0f] border border-[#b68d40]/35 space-y-2 text-[11px]">
                       <input
                         type="text"
@@ -919,7 +929,7 @@ export const RightInspector: React.FC = () => {
                               >
                                 Solo
                               </button>
-                              {worldLayers.length > 1 && (
+                              {canGmEdit && worldLayers.length > 1 && (
                                 <button
                                   onClick={() => deleteWorldLayer(activeMap.id, layer.id)}
                                   className="p-0.5 text-[#555d6c] hover:text-red-400"
@@ -930,7 +940,7 @@ export const RightInspector: React.FC = () => {
                               )}
                             </div>
                           </div>
-                          {layer.visible && (
+                          {layer.visible && canGmEdit && (
                             <div className="mt-1 flex items-center gap-2 pl-6 pr-1">
                               <span className="text-[9.5px] text-[#6d7686]">Opacity</span>
                               <input
@@ -969,6 +979,8 @@ export const RightInspector: React.FC = () => {
                         ['paths', 'Paths / Trails'],
                         ['regions', 'All Overlay Zones'],
                         ['labels', 'Map Text Labels'],
+                        ['questBoards', 'Guild Quest Boards'],
+                        ['fogOfWar', 'Fog of War Shroud'],
                       ] as Array<[keyof typeof mapLayers, string]>
                     ).map(([key, label]) => {
                       const visible = mapLayers[key];
@@ -997,6 +1009,7 @@ export const RightInspector: React.FC = () => {
                 ) : (
                   <>
                 {/* Map Tools Grid */}
+                {canGmEdit && (
                 <div className="space-y-2 pt-1">
                   <div className="text-[11px] font-semibold text-[#a8a196] tracking-wide">
                     Map Tools
@@ -1039,6 +1052,7 @@ export const RightInspector: React.FC = () => {
                     })}
                   </div>
                 </div>
+                )}
 
                 {/* Zones / Territories List */}
                 <div className="space-y-1.5 pt-2 border-t border-[#12161f]">
@@ -1046,15 +1060,17 @@ export const RightInspector: React.FC = () => {
                     <span className="text-[11.5px] font-semibold text-[#a8a196]">
                       Zones &amp; Realms ({zonesOnMap.length})
                     </span>
-                    <button
-                      onClick={() => {
-                        setWorldsmithMode(false);
-                        setMapToolMode('zone');
-                      }}
-                      className="text-[10.5px] text-[#c9a050] hover:underline"
-                    >
-                      + Draw Zone
-                    </button>
+                    {canGmEdit && (
+                      <button
+                        onClick={() => {
+                          setWorldsmithMode(false);
+                          setMapToolMode('zone');
+                        }}
+                        className="text-[10.5px] text-[#c9a050] hover:underline"
+                      >
+                        + Draw Zone
+                      </button>
+                    )}
                   </div>
                   {zonesOnMap.length === 0 ? (
                     <div className="text-[11px] text-[#5c6574] italic">
@@ -1093,13 +1109,15 @@ export const RightInspector: React.FC = () => {
                                 </span>
                               )}
                             </button>
-                            <button
-                              onClick={() => deleteMapZone(activeMap.id, zone.id)}
-                              className="text-[#5c6574] hover:text-red-400 ml-1.5 shrink-0"
-                              title="Delete Zone"
-                            >
-                              <Trash2 className="w-3 h-3" />
-                            </button>
+                            {canGmEdit && (
+                              <button
+                                onClick={() => deleteMapZone(activeMap.id, zone.id)}
+                                className="text-[#5c6574] hover:text-red-400 ml-1.5 shrink-0"
+                                title="Delete Zone"
+                              >
+                                <Trash2 className="w-3 h-3" />
+                              </button>
+                            )}
                           </div>
                         );
                       })}
@@ -1113,12 +1131,14 @@ export const RightInspector: React.FC = () => {
                     <span className="text-[11.5px] font-semibold text-[#a8a196]">
                       Text Labels ({labelsOnMap.length})
                     </span>
-                    <button
-                      onClick={() => setMapToolMode('text')}
-                      className="text-[10.5px] text-[#c9a050] hover:underline"
-                    >
-                      + Add Text
-                    </button>
+                    {canGmEdit && (
+                      <button
+                        onClick={() => setMapToolMode('text')}
+                        className="text-[10.5px] text-[#c9a050] hover:underline"
+                      >
+                        + Add Text
+                      </button>
+                    )}
                   </div>
                   {labelsOnMap.length > 0 && (
                     <div className="space-y-1">
@@ -1141,13 +1161,15 @@ export const RightInspector: React.FC = () => {
                               {lbl.style}
                             </span>
                           </button>
-                          <button
-                            onClick={() => deleteMapLabel(activeMap.id, lbl.id)}
-                            className="text-[#5c6574] hover:text-red-400 ml-1.5 shrink-0"
-                            title="Delete Label"
-                          >
-                            <Trash2 className="w-3 h-3" />
-                          </button>
+                          {canGmEdit && (
+                            <button
+                              onClick={() => deleteMapLabel(activeMap.id, lbl.id)}
+                              className="text-[#5c6574] hover:text-red-400 ml-1.5 shrink-0"
+                              title="Delete Label"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                            </button>
+                          )}
                         </div>
                       ))}
                     </div>
@@ -1161,12 +1183,14 @@ export const RightInspector: React.FC = () => {
                       <span className="text-[11.5px] font-semibold text-[#a8a196]">
                         3D Elements ({heroPropsOnMap.length})
                       </span>
-                      <button
-                        onClick={() => setMapToolMode('element')}
-                        className="text-[10.5px] text-[#c9a050] hover:underline"
-                      >
-                        + Place
-                      </button>
+                      {canGmEdit && (
+                        <button
+                          onClick={() => setMapToolMode('element')}
+                          className="text-[10.5px] text-[#c9a050] hover:underline"
+                        >
+                          + Place
+                        </button>
+                      )}
                     </div>
                     <div className="space-y-1">
                       {heroPropsOnMap.map((prop) => (
@@ -1187,13 +1211,15 @@ export const RightInspector: React.FC = () => {
                               {prop.name || prop.kind}
                             </span>
                           </button>
-                          <button
-                            onClick={() => deleteMapProp(activeMap.id, prop.id)}
-                            className="text-[#5c6574] hover:text-red-400 ml-1.5 shrink-0"
-                            title="Delete Element"
-                          >
-                            <Trash2 className="w-3 h-3" />
-                          </button>
+                          {canGmEdit && (
+                            <button
+                              onClick={() => deleteMapProp(activeMap.id, prop.id)}
+                              className="text-[#5c6574] hover:text-red-400 ml-1.5 shrink-0"
+                              title="Delete Element"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                            </button>
+                          )}
                         </div>
                       ))}
                     </div>
@@ -1263,18 +1289,92 @@ export const RightInspector: React.FC = () => {
                         className="flex items-center justify-between px-2.5 py-1.5 rounded bg-[#090b0f] border border-[#141821] text-[11px] text-[#bdb7ac]"
                       >
                         <span className="truncate">{path.name}</span>
-                        <button
-                          onClick={() => deleteMapPath(path.id)}
-                          className="text-[#5c6574] hover:text-red-400 ml-2 shrink-0"
-                          title="Delete path"
-                        >
-                          <Trash2 className="w-3 h-3" />
-                        </button>
+                        {canGmEdit && (
+                          <button
+                            onClick={() => deleteMapPath(path.id)}
+                            className="text-[#5c6574] hover:text-red-400 ml-2 shrink-0"
+                            title="Delete path"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </button>
+                        )}
                       </div>
                     ))}
                   </div>
                 )}
                   </>
+                )}
+
+                {/* Peer Fog-of-War Map Showings Sharing */}
+                {user && (
+                  <div className="space-y-2 pt-2.5 border-t border-[#12161f]">
+                    <div className="text-[11.5px] font-semibold text-[#c9a050]">
+                      Share My Map Showings
+                    </div>
+                    <p className="text-[10.5px] text-[#7c8596] leading-snug">
+                      Let fellow party members see regions revealed to you on this map.
+                    </p>
+                    <div className="space-y-1.5">
+                      {(() => {
+                        const myShares = mapFogShares.filter(
+                          (sh) =>
+                            sh.map_id === activeMap.id && sh.owner_user_id === user.id
+                        );
+                        const shareAllRow = myShares.find((sh) => sh.share_all);
+                        const peers = campaignMembers.filter(
+                          (m) => m.user_id !== user.id
+                        );
+                        return (
+                          <>
+                            <label className="flex items-center justify-between px-2 py-1.5 rounded bg-[#090b0f] border border-[#141821] text-[11px] text-[#e8dfd0] cursor-pointer">
+                              <span>All Campaign Members</span>
+                              <input
+                                type="checkbox"
+                                checked={Boolean(shareAllRow)}
+                                onChange={(e) => {
+                                  if (e.target.checked) {
+                                    upsertMapFogShare(activeMap.id, null, true);
+                                  } else if (shareAllRow) {
+                                    revokeMapFogShare(shareAllRow.id);
+                                  }
+                                }}
+                                className="accent-[#d4a853]"
+                              />
+                            </label>
+                            {peers.map((peer) => {
+                              const peerShare = myShares.find(
+                                (sh) =>
+                                  !sh.share_all &&
+                                  sh.shared_with_user_id === peer.user_id
+                              );
+                              const peerLabel =
+                                peer.profile?.display_name || peer.user_id.slice(0, 8);
+                              return (
+                                <label
+                                  key={peer.user_id}
+                                  className="flex items-center justify-between px-2 py-1.5 rounded bg-[#090b0f] border border-[#141821] text-[11px] text-[#c7c2b7] cursor-pointer"
+                                >
+                                  <span className="truncate">{peerLabel}</span>
+                                  <input
+                                    type="checkbox"
+                                    checked={Boolean(peerShare)}
+                                    onChange={(e) => {
+                                      if (e.target.checked) {
+                                        upsertMapFogShare(activeMap.id, peer.user_id, false);
+                                      } else if (peerShare) {
+                                        revokeMapFogShare(peerShare.id);
+                                      }
+                                    }}
+                                    className="accent-[#d4a853]"
+                                  />
+                                </label>
+                              );
+                            })}
+                          </>
+                        );
+                      })()}
+                    </div>
+                  </div>
                 )}
               </>
             ) : focusedEntity ? (
@@ -1461,13 +1561,15 @@ export const RightInspector: React.FC = () => {
                   </div>
                 </div>
 
-                <button
-                  onClick={() => openNewEntryModal(focusedTemplate.type, 'encyclopedia')}
-                  className="w-full btn-gold-metallic py-2 px-3 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5"
-                >
-                  <FilePlus2 className="w-3.5 h-3.5" />
-                  <span>New {focusedTemplate.type} From Template</span>
-                </button>
+                {canGmEdit && (
+                  <button
+                    onClick={() => openNewEntryModal(focusedTemplate.type, 'encyclopedia')}
+                    className="w-full btn-gold-metallic py-2 px-3 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5"
+                  >
+                    <FilePlus2 className="w-3.5 h-3.5" />
+                    <span>New {focusedTemplate.type} From Template</span>
+                  </button>
+                )}
               </div>
             ) : null}
           </>

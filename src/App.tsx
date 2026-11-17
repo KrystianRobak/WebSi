@@ -1,20 +1,26 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels';
+import { Loader2 } from 'lucide-react';
 import { NoteEditorPane } from './components/editor/NoteEditorPane';
 import { AssetViewerPane } from './components/assets/AssetViewerPane';
 import { TemplateEditorPane } from './components/templates/TemplateEditorPane';
+import { AuthScreen } from './components/auth/AuthScreen';
+import { ProfileCampaignHub } from './components/profile/ProfileCampaignHub';
+import { PlayerJournalsPane } from './components/journals/PlayerJournalsPane';
+import { CampaignTimelinePane } from './components/timeline/CampaignTimelinePane';
+import { CharacterManagerPane } from './components/sheets/CharacterManagerPane';
+import { SheetTemplateStudio } from './components/sheets/SheetTemplateStudio';
+import { DiceRollerDrawer } from './components/vtt/DiceRollerDrawer';
 import { LeftSidebar } from './components/layout/LeftSidebar';
 import { RightInspector } from './components/layout/RightInspector';
 import { TopHeader } from './components/layout/TopHeader';
 import { MapViewport3D } from './components/map/MapViewport3D';
 import { BattlemapViewport2D } from './components/battlemap/BattlemapViewport2D';
-import { AuthModal } from './components/modals/AuthModal';
 import { CommandPalette } from './components/modals/CommandPalette';
 import { MapGeneratorModal } from './components/modals/MapGeneratorModal';
 import { NewEntryModal } from './components/modals/NewEntryModal';
 import { PinCreationModal } from './components/modals/PinCreationModal';
 import { SettingsModal } from './components/modals/SettingsModal';
-import { VaultLockScreen } from './components/modals/VaultLockScreen';
 import { useVaultStore } from './store/useVaultStore';
 import { EntityType, TabItem } from './types/vault';
 
@@ -26,8 +32,14 @@ function MapTabRouter({ mapId }: { mapId: string }) {
   return <MapViewport3D mapId={mapId} />;
 }
 
-function renderTabContent(tab: TabItem | undefined) {
-  if (!tab) return null;
+function renderTabContent(tab: TabItem | undefined, hasCampaign: boolean) {
+  if (!hasCampaign && tab?.kind !== 'profile_hub') {
+    return <ProfileCampaignHub />;
+  }
+  if (!tab) return <ProfileCampaignHub />;
+  if (tab.kind === 'profile_hub') {
+    return <ProfileCampaignHub />;
+  }
   if (tab.kind === 'map') {
     return <MapTabRouter mapId={tab.targetId} />;
   }
@@ -36,6 +48,18 @@ function renderTabContent(tab: TabItem | undefined) {
   }
   if (tab.kind === 'template') {
     return <TemplateEditorPane entityType={tab.targetId as EntityType} />;
+  }
+  if (tab.kind === 'journal') {
+    return <PlayerJournalsPane initialPageId={tab.targetId} />;
+  }
+  if (tab.kind === 'character') {
+    return <CharacterManagerPane initialCharacterId={tab.targetId} />;
+  }
+  if (tab.kind === 'sheet_studio') {
+    return <SheetTemplateStudio initialTemplateId={tab.targetId} />;
+  }
+  if (tab.kind === 'timeline') {
+    return <CampaignTimelinePane />;
   }
   return <NoteEditorPane entityId={tab.targetId} />;
 }
@@ -48,17 +72,24 @@ export function App() {
     initSupabaseSync,
     syncFromSupabase,
     maps,
+    campaigns,
+    activeCampaignId,
     undo,
     redo,
+    worldsmithMode,
+    isEffectiveGm,
+    dispatchTerrainCommand,
     isAuthenticated,
+    authLoading,
     leftNavOpen,
     setLeftNavOpen,
     toggleLeftNav,
     rightInspectorCollapsed,
     toggleRightInspector,
+    inspectorWidth,
+    setInspectorWidth,
   } = useVaultStore();
 
-  const [inspectorWidth, setInspectorWidth] = useState(330);
   const resizingInspectorRef = useRef<{ startX: number; startW: number } | null>(null);
 
   useEffect(() => {
@@ -77,14 +108,14 @@ export function App() {
       window.removeEventListener('mousemove', onMouseMove);
       window.removeEventListener('mouseup', onMouseUp);
     };
-  }, []);
+  }, [setInspectorWidth]);
 
   useEffect(() => {
     initSupabaseSync();
   }, [initSupabaseSync]);
 
   useEffect(() => {
-    if (!isAuthenticated) return;
+    if (!isAuthenticated || !activeCampaignId) return;
     const onFocusOrVisible = () => {
       if (document.visibilityState === 'visible') {
         syncFromSupabase();
@@ -96,7 +127,15 @@ export function App() {
       window.removeEventListener('focus', onFocusOrVisible);
       document.removeEventListener('visibilitychange', onFocusOrVisible);
     };
-  }, [isAuthenticated, syncFromSupabase]);
+  }, [isAuthenticated, activeCampaignId, syncFromSupabase]);
+
+  const activeTab = tabs.find((t) => t.id === activeTabId) || tabs[0];
+  const activeMap =
+    activeTab?.kind === 'map'
+      ? maps.find((m) => m.id === activeTab.targetId)
+      : undefined;
+  const is3dWorldsmithActive =
+    Boolean(worldsmithMode && isEffectiveGm() && activeMap && activeMap.kind !== '2d');
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -116,35 +155,48 @@ export function App() {
         target &&
         (target.tagName === 'INPUT' ||
           target.tagName === 'TEXTAREA' ||
+          target.tagName === 'SELECT' ||
           target.isContentEditable)
       ) {
         return;
       }
       if (e.key.toLowerCase() === 'z' && !e.shiftKey) {
         e.preventDefault();
-        undo();
+        if (is3dWorldsmithActive) dispatchTerrainCommand({ type: 'undo' });
+        else undo();
       } else if (
         (e.key.toLowerCase() === 'z' && e.shiftKey) ||
         e.key.toLowerCase() === 'y'
       ) {
         e.preventDefault();
-        redo();
+        if (is3dWorldsmithActive) dispatchTerrainCommand({ type: 'redo' });
+        else redo();
       }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [undo, redo, toggleLeftNav, toggleRightInspector]);
-
-  const activeTab = tabs.find((t) => t.id === activeTabId) || tabs[0];
+  }, [undo, redo, dispatchTerrainCommand, is3dWorldsmithActive, toggleLeftNav, toggleRightInspector]);
   const activeMapId = activeTab?.kind === 'map' ? activeTab.targetId : maps[0]?.id;
   const splitTab = splitPaneTabId
     ? tabs.find((t) => t.id === splitPaneTabId)
     : undefined;
+  const hasCampaign = campaigns.length > 0 && Boolean(activeCampaignId);
+
+  if (authLoading) {
+    return (
+      <div className="w-screen h-screen bg-[#050608] text-[#ded8cc] flex flex-col items-center justify-center gap-3">
+        <Loader2 className="w-7 h-7 text-[#d4a853] animate-spin" />
+        <p className="text-xs font-mono uppercase tracking-[0.18em] text-[#9b9384]">
+          Connecting to Aethelgard Vault...
+        </p>
+      </div>
+    );
+  }
 
   if (!isAuthenticated) {
     return (
       <>
-        <VaultLockScreen />
+        <AuthScreen />
         <SettingsModal />
       </>
     );
@@ -160,7 +212,7 @@ export function App() {
         <LeftSidebar />
 
         {/* Center Full-Bleed Canvas / Note Split */}
-        <div
+        <main
           className="flex-1 min-w-0 h-full relative overflow-hidden"
           onClick={() => {
             if (leftNavOpen) setLeftNavOpen(false);
@@ -169,17 +221,17 @@ export function App() {
           {splitTab && splitTab.id !== activeTab?.id ? (
             <PanelGroup direction="horizontal">
               <Panel defaultSize={55} minSize={25}>
-                {renderTabContent(activeTab)}
+                {renderTabContent(activeTab, hasCampaign)}
               </Panel>
               <PanelResizeHandle className="w-[2px] bg-[#131720] hover:bg-[#b68d40]/70 transition-colors cursor-col-resize" />
               <Panel defaultSize={45} minSize={25}>
-                {renderTabContent(splitTab)}
+                {renderTabContent(splitTab, hasCampaign)}
               </Panel>
             </PanelGroup>
           ) : (
-            renderTabContent(activeTab)
+            renderTabContent(activeTab, hasCampaign)
           )}
-        </div>
+        </main>
 
         {/* Floating Overlay Right Contextual Inspector Drawer */}
         {!rightInspectorCollapsed && (
@@ -188,6 +240,9 @@ export function App() {
             className="absolute right-0 inset-y-0 z-30 flex bg-[#06080b]/98 backdrop-blur-md border-l border-[#141821] shadow-[-18px_0_44px_rgba(0,0,0,0.82)] max-w-[92vw]"
           >
             <div
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="Resize Inspector"
               onMouseDown={(e) => {
                 e.preventDefault();
                 resizingInspectorRef.current = { startX: e.clientX, startW: inspectorWidth };
@@ -202,16 +257,17 @@ export function App() {
         )}
       </div>
 
-      {/* Global Modals */}
+      {/* Global Modals & VTT Overlays */}
+      <DiceRollerDrawer />
       <CommandPalette />
       <PinCreationModal />
       <NewEntryModal />
       <MapGeneratorModal targetMapId={activeMapId} />
-      <AuthModal />
       <SettingsModal />
     </div>
   );
 }
 
 export default App;
+
 

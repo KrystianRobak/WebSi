@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Eye, Map as MapIcon, Plus, Search, X } from 'lucide-react';
+import { Calendar, Eye, Map as MapIcon, NotebookPen, Plus, Search, Users, X } from 'lucide-react';
 import { useVaultStore } from '../../store/useVaultStore';
 import { EntityIcon } from '../common/EntityIcon';
 
@@ -9,12 +9,23 @@ export const CommandPalette: React.FC = () => {
     setCommandPaletteOpen,
     entities,
     maps,
+    characters,
+    journalPages,
+    timelineEvents,
     openEntityTab,
     openMapTab,
+    openCharacterTab,
+    openJournalTab,
+    openTimelineTab,
     openNewEntryModal,
+    myRole,
     gmMode,
     setGmMode,
+    isEffectiveGm,
   } = useVaultStore();
+
+  const canSwitchGm = myRole === 'gm' || myRole === 'co_gm';
+  const canGmEdit = isEffectiveGm();
 
   const [query, setQuery] = useState('');
   const [activeIdx, setActiveIdx] = useState(0);
@@ -47,19 +58,67 @@ export const CommandPalette: React.FC = () => {
         id: m.id,
         kind: 'map' as const,
         title: m.name,
-        subtitle: `3D Map • ${m.scale_config.ratio}`,
-        type: 'Map',
+        subtitle: `${m.kind === '2d' ? '2D Battlemap' : '3D World Map'} • ${m.scale_config?.ratio || '1 : 250 000'}`,
+        type: m.kind === '2d' ? '2D Map' : '3D Map',
+      }));
+
+    const matchedCharacters = characters
+      .filter((c) => !q || c.name.toLowerCase().includes(q))
+      .slice(0, 8)
+      .map((c) => ({
+        id: c.id,
+        kind: 'character' as const,
+        title: c.name,
+        subtitle: `Character Sheet • ${c.is_active ? 'Active' : 'Inactive'}`,
+        type: 'Character',
+      }));
+
+    const matchedJournals = journalPages
+      .filter(
+        (j) =>
+          !q ||
+          j.title.toLowerCase().includes(q) ||
+          j.tags.some((t) => t.toLowerCase().includes(q))
+      )
+      .slice(0, 8)
+      .map((j) => ({
+        id: j.id,
+        kind: 'journal' as const,
+        title: j.title,
+        subtitle: `Journal (${j.share_scope})`,
+        type: 'Journal',
+      }));
+
+    const matchedTimeline = timelineEvents
+      .filter(
+        (ev) =>
+          (canGmEdit || !ev.is_gm_only) &&
+          (!q ||
+            ev.title.toLowerCase().includes(q) ||
+            ev.era.toLowerCase().includes(q) ||
+            ev.date_label.toLowerCase().includes(q))
+      )
+      .slice(0, 6)
+      .map((ev) => ({
+        id: ev.id,
+        kind: 'timeline' as const,
+        title: ev.title,
+        subtitle: `Timeline • ${ev.date_label}`,
+        type: 'Timeline',
       }));
 
     const matchedEntities = entities
-      .filter(
-        (e) =>
+      .filter((e) => {
+        const isGmOnly = Boolean(e.metadata?.is_gm_only || (e as { is_gm_only?: boolean }).is_gm_only);
+        if (!canGmEdit && isGmOnly) return false;
+        return (
           !q ||
           e.title.toLowerCase().includes(q) ||
           e.type.toLowerCase().includes(q) ||
           e.tags.some((t) => t.toLowerCase().includes(q)) ||
           e.summary.toLowerCase().includes(q)
-      )
+        );
+      })
       .slice(0, 12)
       .map((e) => ({
         id: e.id,
@@ -69,17 +128,23 @@ export const CommandPalette: React.FC = () => {
         type: e.type,
       }));
 
-    return [...matchedMaps, ...matchedEntities];
-  }, [query, maps, entities]);
+    return [
+      ...matchedMaps,
+      ...matchedCharacters,
+      ...matchedJournals,
+      ...matchedTimeline,
+      ...matchedEntities,
+    ];
+  }, [query, maps, characters, journalPages, timelineEvents, entities, canGmEdit]);
 
   if (!commandPaletteOpen) return null;
 
   const handleSelect = (item: (typeof results)[number]) => {
-    if (item.kind === 'map') {
-      openMapTab(item.id);
-    } else {
-      openEntityTab(item.id);
-    }
+    if (item.kind === 'map') openMapTab(item.id);
+    else if (item.kind === 'character') openCharacterTab(item.id);
+    else if (item.kind === 'journal') openJournalTab(item.id);
+    else if (item.kind === 'timeline') openTimelineTab();
+    else openEntityTab(item.id);
     setCommandPaletteOpen(false);
   };
 
@@ -89,6 +154,9 @@ export const CommandPalette: React.FC = () => {
       className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-start justify-center pt-[14vh] px-4"
     >
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="Command Palette"
         onClick={(e) => e.stopPropagation()}
         className="w-full max-w-xl rounded-xl dark-glass shadow-glass overflow-hidden border border-[#d4a853]/35"
       >
@@ -112,7 +180,7 @@ export const CommandPalette: React.FC = () => {
                 handleSelect(results[activeIdx]);
               }
             }}
-            placeholder="Search characters, locations, sessions, #tags..."
+            placeholder="Search lore, characters, journals, maps, timeline..."
             className="flex-1 bg-transparent text-sm text-[#f3ead8] placeholder:text-[#6c7585] focus:outline-none"
           />
           <button
@@ -125,25 +193,59 @@ export const CommandPalette: React.FC = () => {
 
         {/* Quick Actions */}
         <div className="px-3 py-2 bg-[#0b0d10]/70 border-b border-[#181d25] flex items-center gap-2 flex-wrap">
+          {canGmEdit && (
+            <button
+              onClick={() => {
+                setCommandPaletteOpen(false);
+                openNewEntryModal('Location', 'encyclopedia');
+              }}
+              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-[#171b22] border border-[#272e3a] hover:border-[#d4a853]/50 text-[11px] text-[#e5be58]"
+            >
+              <Plus className="w-3 h-3" />
+              <span>New Entry</span>
+            </button>
+          )}
+          {canSwitchGm && (
+            <button
+              onClick={() => {
+                setGmMode(!gmMode);
+                setCommandPaletteOpen(false);
+              }}
+              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-[#171b22] border border-[#272e3a] hover:border-[#d4a853]/50 text-[11px] text-[#d5d0c5]"
+            >
+              <Eye className="w-3 h-3 text-[#d4a853]" />
+              <span>Toggle GM Mode ({gmMode ? 'ON' : 'OFF'})</span>
+            </button>
+          )}
           <button
             onClick={() => {
-              setCommandPaletteOpen(false);
-              openNewEntryModal('Location', 'encyclopedia');
-            }}
-            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-[#171b22] border border-[#272e3a] hover:border-[#d4a853]/50 text-[11px] text-[#e5be58]"
-          >
-            <Plus className="w-3 h-3" />
-            <span>New Entry</span>
-          </button>
-          <button
-            onClick={() => {
-              setGmMode(!gmMode);
+              openJournalTab();
               setCommandPaletteOpen(false);
             }}
             className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-[#171b22] border border-[#272e3a] hover:border-[#d4a853]/50 text-[11px] text-[#d5d0c5]"
           >
-            <Eye className="w-3 h-3 text-[#d4a853]" />
-            <span>Toggle GM Mode ({gmMode ? 'ON' : 'OFF'})</span>
+            <NotebookPen className="w-3 h-3 text-[#d4a853]" />
+            <span>Journals</span>
+          </button>
+          <button
+            onClick={() => {
+              openCharacterTab();
+              setCommandPaletteOpen(false);
+            }}
+            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-[#171b22] border border-[#272e3a] hover:border-[#d4a853]/50 text-[11px] text-[#d5d0c5]"
+          >
+            <Users className="w-3 h-3 text-[#d4a853]" />
+            <span>Characters</span>
+          </button>
+          <button
+            onClick={() => {
+              openTimelineTab();
+              setCommandPaletteOpen(false);
+            }}
+            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-[#171b22] border border-[#272e3a] hover:border-[#d4a853]/50 text-[11px] text-[#d5d0c5]"
+          >
+            <Calendar className="w-3 h-3 text-[#d4a853]" />
+            <span>Timeline</span>
           </button>
           {maps[0] && (
             <button
@@ -154,7 +256,7 @@ export const CommandPalette: React.FC = () => {
               className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-[#171b22] border border-[#272e3a] hover:border-[#d4a853]/50 text-[11px] text-[#d5d0c5]"
             >
               <MapIcon className="w-3 h-3 text-[#d4a853]" />
-              <span>Focus World Map</span>
+              <span>Focus Map</span>
             </button>
           )}
         </div>
@@ -179,7 +281,18 @@ export const CommandPalette: React.FC = () => {
               >
                 <div className="flex items-center gap-3 min-w-0">
                   <span className="p-1.5 rounded bg-[#141820] border border-[#232934] text-[#d4a853] shrink-0">
-                    <EntityIcon type={item.type} className="w-3.5 h-3.5" />
+                    <EntityIcon
+                      type={
+                        item.kind === 'map'
+                          ? 'Map'
+                          : item.kind === 'journal'
+                          ? 'PlayerNote'
+                          : item.kind === 'timeline'
+                          ? 'Chronicle'
+                          : item.type
+                      }
+                      className="w-3.5 h-3.5"
+                    />
                   </span>
                   <div className="min-w-0">
                     <div className="text-[13px] font-medium truncate">{item.title}</div>

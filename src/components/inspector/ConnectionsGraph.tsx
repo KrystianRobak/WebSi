@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import ForceGraph2D, { ForceGraphMethods } from 'react-force-graph-2d';
 import { useVaultStore } from '../../store/useVaultStore';
 
@@ -21,6 +21,21 @@ export const ConnectionsGraph: React.FC<{ focusEntityId?: string | null }> = ({
   const { entities, entityLinks, openEntityTab } = useVaultStore();
   const containerRef = useRef<HTMLDivElement>(null);
   const graphRef = useRef<ForceGraphMethods>();
+  const [dims, setDims] = useState({ width: 296, height: 358 });
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver((entries) => {
+      const rect = entries[0]?.contentRect;
+      if (!rect) return;
+      const w = Math.max(180, Math.round(rect.width));
+      const h = Math.max(220, Math.round(rect.height));
+      setDims({ width: w, height: h });
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   useEffect(() => {
     const fg = graphRef.current;
@@ -47,11 +62,14 @@ export const ConnectionsGraph: React.FC<{ focusEntityId?: string | null }> = ({
   }, [entities, entityLinks, focusEntityId]);
 
   return (
-    <div ref={containerRef} className="w-full h-[360px] rounded-lg bg-[#040507] border border-[#141821] overflow-hidden relative">
+    <div
+      ref={containerRef}
+      className="w-full h-[360px] rounded-lg bg-[#040507] border border-[#141821] overflow-hidden relative"
+    >
       <ForceGraph2D
         ref={graphRef}
-        width={296}
-        height={358}
+        width={dims.width}
+        height={dims.height}
         graphData={graphData}
         backgroundColor="#040507"
         nodeRelSize={4}

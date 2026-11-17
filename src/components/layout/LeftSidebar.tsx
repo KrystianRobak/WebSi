@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import {
+  Calendar,
   ChevronDown,
   ChevronRight,
   Clock,
@@ -10,12 +11,16 @@ import {
   Globe,
   Image as ImageIcon,
   Layers,
+  NotebookPen,
   PanelLeftClose,
   Plus,
+  ScrollText,
   Search,
   Settings,
   Settings2,
   Star,
+  UserCheck,
+  Users,
   X,
 } from 'lucide-react';
 import { uploadVaultAsset } from '../../lib/supabase';
@@ -68,12 +73,18 @@ export const LeftSidebar: React.FC = () => {
     activeTabId,
     leftNavOpen,
     leftNavSection,
+    isEffectiveGm,
     setLeftNavOpen,
     setLeftNavSection,
     openEntityTab,
     openMapTab,
     openAssetTab,
     openTemplateTab,
+    openJournalTab,
+    openCharacterTab,
+    openSheetStudioTab,
+    openTimelineTab,
+    openProfileHubTab,
     addAsset,
     openNewEntryModal,
     setMapGeneratorModalOpen,
@@ -81,9 +92,11 @@ export const LeftSidebar: React.FC = () => {
     setSettingsModalOpen,
   } = useVaultStore();
 
+  const canGmEdit = isEffectiveGm();
+
   const handleUploadAssetFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file) return;
+    if (!file || !canGmEdit) return;
     const url = await uploadVaultAsset(file, 'assets');
     const cleanName = file.name.replace(/\.[^.]+$/, '');
     const created = addAsset({ name: cleanName, url, kind: 'scene' });
@@ -103,24 +116,38 @@ export const LeftSidebar: React.FC = () => {
     worldFolder: true,
   });
 
-  const [expandedGroup, setExpandedGroup] = useState<string | null>('world-Map');
+  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({
+    'world-Map': true,
+    'vault-all': true,
+  });
 
   const activeTab = tabs.find((t) => t.id === activeTabId);
 
-  const favorites = useMemo(() => entities.filter((e) => e.is_favorite), [entities]);
+  const visibleEntities = useMemo(
+    () =>
+      entities.filter((e) => {
+        const isGmOnly = Boolean(
+          e.metadata?.is_gm_only || (e as Entity & { is_gm_only?: boolean }).is_gm_only
+        );
+        return canGmEdit || !isGmOnly;
+      }),
+    [entities, canGmEdit]
+  );
+
+  const favorites = useMemo(() => visibleEntities.filter((e) => e.is_favorite), [visibleEntities]);
   const recent = useMemo(
     () =>
-      [...entities]
+      [...visibleEntities]
         .sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())
         .slice(0, 12),
-    [entities]
+    [visibleEntities]
   );
 
   const filteredQuickResults = useMemo(() => {
     const q = filterQuery.trim().toLowerCase();
     if (!q) return null;
     return {
-      entities: entities.filter(
+      entities: visibleEntities.filter(
         (e) =>
           e.title.toLowerCase().includes(q) ||
           e.type.toLowerCase().includes(q) ||
@@ -129,13 +156,13 @@ export const LeftSidebar: React.FC = () => {
       maps: maps.filter((m) => m.name.toLowerCase().includes(q)),
       assets: assets.filter((a) => a.name.toLowerCase().includes(q)),
     };
-  }, [filterQuery, entities, maps, assets]);
+  }, [filterQuery, visibleEntities, maps, assets]);
 
   const toggleSection = (key: string) =>
     setOpenSections((prev) => ({ ...prev, [key]: !prev[key] }));
 
   const toggleGroup = (key: string) =>
-    setExpandedGroup((prev) => (prev === key ? null : key));
+    setExpandedGroups((prev) => ({ ...prev, [key]: !prev[key] }));
 
   const handleRailSectionClick = (section: 'vault' | 'assets' | 'templates') => {
     if (leftNavOpen && leftNavSection === section) {
@@ -173,16 +200,16 @@ export const LeftSidebar: React.FC = () => {
 
   return (
     <div className="relative h-full flex shrink-0 select-none z-30">
-      {/* 44px Obsidian Studio Icon Rail (Always visible, ultra-clean) */}
+      {/* 44px Obsidian Studio Icon Rail */}
       <nav
         aria-label="Workspace Rail"
-        className="w-11 h-full bg-[#050608] border-r border-[#11151d] flex flex-col items-center py-2.5 gap-1.5 shrink-0 z-30"
+        className="w-11 h-full bg-[#050608] border-r border-[#11151d] flex flex-col items-center py-2.5 gap-1.5 shrink-0 z-30 overflow-y-auto"
       >
         <button
           onClick={() => handleRailSectionClick('vault')}
           title="Vault Explorer (Ctrl+\)"
           aria-label="Vault Explorer"
-          className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors ${
+          className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors shrink-0 ${
             leftNavOpen && leftNavSection === 'vault'
               ? 'bg-[#0e1219] text-[#d6b16a] border border-[#b68d40]/45 shadow-gold-sm'
               : 'text-[#757e8d] hover:text-[#e8dfd0] hover:bg-[#0d1016]'
@@ -192,10 +219,74 @@ export const LeftSidebar: React.FC = () => {
         </button>
 
         <button
+          onClick={() => {
+            setLeftNavOpen(false);
+            openJournalTab();
+          }}
+          title="Player Journals"
+          aria-label="Journals"
+          className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors shrink-0 ${
+            activeTab?.kind === 'journal'
+              ? 'bg-[#0e1219] text-[#d6b16a] border border-[#b68d40]/45 shadow-gold-sm'
+              : 'text-[#757e8d] hover:text-[#e8dfd0] hover:bg-[#0d1016]'
+          }`}
+        >
+          <NotebookPen className="w-4 h-4" />
+        </button>
+
+        <button
+          onClick={() => {
+            setLeftNavOpen(false);
+            openCharacterTab();
+          }}
+          title="Characters & Sheets"
+          aria-label="Characters"
+          className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors shrink-0 ${
+            activeTab?.kind === 'character'
+              ? 'bg-[#0e1219] text-[#d6b16a] border border-[#b68d40]/45 shadow-gold-sm'
+              : 'text-[#757e8d] hover:text-[#e8dfd0] hover:bg-[#0d1016]'
+          }`}
+        >
+          <Users className="w-4 h-4" />
+        </button>
+
+        <button
+          onClick={() => {
+            setLeftNavOpen(false);
+            openSheetStudioTab();
+          }}
+          title="Sheet Template Studio"
+          aria-label="Sheet Studio"
+          className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors shrink-0 ${
+            activeTab?.kind === 'sheet_studio'
+              ? 'bg-[#0e1219] text-[#d6b16a] border border-[#b68d40]/45 shadow-gold-sm'
+              : 'text-[#757e8d] hover:text-[#e8dfd0] hover:bg-[#0d1016]'
+          }`}
+        >
+          <ScrollText className="w-4 h-4" />
+        </button>
+
+        <button
+          onClick={() => {
+            setLeftNavOpen(false);
+            openTimelineTab();
+          }}
+          title="Campaign Timeline & Calendar"
+          aria-label="Timeline"
+          className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors shrink-0 ${
+            activeTab?.kind === 'timeline'
+              ? 'bg-[#0e1219] text-[#d6b16a] border border-[#b68d40]/45 shadow-gold-sm'
+              : 'text-[#757e8d] hover:text-[#e8dfd0] hover:bg-[#0d1016]'
+          }`}
+        >
+          <Calendar className="w-4 h-4" />
+        </button>
+
+        <button
           onClick={() => handleRailSectionClick('assets')}
           title={`Vault Assets (${assets.length})`}
           aria-label="Vault Assets"
-          className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors ${
+          className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors shrink-0 ${
             leftNavOpen && leftNavSection === 'assets'
               ? 'bg-[#0e1219] text-[#d6b16a] border border-[#b68d40]/45 shadow-gold-sm'
               : 'text-[#757e8d] hover:text-[#e8dfd0] hover:bg-[#0d1016]'
@@ -208,7 +299,7 @@ export const LeftSidebar: React.FC = () => {
           onClick={() => handleRailSectionClick('templates')}
           title="Record Templates"
           aria-label="Record Templates"
-          className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors ${
+          className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors shrink-0 ${
             leftNavOpen && leftNavSection === 'templates'
               ? 'bg-[#0e1219] text-[#d6b16a] border border-[#b68d40]/45 shadow-gold-sm'
               : 'text-[#757e8d] hover:text-[#e8dfd0] hover:bg-[#0d1016]'
@@ -217,41 +308,60 @@ export const LeftSidebar: React.FC = () => {
           <FileCode2 className="w-4 h-4" />
         </button>
 
-        <div className="w-5 h-px bg-[#12161f] my-1" />
+        <div className="w-5 h-px bg-[#12161f] my-1 shrink-0" />
 
         <button
           onClick={() => setCommandPaletteOpen(true)}
           title="Quick Search (Ctrl+K)"
           aria-label="Quick Search"
-          className="w-8 h-8 rounded-lg text-[#757e8d] hover:text-[#e8dfd0] hover:bg-[#0d1016] flex items-center justify-center transition-colors"
+          className="w-8 h-8 rounded-lg text-[#757e8d] hover:text-[#e8dfd0] hover:bg-[#0d1016] flex items-center justify-center transition-colors shrink-0"
         >
           <Search className="w-4 h-4" />
         </button>
 
-        <button
-          onClick={() => openNewEntryModal('Location', 'encyclopedia')}
-          title="Create New Entry"
-          aria-label="Create New Entry"
-          className="w-8 h-8 rounded-lg text-[#b68d40] hover:bg-[#b68d40]/15 flex items-center justify-center transition-colors"
-        >
-          <Plus className="w-4 h-4" />
-        </button>
+        {canGmEdit && (
+          <>
+            <button
+              onClick={() => openNewEntryModal('Location', 'encyclopedia')}
+              title="Create New Entry"
+              aria-label="Create New Entry"
+              className="w-8 h-8 rounded-lg text-[#b68d40] hover:bg-[#b68d40]/15 flex items-center justify-center transition-colors shrink-0"
+            >
+              <Plus className="w-4 h-4" />
+            </button>
 
-        <button
-          onClick={() => setMapGeneratorModalOpen(true, '3d')}
-          title="Generate 3D World / 2D Battlemap"
-          aria-label="Generate Map"
-          className="w-8 h-8 rounded-lg text-[#757e8d] hover:text-[#c9a050] hover:bg-[#0d1016] flex items-center justify-center transition-colors"
-        >
-          <Globe className="w-4 h-4" />
-        </button>
+            <button
+              onClick={() => setMapGeneratorModalOpen(true, '3d')}
+              title="Generate 3D World / 2D Battlemap"
+              aria-label="Generate Map"
+              className="w-8 h-8 rounded-lg text-[#757e8d] hover:text-[#c9a050] hover:bg-[#0d1016] flex items-center justify-center transition-colors shrink-0"
+            >
+              <Globe className="w-4 h-4" />
+            </button>
+          </>
+        )}
 
-        <div className="mt-auto flex flex-col items-center gap-1.5">
+        <div className="mt-auto flex flex-col items-center gap-1.5 pt-2">
+          <button
+            onClick={() => {
+              setLeftNavOpen(false);
+              openProfileHubTab();
+            }}
+            title="Profile & Campaigns Hub"
+            aria-label="Profile & Campaigns"
+            className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors shrink-0 ${
+              activeTab?.kind === 'profile_hub'
+                ? 'bg-[#0e1219] text-[#d6b16a] border border-[#b68d40]/45'
+                : 'text-[#6d7686] hover:text-[#e8dfd0] hover:bg-[#0d1016]'
+            }`}
+          >
+            <UserCheck className="w-4 h-4" />
+          </button>
           <button
             onClick={() => setSettingsModalOpen(true)}
             title="Vault & Sync Settings"
             aria-label="Settings"
-            className="w-8 h-8 rounded-lg text-[#6d7686] hover:text-[#e8dfd0] hover:bg-[#0d1016] flex items-center justify-center transition-colors"
+            className="w-8 h-8 rounded-lg text-[#6d7686] hover:text-[#e8dfd0] hover:bg-[#0d1016] flex items-center justify-center transition-colors shrink-0"
           >
             <Settings className="w-4 h-4" />
           </button>
@@ -325,14 +435,16 @@ export const LeftSidebar: React.FC = () => {
                       </button>
                     )}
                   </div>
-                  <button
-                    onClick={() => openNewEntryModal('Location', 'encyclopedia')}
-                    title="New Entry"
-                    className="h-[28px] px-2.5 rounded-md btn-gold-metallic flex items-center justify-center gap-1 text-[11px] font-semibold shrink-0"
-                  >
-                    <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
-                    <span>New</span>
-                  </button>
+                  {canGmEdit && (
+                    <button
+                      onClick={() => openNewEntryModal('Location', 'encyclopedia')}
+                      title="New Entry"
+                      className="h-[28px] px-2.5 rounded-md btn-gold-metallic flex items-center justify-center gap-1 text-[11px] font-semibold shrink-0"
+                    >
+                      <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
+                      <span>New</span>
+                    </button>
+                  )}
                 </div>
 
                 {/* Scope Filter Pills */}
@@ -370,16 +482,18 @@ export const LeftSidebar: React.FC = () => {
                   <span className="text-[10.5px] font-mono uppercase tracking-wider text-[#7c8594]">
                     Media Assets ({assets.length})
                   </span>
-                  <label className="cursor-pointer px-2 py-1 rounded bg-[#0c0f15] border border-[#1a202c] hover:border-[#b68d40] text-[10.5px] text-[#c9a050] flex items-center gap-1">
-                    <Plus className="w-3 h-3" />
-                    <span>Upload</span>
-                    <input
-                      type="file"
-                      accept="image/*"
-                      className="hidden"
-                      onChange={handleUploadAssetFile}
-                    />
-                  </label>
+                  {canGmEdit && (
+                    <label className="cursor-pointer px-2 py-1 rounded bg-[#0c0f15] border border-[#1a202c] hover:border-[#b68d40] text-[10.5px] text-[#c9a050] flex items-center gap-1">
+                      <Plus className="w-3 h-3" />
+                      <span>Upload</span>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={handleUploadAssetFile}
+                      />
+                    </label>
+                  )}
                 </div>
                 <div className="space-y-1">
                   {assets.map((asset) => {
@@ -508,9 +622,9 @@ export const LeftSidebar: React.FC = () => {
                               <Layers className="w-3.5 h-3.5 text-[#b68d40]" />
                               <span>All Entries</span>
                             </span>
-                            <span className="font-mono text-[11px] text-[#687180]">{entities.length}</span>
+                            <span className="font-mono text-[11px] text-[#687180]">{visibleEntities.length}</span>
                           </button>
-                          {expandedGroup === 'vault-all' && renderEntityList(entities)}
+                          {Boolean(expandedGroups['vault-all']) && renderEntityList(visibleEntities)}
                         </div>
                         <div>
                           <button
@@ -523,7 +637,7 @@ export const LeftSidebar: React.FC = () => {
                             </span>
                             <span className="font-mono text-[11px] text-[#687180]">{favorites.length}</span>
                           </button>
-                          {expandedGroup === 'vault-fav' && renderEntityList(favorites)}
+                          {Boolean(expandedGroups['vault-fav']) && renderEntityList(favorites)}
                         </div>
                         <div>
                           <button
@@ -536,7 +650,7 @@ export const LeftSidebar: React.FC = () => {
                             </span>
                             <span className="font-mono text-[11px] text-[#687180]">{recent.length}</span>
                           </button>
-                          {expandedGroup === 'vault-recent' && renderEntityList(recent)}
+                          {Boolean(expandedGroups['vault-recent']) && renderEntityList(recent)}
                         </div>
                       </div>
                     )}
@@ -555,9 +669,9 @@ export const LeftSidebar: React.FC = () => {
                     {openSections.encyclopedia && (
                       <div className="mt-1 space-y-0.5">
                         {ENCYCLOPEDIA_ITEMS.map((item) => {
-                          const matching = entities.filter((e) => e.type === item.type);
+                          const matching = visibleEntities.filter((e) => e.type === item.type);
                           const key = `enc-${item.type}`;
-                          const isOpen = expandedGroup === key;
+                          const isOpen = Boolean(expandedGroups[key]);
                           return (
                             <div key={key}>
                               <div className="group flex items-center justify-between px-2 py-1.5 rounded text-[12px] text-[#b8b3a8] hover:bg-[#0d1016] hover:text-[#e8dfd0] transition-colors">
@@ -569,13 +683,15 @@ export const LeftSidebar: React.FC = () => {
                                   <span className="truncate">{item.label}</span>
                                 </button>
                                 <div className="flex items-center gap-1.5 shrink-0">
-                                  <button
-                                    onClick={() => openNewEntryModal(item.type as EntityType, item.category)}
-                                    title={`New ${item.type}`}
-                                    className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-[#171c25] text-[#c9a050] transition-opacity"
-                                  >
-                                    <Plus className="w-3 h-3" />
-                                  </button>
+                                  {canGmEdit && (
+                                    <button
+                                      onClick={() => openNewEntryModal(item.type as EntityType, item.category)}
+                                      title={`New ${item.type}`}
+                                      className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-[#171c25] text-[#c9a050] transition-opacity"
+                                    >
+                                      <Plus className="w-3 h-3" />
+                                    </button>
+                                  )}
                                   <span className="font-mono text-[11px] text-[#687180] min-w-[16px] text-right">
                                     {matching.length}
                                   </span>
@@ -610,14 +726,14 @@ export const LeftSidebar: React.FC = () => {
                           ) : (
                             <Folder className="w-3.5 h-3.5 text-[#b68d40] shrink-0" />
                           )}
-                          <span className="truncate font-medium">Shattered Reach</span>
+                          <span className="truncate font-medium">{world.name || 'Campaign Notes'}</span>
                         </button>
                         {openSections.campaignFolder && (
                           <div className="pl-3 space-y-0.5 pt-0.5">
                             {CAMPAIGN_ITEMS.map((item) => {
-                              const matching = entities.filter((e) => e.type === item.type);
+                              const matching = visibleEntities.filter((e) => e.type === item.type);
                               const key = `camp-${item.type}`;
-                              const isOpen = expandedGroup === key;
+                              const isOpen = Boolean(expandedGroups[key]);
                               return (
                                 <div key={key}>
                                   <div className="group flex items-center justify-between px-2 py-1 rounded text-[12px] text-[#aca79c] hover:bg-[#0d1016] hover:text-[#e8dfd0]">
@@ -629,12 +745,14 @@ export const LeftSidebar: React.FC = () => {
                                       <span className="truncate">{item.label}</span>
                                     </button>
                                     <div className="flex items-center gap-1.5 shrink-0">
-                                      <button
-                                        onClick={() => openNewEntryModal(item.type as EntityType, item.category)}
-                                        className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-[#171c25] text-[#c9a050]"
-                                      >
-                                        <Plus className="w-3 h-3" />
-                                      </button>
+                                      {canGmEdit && (
+                                        <button
+                                          onClick={() => openNewEntryModal(item.type as EntityType, item.category)}
+                                          className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-[#171c25] text-[#c9a050]"
+                                        >
+                                          <Plus className="w-3 h-3" />
+                                        </button>
+                                      )}
                                       <span className="font-mono text-[10.5px] text-[#636c7a]">{matching.length}</span>
                                     </div>
                                   </div>
@@ -676,10 +794,10 @@ export const LeftSidebar: React.FC = () => {
                           <div className="pl-3 space-y-0.5">
                             {WORLD_ITEMS.map((item) => {
                               const isMapGroup = item.type === 'Map';
-                              const matching = isMapGroup ? [] : entities.filter((e) => e.type === item.type);
+                              const matching = isMapGroup ? [] : visibleEntities.filter((e) => e.type === item.type);
                               const count = isMapGroup ? maps.length : matching.length;
                               const key = `world-${item.type}`;
-                              const isOpen = expandedGroup === key;
+                              const isOpen = Boolean(expandedGroups[key]);
 
                               return (
                                 <div key={key}>
@@ -692,17 +810,19 @@ export const LeftSidebar: React.FC = () => {
                                       <span className="truncate">{item.label}</span>
                                     </button>
                                     <div className="flex items-center gap-1.5 shrink-0">
-                                      <button
-                                        onClick={() =>
-                                          isMapGroup
-                                            ? setMapGeneratorModalOpen(true, '3d')
-                                            : openNewEntryModal(item.type as EntityType, item.category)
-                                        }
-                                        title={isMapGroup ? 'Create Custom Map' : `New ${item.label}`}
-                                        className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-[#171c25] text-[#c9a050]"
-                                      >
-                                        <Plus className="w-3 h-3" />
-                                      </button>
+                                      {canGmEdit && (
+                                        <button
+                                          onClick={() =>
+                                            isMapGroup
+                                              ? setMapGeneratorModalOpen(true, '3d')
+                                              : openNewEntryModal(item.type as EntityType, item.category)
+                                          }
+                                          title={isMapGroup ? 'Create Custom Map' : `New ${item.label}`}
+                                          className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-[#171c25] text-[#c9a050]"
+                                        >
+                                          <Plus className="w-3 h-3" />
+                                        </button>
+                                      )}
                                       <span className="font-mono text-[10.5px] text-[#636c7a]">{count}</span>
                                     </div>
                                   </div>
@@ -736,31 +856,35 @@ export const LeftSidebar: React.FC = () => {
                                                   {m.kind === '2d' ? '2D' : '3D'}
                                                 </span>
                                               </button>
-                                              <button
-                                                onClick={() => setMapGeneratorModalOpen(true, m.kind || '3d', m.id)}
-                                                title={`Edit ${m.name}`}
-                                                aria-label={`Edit ${m.name}`}
-                                                className="opacity-0 group-hover/map:opacity-100 p-1 rounded hover:bg-[#171c25] text-[#8e97a6] hover:text-[#c9a050] transition-opacity shrink-0"
-                                              >
-                                                <Settings2 className="w-3 h-3" />
-                                              </button>
+                                              {canGmEdit && (
+                                                <button
+                                                  onClick={() => setMapGeneratorModalOpen(true, m.kind || '3d', m.id)}
+                                                  title={`Edit ${m.name}`}
+                                                  aria-label={`Edit ${m.name}`}
+                                                  className="opacity-0 group-hover/map:opacity-100 p-1 rounded hover:bg-[#171c25] text-[#8e97a6] hover:text-[#c9a050] transition-opacity shrink-0"
+                                                >
+                                                  <Settings2 className="w-3 h-3" />
+                                                </button>
+                                              )}
                                             </div>
                                           );
                                         })}
-                                        <div className="grid grid-cols-2 gap-1 pt-1">
-                                          <button
-                                            onClick={() => setMapGeneratorModalOpen(true, '3d')}
-                                            className="px-1.5 py-1 rounded text-[10px] font-medium text-[#c9a050] bg-[#0b0e14] hover:bg-[#121720] border border-[#1a202c] flex items-center justify-center gap-1"
-                                          >
-                                            <Plus className="w-2.5 h-2.5" /> 3D World
-                                          </button>
-                                          <button
-                                            onClick={() => setMapGeneratorModalOpen(true, '2d')}
-                                            className="px-1.5 py-1 rounded text-[10px] font-medium text-sky-300/90 bg-[#0b0e14] hover:bg-[#121720] border border-[#1a202c] flex items-center justify-center gap-1"
-                                          >
-                                            <Plus className="w-2.5 h-2.5" /> 2D Combat
-                                          </button>
-                                        </div>
+                                        {canGmEdit && (
+                                          <div className="grid grid-cols-2 gap-1 pt-1">
+                                            <button
+                                              onClick={() => setMapGeneratorModalOpen(true, '3d')}
+                                              className="px-1.5 py-1 rounded text-[10px] font-medium text-[#c9a050] bg-[#0b0e14] hover:bg-[#121720] border border-[#1a202c] flex items-center justify-center gap-1"
+                                            >
+                                              <Plus className="w-2.5 h-2.5" /> 3D World
+                                            </button>
+                                            <button
+                                              onClick={() => setMapGeneratorModalOpen(true, '2d')}
+                                              className="px-1.5 py-1 rounded text-[10px] font-medium text-sky-300/90 bg-[#0b0e14] hover:bg-[#121720] border border-[#1a202c] flex items-center justify-center gap-1"
+                                            >
+                                              <Plus className="w-2.5 h-2.5" /> 2D Combat
+                                            </button>
+                                          </div>
+                                        )}
                                       </div>
                                     ) : (
                                       renderEntityList(matching)
@@ -785,7 +909,7 @@ export const LeftSidebar: React.FC = () => {
               <span className="font-serif tracking-wide text-[#a89f91] truncate">{world.name}</span>
             </div>
             <span className="font-mono text-[#5c6574] shrink-0">
-              {entities.length} · {assets.length} art
+              {visibleEntities.length} · {assets.length} art
             </span>
           </div>
         </aside>

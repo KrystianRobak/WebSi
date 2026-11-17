@@ -1,0 +1,24 @@
+{
+  "name": "aethelgard-vault-e2e",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "list": "playwright test --list",
+    "test:harness": "playwright test --project=harness-selftest",
+    "test:tier1": "playwright test --project=tier1",
+    "test:tier2": "playwright test --project=tier2",
+    "test:tier3": "playwright test --project=tier3",
+    "test:tier4": "playwright test --project=tier4",
+    "test": "playwright test --project=tier1 --project=tier2 --project=tier3 --project=tier4"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.65.1",
+    "@supabase/supabase-js": "2.119.0",
+    "@types/node": "^22.10.0",
+    "@types/ws": "^8.5.13",
+    "typescript": "^5.6.3",
+    "ws": "^8.18.0"
+  }
+}

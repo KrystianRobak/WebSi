@@ -19,7 +19,9 @@ export const PinEntitySlideOver: React.FC = () => {
     entities,
     selectedPinId,
     setSelectedPinId,
-    gmMode,
+    isEffectiveGm,
+    rightInspectorCollapsed,
+    inspectorWidth,
     openEntityTab,
     openEntityByTitle,
     toggleFavorite,
@@ -27,9 +29,11 @@ export const PinEntitySlideOver: React.FC = () => {
     linkPinToEntity,
   } = useVaultStore();
 
+  const effectiveGm = isEffectiveGm();
+  const rightInsetPx = rightInspectorCollapsed ? 12 : inspectorWidth + 12;
   const pin = mapPins.find((p) => p.id === selectedPinId);
   if (!pin) return null;
-  if (!gmMode && pin.is_gm_only) return null;
+  if (!effectiveGm && pin.is_gm_only) return null;
 
   const entity = entities.find((e) => e.id === pin.entity_id);
 
@@ -118,7 +122,10 @@ export const PinEntitySlideOver: React.FC = () => {
   const visibleMetadata = getVisibleMetadataEntries(entity?.metadata);
 
   return (
-    <div className="absolute top-14 right-3 bottom-16 w-[370px] max-w-[calc(100%-24px)] z-30 flex flex-col rounded-lg dark-glass shadow-glass overflow-hidden animate-in fade-in slide-in-from-right-4 duration-150">
+    <div
+      style={{ right: rightInsetPx }}
+      className="absolute top-14 bottom-16 w-[370px] max-w-[calc(100%-24px)] z-30 flex flex-col rounded-lg dark-glass shadow-glass overflow-hidden animate-in fade-in slide-in-from-right-4 duration-150"
+    >
       {/* Header Art */}
       <div className="relative h-48 shrink-0 bg-[#0b0d10] border-b border-[#242a35] overflow-hidden">
         {entity?.cover_image_url ? (
@@ -217,8 +224,8 @@ export const PinEntitySlideOver: React.FC = () => {
             {/* Lore Excerpt with [[WikiLinks]] */}
             <div>{renderLoreWithWikiLinks(entity.content)}</div>
 
-            {/* GM SECRET Block (Visible ONLY when GM Mode is ON) */}
-            {gmMode && entity.gm_secrets && (
+            {/* GM SECRET Block (Visible ONLY when effective GM Mode is ON) */}
+            {effectiveGm && entity.gm_secrets && (
               <div className="rounded-md bg-[#280e13]/90 border border-red-500/45 p-3 space-y-1">
                 <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-red-300">
                   <AlertTriangle className="w-3.5 h-3.5 text-red-400" />

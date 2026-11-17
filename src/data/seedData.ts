@@ -8,11 +8,13 @@ import { DEFAULT_NEW_WORLD_SIZE, heightResForWorldSize } from '../lib/worldEnvir
 import { createDefaultWorldLayers } from '../lib/worldLayers';
 import { computeAllEntityLinks } from '../lib/wikilinks';
 import {
+  CampaignCalendarConfig,
   Entity,
   EntityLink,
   MapPath,
   MapPin,
   TabItem,
+  VaultAsset,
   VaultMap,
   World,
   WorldMapLabel,
@@ -22,6 +24,140 @@ import {
 export const DEMO_WORLD_ID = '11111111-1111-4111-8111-111111111111';
 export const DEMO_MAP_ID = '22222222-2222-4222-8222-222222222222';
 
+export const DEFAULT_CALENDAR_CONFIG: CampaignCalendarConfig = {
+  eraName: 'Age of Cinders',
+  currentYear: 412,
+  currentMonthIndex: 0,
+  currentDay: 14,
+  months: [
+    { name: 'Embertide', days: 30 },
+    { name: 'Frostwane', days: 30 },
+    { name: 'Shoalbloom', days: 30 },
+    { name: 'Sunspear', days: 30 },
+    { name: 'Stormreach', days: 30 },
+    { name: 'Duskfall', days: 30 },
+  ],
+  weekdays: ['Moonday', 'Tidewatch', 'Ashday', 'Gilded', 'Starfall', 'Saltrest'],
+};
+
+export function normalizeCalendarConfig(raw: unknown): CampaignCalendarConfig {
+  if (!raw || typeof raw !== 'object') return DEFAULT_CALENDAR_CONFIG;
+  const r = raw as Record<string, unknown>;
+
+  const rawMonths = Array.isArray(r.months) ? r.months : [];
+  const months =
+    rawMonths.length > 0
+      ? rawMonths
+          .map((m, idx) => {
+            if (typeof m === 'string') {
+              return { name: m.trim() || `Month ${idx + 1}`, days: 30 };
+            }
+            if (m && typeof m === 'object') {
+              const obj = m as Record<string, unknown>;
+              const name =
+                typeof obj.name === 'string' && obj.name.trim()
+                  ? obj.name.trim()
+                  : `Month ${idx + 1}`;
+              const rawDays = Number(obj.days);
+              const days = Number.isFinite(rawDays) && rawDays >= 1 ? Math.floor(rawDays) : 30;
+              return { name, days };
+            }
+            return null;
+          })
+          .filter((m): m is { name: string; days: number } => Boolean(m))
+      : DEFAULT_CALENDAR_CONFIG.months;
+
+  const safeMonths = months.length > 0 ? months : DEFAULT_CALENDAR_CONFIG.months;
+
+  const rawWeekdays = Array.isArray(r.weekdays)
+    ? r.weekdays.filter((w): w is string => typeof w === 'string' && w.trim().length > 0)
+    : [];
+  const weekdays = rawWeekdays.length > 0 ? rawWeekdays : DEFAULT_CALENDAR_CONFIG.weekdays;
+
+  const eraName =
+    typeof r.eraName === 'string' && r.eraName.trim()
+      ? r.eraName.trim()
+      : typeof r.era === 'string' && r.era.trim()
+        ? r.era.trim()
+        : DEFAULT_CALENDAR_CONFIG.eraName;
+
+  const rawYear = Number(r.currentYear);
+  const currentYear =
+    Number.isFinite(rawYear) && rawYear >= 1 ? Math.floor(rawYear) : DEFAULT_CALENDAR_CONFIG.currentYear;
+
+  const rawMonthIdx =
+    r.currentMonthIndex !== undefined
+      ? Number(r.currentMonthIndex)
+      : r.currentMonth !== undefined
+        ? Number(r.currentMonth) - 1
+        : DEFAULT_CALENDAR_CONFIG.currentMonthIndex;
+  const currentMonthIndex = Number.isFinite(rawMonthIdx)
+    ? Math.max(0, Math.min(safeMonths.length - 1, Math.floor(rawMonthIdx)))
+    : 0;
+
+  const maxDay = safeMonths[currentMonthIndex]?.days || 30;
+  const rawDay = Number(r.currentDay);
+  const currentDay =
+    Number.isFinite(rawDay) && rawDay >= 1
+      ? Math.min(maxDay, Math.floor(rawDay))
+      : DEFAULT_CALENDAR_CONFIG.currentDay;
+
+  return {
+    eraName,
+    currentYear,
+    currentMonthIndex,
+    currentDay,
+    months: safeMonths,
+    weekdays,
+  };
+}
+
+export function buildSeedAssets(): VaultAsset[] {
+  const now = new Date().toISOString();
+  return [
+    {
+      id: 'asset-oakhaven-harbor',
+      slug: 'oakhaven-harbor',
+      name: 'Oakhaven Harbor',
+      url: generateEntityArtwork('#d4a853', 'harbor'),
+      kind: 'scene',
+      created_at: now,
+    },
+    {
+      id: 'asset-ashen-spire',
+      slug: 'ashen-spire-peak',
+      name: 'Ashen Spire Citadel',
+      url: generateEntityArtwork('#eab308', 'spire'),
+      kind: 'scene',
+      created_at: now,
+    },
+    {
+      id: 'asset-sunken-reliquary',
+      slug: 'sunken-reliquary-ruins',
+      name: 'The Sunken Reliquary',
+      url: generateEntityArtwork('#38bdf8', 'reliquary'),
+      kind: 'scene',
+      created_at: now,
+    },
+    {
+      id: 'asset-vaelora-portrait',
+      slug: 'lady-vaelora-portrait',
+      name: 'Lady Vaelora Portrait',
+      url: generateEntityArtwork('#d4a853', 'character'),
+      kind: 'portrait',
+      created_at: now,
+    },
+    {
+      id: 'asset-shadow-guild-crest',
+      slug: 'shadow-guild-crest',
+      name: 'Shadow Guild Crest',
+      url: generateEntityArtwork('#a855f7', 'guild'),
+      kind: 'handout',
+      created_at: now,
+    },
+  ];
+}
+
 export function buildSeedDataset(): {
   world: World;
   entities: Entity[];
@@ -29,6 +165,7 @@ export function buildSeedDataset(): {
   maps: VaultMap[];
   mapPins: MapPin[];
   mapPaths: MapPath[];
+  assets: VaultAsset[];
   initialTabs: TabItem[];
   activeTabId: string;
 } {
@@ -49,9 +186,12 @@ export function buildSeedDataset(): {
 
   const world: World = {
     id: DEMO_WORLD_ID,
-    owner_id: 'demo-gm',
-    name: 'Aethelgard (Root World)',
+    owner_id: null,
+    name: 'Aethelgard (West Marches)',
     description: 'West Marches dark-fantasy campaign across the shattered coastline of Aethelgard.',
+    mode: 'west_marches',
+    max_players_per_party: 5,
+    calendar_config: DEFAULT_CALENDAR_CONFIG,
   };
 
   const now = new Date().toISOString();
@@ -1005,6 +1145,7 @@ Chaired by [[Kaelen Voss]] under the [[Treaty of Emberfall]].`,
     maps,
     mapPins,
     mapPaths,
+    assets: buildSeedAssets(),
     initialTabs,
     activeTabId: 'tab-map-main',
   };

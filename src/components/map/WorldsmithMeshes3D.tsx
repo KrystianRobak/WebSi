@@ -1,7 +1,121 @@
-import React, { Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ThreeEvent, useFrame } from '@react-three/fiber';
-import { Html, Line, Text } from '@react-three/drei';
+import { Html, Line } from '@react-three/drei';
 import * as THREE from 'three';
+
+interface CanvasText3DProps {
+  text: string;
+  position?: [number, number, number];
+  rotation?: [number, number, number];
+  fontSize?: number;
+  letterSpacing?: number;
+  fontStyle?: 'normal' | 'italic';
+  color?: string;
+  outlineWidth?: number;
+  outlineColor?: string;
+  fillOpacity?: number;
+  raycast?: THREE.Object3D['raycast'];
+}
+
+const CanvasText3D: React.FC<CanvasText3DProps> = React.memo(({
+  text,
+  position = [0, 0, 0] as [number, number, number],
+  rotation = [0, 0, 0] as [number, number, number],
+  fontSize = 1.25,
+  letterSpacing = 0.08,
+  fontStyle = 'normal',
+  color = '#f5eedc',
+  outlineWidth = 0.08,
+  outlineColor = '#090b0e',
+  fillOpacity = 0.92,
+  raycast,
+}) => {
+  const { texture, widthWorld, heightWorld } = useMemo(() => {
+    const content = text || ' ';
+    const pxFont = 64;
+    const fontStr = `${fontStyle} 600 ${pxFont}px Georgia, "Times New Roman", serif`;
+    const spacingPx = Math.round(letterSpacing * pxFont);
+
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    let textWidthPx = content.length * pxFont * 0.7;
+    if (ctx) {
+      ctx.font = fontStr;
+      if (spacingPx > 0) {
+        let w = 0;
+        for (let i = 0; i < content.length; i++) {
+          w += ctx.measureText(content[i]).width + (i < content.length - 1 ? spacingPx : 0);
+        }
+        textWidthPx = w;
+      } else {
+        textWidthPx = ctx.measureText(content).width;
+      }
+    }
+
+    const padX = 28;
+    const padY = 20;
+    canvas.width = Math.max(64, Math.ceil(textWidthPx + padX * 2));
+    canvas.height = Math.max(64, Math.ceil(pxFont * 1.35 + padY * 2));
+
+    if (ctx) {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.font = fontStr;
+      ctx.textBaseline = 'middle';
+      ctx.textAlign = 'center';
+      ctx.lineJoin = 'round';
+      const strokePx = Math.max(2, Math.round((outlineWidth / Math.max(0.2, fontSize)) * pxFont * 1.8));
+      ctx.lineWidth = strokePx;
+      ctx.strokeStyle = outlineColor;
+      ctx.fillStyle = color;
+
+      const cy = canvas.height / 2;
+      if (spacingPx > 0) {
+        let cursorX = (canvas.width - textWidthPx) / 2;
+        ctx.textAlign = 'left';
+        for (let i = 0; i < content.length; i++) {
+          const ch = content[i];
+          ctx.strokeText(ch, cursorX, cy);
+          ctx.fillText(ch, cursorX, cy);
+          cursorX += ctx.measureText(ch).width + spacingPx;
+        }
+      } else {
+        ctx.strokeText(content, canvas.width / 2, cy);
+        ctx.fillText(content, canvas.width / 2, cy);
+      }
+    }
+
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.needsUpdate = true;
+    tex.minFilter = THREE.LinearFilter;
+    tex.magFilter = THREE.LinearFilter;
+
+    const worldPerPx = fontSize / pxFont;
+    return {
+      texture: tex,
+      widthWorld: canvas.width * worldPerPx,
+      heightWorld: canvas.height * worldPerPx,
+    };
+  }, [text, fontSize, letterSpacing, fontStyle, color, outlineWidth, outlineColor]);
+
+  useEffect(() => {
+    return () => {
+      texture.dispose();
+    };
+  }, [texture]);
+
+  return (
+    <mesh position={position} rotation={rotation} raycast={raycast}>
+      <planeGeometry args={[widthWorld, heightWorld]} />
+      <meshBasicMaterial
+        map={texture}
+        transparent
+        opacity={fillOpacity}
+        depthWrite={false}
+        side={THREE.DoubleSide}
+      />
+    </mesh>
+  );
+});
 import { TERRAIN_SIZE, sampleTerrainElevation } from '../../lib/terrainGenerator';
 import { evalSplinePoint } from '../../lib/terrainEditorEngine';
 import {
@@ -12,7 +126,9 @@ import {
 } from '../../lib/worldLayers';
 import {
   FogVolume,
+  GuildQuest,
   MapProp,
+  MapQuestBoard,
   MapRiver,
   WorldMapLabel,
   WorldMapLayer,
@@ -314,6 +430,27 @@ interface TerrainProps3DProps {
   interactive: boolean;
   onSelectProp: (prop: MapProp, e: ThreeEvent<PointerEvent>) => void;
 }
+
+const WindmillSails: React.FC = () => {
+  const sailsRef = useRef<THREE.Group>(null);
+  useFrame((_, delta) => {
+    if (sailsRef.current) {
+      sailsRef.current.rotation.z -= delta * 0.75;
+    }
+  });
+  return (
+    <group ref={sailsRef} position={[0, 1.05, 0.3]} rotation={[0, 0, 0.35]}>
+      <mesh>
+        <boxGeometry args={[1.35, 0.12, 0.04]} />
+        <meshStandardMaterial color="#ece5d5" roughness={0.75} />
+      </mesh>
+      <mesh>
+        <boxGeometry args={[0.12, 1.35, 0.04]} />
+        <meshStandardMaterial color="#ece5d5" roughness={0.75} />
+      </mesh>
+    </group>
+  );
+};
 
 const HeroPropMesh: React.FC<{
   prop: MapProp;
@@ -1225,23 +1362,18 @@ const SingleZoneMesh: React.FC<SingleZoneMeshProps> = React.memo(({
       )}
 
       {showLabel && zone.showLabel && (
-        <Suspense fallback={null}>
-          <Text
-            position={[centroid.x, centroid.y, centroid.z]}
-            rotation={[-Math.PI / 2, 0, 0]}
-            fontSize={1.25 * (zone.labelScale ?? 1)}
-            letterSpacing={0.18}
-            color={isSelected ? '#fef08a' : '#f5eedc'}
-            outlineWidth={0.08}
-            outlineColor="#090b0e"
-            fillOpacity={0.92}
-            anchorX="center"
-            anchorY="middle"
-            raycast={noopRaycast}
-          >
-            {zone.name.toUpperCase()}
-          </Text>
-        </Suspense>
+        <CanvasText3D
+          text={zone.name.toUpperCase()}
+          position={[centroid.x, centroid.y, centroid.z]}
+          rotation={[-Math.PI / 2, 0, 0]}
+          fontSize={1.25 * (zone.labelScale ?? 1)}
+          letterSpacing={0.18}
+          color={isSelected ? '#fef08a' : '#f5eedc'}
+          outlineWidth={0.08}
+          outlineColor="#090b0e"
+          fillOpacity={0.92}
+          raycast={noopRaycast}
+        />
       )}
 
       {/* Selected Zone 3D Move Gizmo + Corner Vertex & Edge Midpoint Handles */}
@@ -1694,22 +1826,17 @@ export const TerrainLabels3D: React.FC<TerrainLabels3DProps> = React.memo(({
               </mesh>
             )}
 
-            <Suspense fallback={null}>
-              <Text
-                fontSize={label.fontSize}
-                letterSpacing={letterSpacing}
-                fontStyle={label.style === 'sea' ? 'italic' : 'normal'}
-                color={isSelected ? '#fef08a' : label.color}
-                fillOpacity={label.opacity ?? 0.9}
-                outlineWidth={label.style === 'title' ? 0.11 : 0.075}
-                outlineColor="#080a0d"
-                anchorX="center"
-                anchorY="middle"
-                raycast={noopRaycast}
-              >
-                {displayText}
-              </Text>
-            </Suspense>
+            <CanvasText3D
+              text={displayText}
+              fontSize={label.fontSize}
+              letterSpacing={letterSpacing}
+              fontStyle={label.style === 'sea' ? 'italic' : 'normal'}
+              color={isSelected ? '#fef08a' : label.color}
+              fillOpacity={label.opacity ?? 0.9}
+              outlineWidth={label.style === 'title' ? 0.11 : 0.075}
+              outlineColor="#080a0d"
+              raycast={noopRaycast}
+            />
           </group>
         );
       })}
@@ -2115,5 +2242,107 @@ export const FogVolumes3D: React.FC<FogVolumes3DProps> = React.memo(({
     </group>
   );
 });
+
+export interface QuestBoards3DProps {
+  boards: MapQuestBoard[];
+  quests: GuildQuest[];
+  heightData: Float32Array;
+  heightRes: number;
+  terrainSize: number;
+  displacementScale: number;
+  seaY: number;
+  visible: boolean;
+  onOpenBoard: (boardId: string) => void;
+}
+
+export const QuestBoards3D: React.FC<QuestBoards3DProps> = React.memo(({
+  boards,
+  quests,
+  heightData,
+  heightRes,
+  terrainSize,
+  displacementScale,
+  seaY,
+  visible,
+  onOpenBoard,
+}) => {
+  if (!visible || boards.length === 0) return null;
+
+  return (
+    <group>
+      {boards.map((board) => {
+        const y = sampleLandOrSeaElevation(
+          heightData,
+          heightRes,
+          board.x,
+          board.z,
+          terrainSize,
+          displacementScale,
+          seaY
+        );
+        const openCount = quests.filter(
+          (q) => q.board_id === board.id && (q.status === 'open' || q.status === 'in_progress')
+        ).length;
+
+        return (
+          <group
+            key={board.id}
+            position={[board.x, y, board.z]}
+            onClick={(e) => {
+              e.stopPropagation();
+              onOpenBoard(board.id);
+            }}
+          >
+            {/* Wooden posts */}
+            <mesh position={[-0.36, 0.6, 0]} castShadow>
+              <cylinderGeometry args={[0.06, 0.07, 1.2, 6]} />
+              <meshStandardMaterial color="#4a3121" roughness={0.9} />
+            </mesh>
+            <mesh position={[0.36, 0.6, 0]} castShadow>
+              <cylinderGeometry args={[0.06, 0.07, 1.2, 6]} />
+              <meshStandardMaterial color="#4a3121" roughness={0.9} />
+            </mesh>
+            {/* Notice panel */}
+            <mesh position={[0, 0.88, 0]} castShadow>
+              <boxGeometry args={[0.88, 0.64, 0.1]} />
+              <meshStandardMaterial color="#704a2e" roughness={0.85} />
+            </mesh>
+            {/* Roof cap */}
+            <mesh position={[0, 1.28, 0]} castShadow>
+              <boxGeometry args={[1.05, 0.12, 0.3]} />
+              <meshStandardMaterial color="#3b2618" roughness={0.88} />
+            </mesh>
+            {/* Parchment flyers */}
+            <mesh position={[-0.18, 0.9, 0.06]}>
+              <boxGeometry args={[0.24, 0.3, 0.02]} />
+              <meshStandardMaterial color="#f3e6c8" emissive="#d4a853" emissiveIntensity={0.25} />
+            </mesh>
+            <mesh position={[0.16, 0.84, 0.06]}>
+              <boxGeometry args={[0.24, 0.32, 0.02]} />
+              <meshStandardMaterial color="#efe0be" emissive="#d4a853" emissiveIntensity={0.25} />
+            </mesh>
+            <Html position={[0, 1.75, 0]} center distanceFactor={28}>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onOpenBoard(board.id);
+                }}
+                className="px-2.5 py-1 rounded-full bg-[#120e07]/95 border border-[#d4a853]/80 text-[11px] font-semibold text-[#f7e7be] shadow-lg whitespace-nowrap hover:bg-[#1e160a] flex items-center gap-1.5 cursor-pointer"
+              >
+                <span className="text-[#d4a853]">📜</span>
+                <span>{board.title}</span>
+                <span className="px-1.5 py-0.2 rounded-full bg-[#d4a853] text-black font-mono text-[10px] font-bold">
+                  {openCount}
+                </span>
+              </button>
+            </Html>
+          </group>
+        );
+      })}
+    </group>
+  );
+});
+
 
 
