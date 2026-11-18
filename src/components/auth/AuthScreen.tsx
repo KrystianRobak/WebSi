@@ -61,25 +61,27 @@ export const AuthScreen: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen w-screen bg-[#050608] text-[#ded8cc] flex items-center justify-center p-4 relative overflow-hidden">
+    <div className="min-h-screen w-screen bg-[#06080c] text-[#e8e2d5] flex items-center justify-center p-4 relative overflow-hidden">
       {/* Subtle atmospheric radial glow */}
       <div
-        className="pointer-events-none absolute inset-0 opacity-40"
+        className="pointer-events-none absolute inset-0 opacity-60"
         style={{
           background:
-            'radial-gradient(circle at 50% 25%, rgba(182, 141, 64, 0.16), transparent 60%)',
+            'radial-gradient(ellipse at 50% 22%, rgba(212, 168, 83, 0.16), transparent 58%)',
         }}
       />
 
-      <div className="relative z-10 w-full max-w-md rounded-2xl dark-glass border border-[#d4a853]/35 shadow-2xl overflow-hidden">
-        <div className="px-6 pt-6 pb-4 border-b border-[#181d27] flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <AethelgardCrest className="w-8 h-8" />
+      <div className="relative z-10 w-full max-w-md rounded-2xl dark-glass border border-[#d4a853]/30 shadow-2xl overflow-hidden">
+        <div className="px-6 pt-6 pb-5 border-b border-[#1c2331] flex items-center justify-between bg-[#0a0d14]/70">
+          <div className="flex items-center gap-3.5">
+            <div className="w-10 h-10 rounded-xl bg-[#131823] border border-[#d4a853]/35 flex items-center justify-center shadow-gold-sm shrink-0">
+              <AethelgardCrest className="w-6 h-6" />
+            </div>
             <div>
-              <h1 className="font-serif text-xl font-semibold text-[#f3ead8] tracking-wide">
+              <h1 className="font-serif text-xl font-semibold text-[#f5ecda] tracking-wide">
                 Aethelgard Vault
               </h1>
-              <p className="text-[11px] text-[#8d96a6]">
+              <p className="text-[11.5px] text-[#8b94a5]">
                 Multi-Campaign VTT, West Marches &amp; Lore Grimoire
               </p>
             </div>
@@ -88,7 +90,8 @@ export const AuthScreen: React.FC = () => {
             type="button"
             onClick={() => setSettingsModalOpen(true)}
             title="Configure Supabase Connection"
-            className="p-2 rounded-lg bg-[#0d1016] border border-[#1d2330] text-[#9aa3b2] hover:text-[#d4a853] transition-colors"
+            aria-label="Configure Supabase Connection"
+            className="p-2 rounded-lg bg-[#111620] border border-[#21293a] text-[#9aa3b2] hover:text-[#deb25e] hover:border-[#d4a853]/45 transition-colors"
           >
             <Settings className="w-4 h-4" />
           </button>

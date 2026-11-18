@@ -82,7 +82,7 @@ export const SHEET_PRESET_5E: SheetPresetDefinition = {
 
   <section class="combat-bar">
     <button type="button" class="roll-primary" data-roll="1d20+@{dex_mod}" data-label="Initiative">Roll Initiative</button>
-    <button type="button" class="roll-primary" data-roll="1d20+@{wis_mod}+@{prof}" data-label="Perception">Perception ([[1d20+@{wis_mod}+@{prof}]])</button>
+    <button type="button" class="roll-primary" data-roll="1d20+@{wis_mod}+@{prof}" data-label="Perception" title="Rolls 1d20 + WIS + Prof">Perception</button>
     <button type="button" class="roll-primary" data-roll="1d20+@{str_mod}+@{prof}" data-label="Melee Attack">Melee Attack</button>
   </section>
 

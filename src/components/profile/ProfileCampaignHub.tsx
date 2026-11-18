@@ -71,6 +71,13 @@ export const ProfileCampaignHub: React.FC = () => {
   const [importError, setImportError] = useState<string | null>(null);
   const [copiedInvite, setCopiedInvite] = useState(false);
   const [memberActionError, setMemberActionError] = useState<string | null>(null);
+  const [campaignDescDraft, setCampaignDescDraft] = useState(world.description || '');
+  const [savingCampaignDesc, setSavingCampaignDesc] = useState(false);
+  const [savedCampaignDesc, setSavedCampaignDesc] = useState(false);
+
+  useEffect(() => {
+    setCampaignDescDraft(world.description || '');
+  }, [world.id, world.description]);
 
   useEffect(() => {
     setDisplayName(profile?.display_name || '');
@@ -341,8 +348,8 @@ export const ProfileCampaignHub: React.FC = () => {
                   aria-label="Invite Code"
                   value={inviteInput}
                   onChange={(e) => setInviteInput(e.target.value)}
-                  placeholder="Enter invite code (e.g. A1B2C3D4)"
-                  className="flex-1 bg-[#07090d] border border-[#222936] rounded-lg px-3 py-2 font-mono text-xs uppercase text-[#f3ead8] focus:outline-none focus:border-[#d4a853]"
+                  placeholder="e.g. A1B2C3D4"
+                  className="flex-1 min-w-0 bg-[#07090d] border border-[#222936] rounded-lg px-3 py-2 font-mono text-xs uppercase text-[#f3ead8] focus:outline-none focus:border-[#d4a853]"
                 />
                 <button
                   type="submit"
@@ -693,6 +700,47 @@ export const ProfileCampaignHub: React.FC = () => {
                     </option>
                   ))}
                 </select>
+              </div>
+            </div>
+
+            {/* Campaign Premise / Description */}
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between gap-2">
+                <label
+                  htmlFor="hub-campaign-description"
+                  className="block text-[11px] text-[#9aa3b2]"
+                >
+                  Campaign Premise &amp; Description
+                </label>
+                {savedCampaignDesc && (
+                  <span className="text-[11px] text-emerald-400 inline-flex items-center gap-1">
+                    <Check className="w-3 h-3" /> Description saved
+                  </span>
+                )}
+              </div>
+              <div className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-end">
+                <textarea
+                  id="hub-campaign-description"
+                  rows={2}
+                  value={campaignDescDraft}
+                  onChange={(e) => setCampaignDescDraft(e.target.value)}
+                  placeholder="Describe your setting, tone, house rules, or West Marches premise..."
+                  className="flex-1 bg-[#07090d] border border-[#222936] rounded-lg px-3 py-2 text-xs text-[#e8e2d5] focus:outline-none focus:border-[#d4a853] resize-none"
+                />
+                <button
+                  type="button"
+                  disabled={savingCampaignDesc}
+                  onClick={async () => {
+                    setSavingCampaignDesc(true);
+                    await updateCampaignSettings({ description: campaignDescDraft.trim() });
+                    setSavingCampaignDesc(false);
+                    setSavedCampaignDesc(true);
+                    setTimeout(() => setSavedCampaignDesc(false), 2000);
+                  }}
+                  className="px-3.5 py-2 rounded-lg bg-[#161c28] border border-[#d4a853]/40 hover:bg-[#d4a853]/15 text-xs font-semibold text-[#f3ead8] shrink-0 disabled:opacity-50"
+                >
+                  {savingCampaignDesc ? 'Saving...' : 'Save Description'}
+                </button>
               </div>
             </div>
 

@@ -81,8 +81,6 @@ export function App() {
     dispatchTerrainCommand,
     isAuthenticated,
     authLoading,
-    leftNavOpen,
-    setLeftNavOpen,
     toggleLeftNav,
     rightInspectorCollapsed,
     toggleRightInspector,
@@ -203,27 +201,22 @@ export function App() {
   }
 
   return (
-    <div className="w-screen h-screen bg-[#050608] text-[#ded8cc] flex flex-col overflow-hidden">
-      {/* Zone 1: Single 42px Unified Header + Tabs */}
+    <div className="w-screen h-screen bg-[#06080c] text-[#e8e2d5] flex flex-col overflow-hidden">
+      {/* Zone 1: Clean 48px Unified Studio Header + Scrollable Tabs */}
       <TopHeader />
 
-      {/* Zones 2, 3, 4: 44px Left Rail + Full-Bleed Workspace + Floating Drawers */}
+      {/* Zones 2, 3, 4: Labeled Rail + Docked Left Explorer + Flexible Workspace + Docked Right Inspector */}
       <div className="flex-1 min-h-0 flex relative overflow-hidden">
         <LeftSidebar />
 
-        {/* Center Full-Bleed Canvas / Note Split */}
-        <main
-          className="flex-1 min-w-0 h-full relative overflow-hidden"
-          onClick={() => {
-            if (leftNavOpen) setLeftNavOpen(false);
-          }}
-        >
+        {/* Center Workspace Canvas / Note Split (resizes cleanly beside docked drawers) */}
+        <main className="flex-1 min-w-0 h-full relative overflow-hidden">
           {splitTab && splitTab.id !== activeTab?.id ? (
             <PanelGroup direction="horizontal">
               <Panel defaultSize={55} minSize={25}>
                 {renderTabContent(activeTab, hasCampaign)}
               </Panel>
-              <PanelResizeHandle className="w-[2px] bg-[#131720] hover:bg-[#b68d40]/70 transition-colors cursor-col-resize" />
+              <PanelResizeHandle className="w-[2px] bg-[#181e2b] hover:bg-[#d4a853]/75 transition-colors cursor-col-resize" />
               <Panel defaultSize={45} minSize={25}>
                 {renderTabContent(splitTab, hasCampaign)}
               </Panel>
@@ -233,11 +226,19 @@ export function App() {
           )}
         </main>
 
-        {/* Floating Overlay Right Contextual Inspector Drawer */}
+        {/* Mobile backdrop when Right Inspector slides over on small screens */}
+        {!rightInspectorCollapsed && (
+          <div
+            onClick={toggleRightInspector}
+            className="md:hidden fixed inset-0 top-12 z-20 bg-black/60 backdrop-blur-[2px]"
+          />
+        )}
+
+        {/* Docked Right Contextual Inspector (Desktop flex-docked; Mobile slide-over) */}
         {!rightInspectorCollapsed && (
           <div
             style={{ width: inspectorWidth }}
-            className="absolute right-0 inset-y-0 z-30 flex bg-[#06080b]/98 backdrop-blur-md border-l border-[#141821] shadow-[-18px_0_44px_rgba(0,0,0,0.82)] max-w-[92vw]"
+            className="max-md:fixed max-md:right-0 max-md:top-12 max-md:bottom-0 max-md:z-30 md:relative md:shrink-0 h-full flex bg-[#0a0d14] border-l border-[#1a202d] max-md:shadow-[-18px_0_44px_rgba(0,0,0,0.82)] max-w-[92vw]"
           >
             <div
               role="separator"
@@ -248,7 +249,7 @@ export function App() {
                 resizingInspectorRef.current = { startX: e.clientX, startW: inspectorWidth };
               }}
               title="Drag to resize Inspector"
-              className="w-[4px] h-full bg-transparent hover:bg-[#b68d40]/75 transition-colors cursor-col-resize shrink-0"
+              className="w-[4px] h-full bg-transparent hover:bg-[#d4a853]/75 transition-colors cursor-col-resize shrink-0"
             />
             <div className="flex-1 min-w-0 h-full">
               <RightInspector />

@@ -84,8 +84,9 @@ export const DiceRollerDrawer: React.FC = () => {
         </div>
         <button
           onClick={() => setDiceDrawerOpen(false)}
-          aria-label="Close Dice Roller"
-          className="p-1 rounded text-[#7a8291] hover:text-white hover:bg-[#141821]"
+          aria-label="Hide Dice Log"
+          title="Close"
+          className="p-1 rounded-md text-[#8b94a5] hover:text-white hover:bg-[#161c28] transition-colors"
         >
           <X className="w-4 h-4" />
         </button>

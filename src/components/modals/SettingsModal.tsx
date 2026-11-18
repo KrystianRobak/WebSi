@@ -25,16 +25,19 @@ export const SettingsModal: React.FC = () => {
   const [anonKey, setAnonKey] = useState('');
   const [uploadingAlbedo, setUploadingAlbedo] = useState(false);
   const [uploadingHeight, setUploadingHeight] = useState(false);
+  const [activeTab, setActiveTab] = useState<'backend' | 'terrain'>('backend');
 
   const primaryMap = maps[0];
+  const canEditTerrain = Boolean(primaryMap && isEffectiveGm());
 
   useEffect(() => {
     if (settingsModalOpen) {
       const cfg = getSupabaseConfig();
       setUrl(cfg.url);
       setAnonKey(cfg.anonKey);
+      if (!canEditTerrain) setActiveTab('backend');
     }
-  }, [settingsModalOpen]);
+  }, [settingsModalOpen, canEditTerrain]);
 
   if (!settingsModalOpen) return null;
 
@@ -71,28 +74,60 @@ export const SettingsModal: React.FC = () => {
       <div
         role="dialog"
         aria-modal="true"
-        aria-label="Supabase Backend & 3D Terrain Settings"
+        aria-label="Workspace & Backend Settings"
         onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-lg rounded-xl dark-glass shadow-glass border border-[#d4a853]/40 overflow-hidden"
+        className="w-full max-w-lg rounded-2xl dark-glass shadow-glass border border-[#d4a853]/35 overflow-hidden"
       >
-        <div className="px-5 py-3.5 border-b border-[#1d222b] flex items-center justify-between">
+        <div className="px-5 py-3.5 border-b border-[#1d2432] flex items-center justify-between bg-[#0a0d14]">
           <div className="flex items-center gap-2">
-            <Database className="w-4 h-4 text-[#eab308]" />
+            <Database className="w-4 h-4 text-[#d4a853]" />
             <h3 className="font-serif text-base font-semibold text-[#f3ead8]">
-              Supabase Backend &amp; 3D Terrain Settings
+              Workspace &amp; Backend Settings
             </h3>
           </div>
           <button
+            type="button"
+            aria-label="Close Settings"
             onClick={() => setSettingsModalOpen(false)}
-            className="text-[#858d9b] hover:text-white"
+            className="p-1 rounded-md text-[#8b94a5] hover:text-white hover:bg-[#161c28] transition-colors"
           >
             <X className="w-4 h-4" />
           </button>
         </div>
 
+        {canEditTerrain && (
+          <div className="px-5 pt-3 bg-[#0a0d14] border-b border-[#181e2b] flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setActiveTab('backend')}
+              className={`px-3 py-2 text-xs font-medium border-b-2 transition-colors flex items-center gap-1.5 ${
+                activeTab === 'backend'
+                  ? 'border-[#d4a853] text-[#f3ead8]'
+                  : 'border-transparent text-[#8b94a5] hover:text-[#e8e2d5]'
+              }`}
+            >
+              <Cloud className="w-3.5 h-3.5 text-[#d4a853]" />
+              <span>Backend &amp; Sync</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('terrain')}
+              className={`px-3 py-2 text-xs font-medium border-b-2 transition-colors flex items-center gap-1.5 ${
+                activeTab === 'terrain'
+                  ? 'border-[#d4a853] text-[#f3ead8]'
+                  : 'border-transparent text-[#8b94a5] hover:text-[#e8e2d5]'
+              }`}
+            >
+              <Mountain className="w-3.5 h-3.5 text-[#d4a853]" />
+              <span>3D Map Terrain</span>
+            </button>
+          </div>
+        )}
+
         <div className="p-5 space-y-5 max-h-[80vh] overflow-y-auto">
           {/* Supabase Connection */}
-          <form onSubmit={handleSaveConfig} className="space-y-3">
+          {activeTab === 'backend' && (
+            <form onSubmit={handleSaveConfig} className="space-y-3.5">
             <div className="flex items-center justify-between">
               <h4 className="text-xs font-semibold uppercase tracking-wider text-[#d4a853] flex items-center gap-1.5">
                 <Cloud className="w-3.5 h-3.5" />
@@ -137,16 +172,17 @@ export const SettingsModal: React.FC = () => {
 
             <button
               type="submit"
-              className="px-3.5 py-1.5 rounded-md btn-gold-metallic text-xs font-semibold inline-flex items-center gap-1.5"
+              className="px-3.5 py-2 rounded-lg btn-gold-metallic text-xs font-semibold inline-flex items-center gap-1.5"
             >
               <RefreshCw className="w-3.5 h-3.5" />
               <span>Save &amp; Reconnect</span>
             </button>
           </form>
+          )}
 
           {/* 3D Map Textures & Displacement (GM Only) */}
-          {primaryMap && isEffectiveGm() && (
-            <div className="pt-4 border-t border-[#1d222b] space-y-3">
+          {canEditTerrain && activeTab === 'terrain' && primaryMap && (
+            <div className="space-y-3.5">
               <h4 className="text-xs font-semibold uppercase tracking-wider text-[#d4a853] flex items-center gap-1.5">
                 <Mountain className="w-3.5 h-3.5" />
                 <span>3D Terrain Textures ({primaryMap.name})</span>

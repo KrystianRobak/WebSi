@@ -3283,8 +3283,6 @@ export const MapViewport3D: React.FC<{ mapId: string }> = ({ mapId }) => {
     maps,
     campaignMembers,
     isEffectiveGm,
-    rightInspectorCollapsed,
-    inspectorWidth,
     mapRenderMode,
     setMapRenderMode,
     mapCameraView,
@@ -3330,8 +3328,6 @@ export const MapViewport3D: React.FC<{ mapId: string }> = ({ mapId }) => {
       maps: s.maps,
       campaignMembers: s.campaignMembers,
       isEffectiveGm: s.isEffectiveGm,
-      rightInspectorCollapsed: s.rightInspectorCollapsed,
-      inspectorWidth: s.inspectorWidth,
       mapRenderMode: s.mapRenderMode,
       setMapRenderMode: s.setMapRenderMode,
       mapCameraView: s.mapCameraView,
@@ -3376,7 +3372,7 @@ export const MapViewport3D: React.FC<{ mapId: string }> = ({ mapId }) => {
   );
 
   const effectiveGm = isEffectiveGm();
-  const rightInsetPx = rightInspectorCollapsed ? 12 : inspectorWidth + 12;
+  const rightInsetPx = 14;
 
   useEffect(() => {
     if (!effectiveGm && worldsmithMode) {
@@ -3389,6 +3385,11 @@ export const MapViewport3D: React.FC<{ mapId: string }> = ({ mapId }) => {
 
   const [layersDropdownOpen, setLayersDropdownOpen] = useState(false);
   const [toolsDropdownOpen, setToolsDropdownOpen] = useState(false);
+
+  useEffect(() => {
+    setLayersDropdownOpen(false);
+    setToolsDropdownOpen(false);
+  }, [mapRenderMode, worldsmithMode, mapCameraView]);
   const [pathName, setPathName] = useState('');
   const [riverName, setRiverName] = useState('');
   const [riverWidth, setRiverWidth] = useState(1.6);
@@ -3556,92 +3557,92 @@ export const MapViewport3D: React.FC<{ mapId: string }> = ({ mapId }) => {
       </Canvas>
 
       {/* Option A: Single Centered Top Mode Pill + Clean Drawing Prompt */}
-      <div className="absolute top-3 left-1/2 -translate-x-1/2 z-20 flex flex-col items-center gap-1.5 pointer-events-none max-w-[95vw]">
-        <div className="flex items-center gap-1.5 p-1 rounded-xl dark-glass shadow-glass border border-[#171c26] pointer-events-auto">
+      <div className="absolute top-3 left-1/2 -translate-x-1/2 z-20 flex flex-col items-center gap-1.5 pointer-events-none w-full px-3">
+        <div className="flex items-center gap-1.5 p-1 rounded-xl dark-glass shadow-glass border border-[#1f2636] pointer-events-auto max-w-full overflow-x-auto no-scrollbar whitespace-nowrap">
           {/* Map | Terrain */}
-          <div className="flex items-center p-0.5 rounded-lg bg-[#050608]/90">
+          <div className="flex items-center p-0.5 rounded-lg bg-[#07090e]/90 shrink-0">
             <button
               onClick={() => setMapRenderMode('map')}
-              className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-[11.5px] font-medium transition-all ${
+              className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-[11.5px] font-medium whitespace-nowrap transition-all ${
                 mapRenderMode === 'map'
                   ? 'btn-gold-metallic font-semibold'
                   : 'text-[#8e96a3] hover:text-white'
               }`}
             >
-              <MapIcon className="w-3 h-3" />
+              <MapIcon className="w-3 h-3 shrink-0" />
               <span>Map</span>
             </button>
             <button
               onClick={() => setMapRenderMode('terrain')}
-              className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-[11.5px] font-medium transition-all ${
+              className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-[11.5px] font-medium whitespace-nowrap transition-all ${
                 mapRenderMode === 'terrain'
                   ? 'btn-gold-metallic font-semibold'
                   : 'text-[#8e96a3] hover:text-white'
               }`}
             >
-              <Mountain className="w-3 h-3" />
+              <Mountain className="w-3 h-3 shrink-0" />
               <span>Terrain</span>
             </button>
           </div>
 
           {effectiveGm && (
             <>
-              <span className="w-px h-4 bg-[#171c26]" />
+              <span className="w-px h-4 bg-[#1f2636] shrink-0" />
 
               {/* Atlas | Worldsmith */}
-              <div className="flex items-center p-0.5 rounded-lg bg-[#050608]/90">
+              <div className="flex items-center p-0.5 rounded-lg bg-[#07090e]/90 shrink-0">
                 <button
                   onClick={() => setWorldsmithMode(false)}
-                  className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-[11.5px] font-medium transition-all ${
+                  className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-[11.5px] font-medium whitespace-nowrap transition-all ${
                     !worldsmithMode
-                      ? 'bg-[#12161f] text-[#d6b16a] border border-[#b68d40]/45 font-semibold'
+                      ? 'bg-[#141925] text-[#e2b969] border border-[#d4a853]/45 font-semibold'
                       : 'text-[#8e96a3] hover:text-white'
                   }`}
                 >
-                  <Compass className="w-3 h-3" />
+                  <Compass className="w-3 h-3 shrink-0" />
                   <span>Atlas</span>
                 </button>
                 <button
                   onClick={() => setWorldsmithMode(true)}
-                  className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-[11.5px] font-medium transition-all ${
+                  className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-[11.5px] font-medium whitespace-nowrap transition-all ${
                     worldsmithMode
                       ? 'btn-gold-metallic font-semibold'
                       : 'text-[#8e96a3] hover:text-white'
                   }`}
                 >
-                  <Hammer className="w-3 h-3" />
+                  <Hammer className="w-3 h-3 shrink-0" />
                   <span>Worldsmith</span>
                 </button>
               </div>
             </>
           )}
 
-          <span className="w-px h-4 bg-[#171c26]" />
+          <span className="w-px h-4 bg-[#1f2636] shrink-0" />
 
           {/* 3D | Top View */}
-          <div className="flex items-center p-0.5 rounded-lg bg-[#050608]/90">
+          <div className="flex items-center p-0.5 rounded-lg bg-[#07090e]/90 shrink-0">
             <button
               onClick={() => triggerCameraReset()}
               title="3D Perspective Camera"
-              className={`flex items-center gap-1 px-2 py-1 rounded-md text-[11.5px] font-medium transition-all ${
+              className={`flex items-center gap-1 px-2 py-1 rounded-md text-[11.5px] font-medium whitespace-nowrap transition-all ${
                 mapCameraView === 'perspective'
-                  ? 'bg-[#12161f] text-[#d6b16a] border border-[#b68d40]/45 font-semibold'
+                  ? 'bg-[#141925] text-[#e2b969] border border-[#d4a853]/45 font-semibold'
                   : 'text-[#8e96a3] hover:text-white'
               }`}
             >
-              <Compass className="w-3 h-3" />
+              <Compass className="w-3 h-3 shrink-0" />
               <span>3D</span>
             </button>
             <button
               onClick={() => triggerTopView()}
               title="Top-Down Whole World View (Shortcut: T)"
-              className={`flex items-center gap-1 px-2 py-1 rounded-md text-[11.5px] font-medium transition-all ${
+              className={`flex items-center gap-1 px-2 py-1 rounded-md text-[11.5px] font-medium whitespace-nowrap transition-all ${
                 mapCameraView === 'top'
                   ? 'btn-gold-metallic font-semibold'
                   : 'text-[#8e96a3] hover:text-white'
               }`}
             >
-              <Globe className="w-3 h-3" />
+              <Globe className="w-3 h-3 shrink-0" />
               <span>Top View</span>
             </button>
           </div>
@@ -4103,9 +4104,9 @@ export const MapViewport3D: React.FC<{ mapId: string }> = ({ mapId }) => {
       )}
 
       {/* Option A: Bottom-Center Studio Tool & Layer Dock */}
-      <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1 px-1.5 py-1 rounded-xl dark-glass shadow-glass border border-[#171c26] max-w-[96vw]">
-        {/* Active Tool Buttons */}
-        <div className="flex items-center gap-0.5 flex-wrap justify-center">
+      <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1 px-2 py-1 rounded-xl dark-glass shadow-glass border border-[#1f2636] max-w-[calc(100%-24px)]">
+        {/* Active Tool Buttons (horizontally scrollable on narrow screens, single clean row) */}
+        <div className="flex items-center gap-0.5 flex-nowrap overflow-x-auto no-scrollbar min-w-0">
           {worldsmithMode && effectiveGm ? (
             <>
               <button
@@ -4172,7 +4173,7 @@ export const MapViewport3D: React.FC<{ mapId: string }> = ({ mapId }) => {
                 { id: 'pin', icon: MapPin, label: 'Add Location Pin', gmOnly: true },
                 { id: 'text', icon: Type, label: 'Add Text Label', gmOnly: true },
                 { id: 'zone', icon: Pentagon, label: 'Draw Country / Region / Layer Zone', gmOnly: true },
-                { id: 'path', icon: Route, label: 'Draw Path / Route', gmOnly: true },
+                { id: 'path', icon: Route, label: 'Draw Terrain Route', gmOnly: true },
                 { id: 'element', icon: Castle, label: 'Place 3D Element', gmOnly: true },
                 { id: 'quest-board', icon: ScrollText, label: 'Place Guild Quest Board', gmOnly: true },
                 { id: 'fog-brush', icon: EyeOff, label: '3D Fog Brush', gmOnly: true },
@@ -4212,20 +4213,20 @@ export const MapViewport3D: React.FC<{ mapId: string }> = ({ mapId }) => {
         <span className="w-px h-5 bg-[#171c26] mx-0.5 shrink-0" />
 
         {/* Layers Upward Popover */}
-        <div className="relative">
+        <div className="relative shrink-0">
           <button
             onClick={() => {
               setLayersDropdownOpen((v) => !v);
               setToolsDropdownOpen(false);
             }}
-            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${
               layersDropdownOpen
-                ? 'bg-[#b68d40]/18 text-[#d6b16a] border border-[#b68d40]/50'
-                : 'text-[#ccc6ba] hover:bg-[#10141c]'
+                ? 'bg-[#d4a853]/18 text-[#e2b969] border border-[#d4a853]/50'
+                : 'text-[#d4cfc4] hover:bg-[#141925]'
             }`}
             title="Base Layers & World Overlays (Countries, Regions, Religions...)"
           >
-            <Layers className="w-3.5 h-3.5 text-[#b68d40]" />
+            <Layers className="w-3.5 h-3.5 text-[#d4a853] shrink-0" />
             <span>Layers</span>
           </button>
           {layersDropdownOpen && (
@@ -4375,20 +4376,20 @@ export const MapViewport3D: React.FC<{ mapId: string }> = ({ mapId }) => {
 
         {/* Map Tools Upward Popover (GM Only) */}
         {effectiveGm && (
-          <div className="relative">
+          <div className="relative shrink-0">
             <button
               onClick={() => {
                 setToolsDropdownOpen((v) => !v);
                 setLayersDropdownOpen(false);
               }}
-              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${
                 toolsDropdownOpen
-                  ? 'bg-[#b68d40]/18 text-[#d6b16a] border border-[#b68d40]/50'
-                  : 'text-[#ccc6ba] hover:bg-[#10141c]'
+                  ? 'bg-[#d4a853]/18 text-[#e2b969] border border-[#d4a853]/50'
+                  : 'text-[#d4cfc4] hover:bg-[#141925]'
               }`}
               title="World Generator, Atmosphere, Heightmap & Quick Actions"
             >
-              <Wrench className="w-3.5 h-3.5 text-[#b68d40]" />
+              <Wrench className="w-3.5 h-3.5 text-[#d4a853] shrink-0" />
               <span>Map Tools</span>
             </button>
             {toolsDropdownOpen && (
@@ -4500,10 +4501,10 @@ export const MapViewport3D: React.FC<{ mapId: string }> = ({ mapId }) => {
         {worldsmithMode && effectiveGm && (
           <button
             onClick={() => setRightInspectorCollapsed(false)}
-            className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-[#0e1218] border border-[#b68d40]/35 text-[#d6b16a] hover:border-[#b68d40]"
+            className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap shrink-0 bg-[#10141d] border border-[#d4a853]/35 text-[#e2b969] hover:border-[#d4a853]"
             title="Open Brush Radius, Strength & Mesh Inspector"
           >
-            <Settings2 className="w-3.5 h-3.5" />
+            <Settings2 className="w-3.5 h-3.5 shrink-0" />
             <span className="hidden sm:inline">Brush</span>
           </button>
         )}

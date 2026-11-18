@@ -103,6 +103,10 @@ export const GrimoireToolbarMenus: React.FC<{
   const [customTextColor, setCustomTextColor] = useState('#d4a853');
   const [customBgColor, setCustomBgColor] = useState('#2b2417');
 
+  useEffect(() => {
+    setOpenMenu(null);
+  }, [codeSubMode]);
+
   return (
     <div className="flex items-center gap-1.5">
       <div className="relative">

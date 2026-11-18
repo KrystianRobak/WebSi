@@ -111,8 +111,6 @@ export const BattlemapViewport2D: React.FC<{ mapId: string }> = ({ mapId }) => {
     campaignMembers,
     isEffectiveGm,
     canEditToken,
-    rightInspectorCollapsed,
-    inspectorWidth,
     mapFogStates,
     mapFogShares,
     updateMapFogState,
@@ -160,7 +158,7 @@ export const BattlemapViewport2D: React.FC<{ mapId: string }> = ({ mapId }) => {
   } = useVaultStore();
 
   const effectiveGm = isEffectiveGm();
-  const rightInsetPx = rightInspectorCollapsed ? 12 : inspectorWidth + 12;
+  const rightInsetPx = 14;
 
   const mapData = maps.find((m) => m.id === mapId);
   const bm = useMemo(() => {

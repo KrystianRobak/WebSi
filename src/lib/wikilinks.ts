@@ -3,6 +3,13 @@ import { Entity, EntityLink, VaultAsset } from '../types/vault';
 const WIKILINK_REGEX = /(?<!!)\[\[([^\]]+)\]\]/g;
 
 /**
+ * Formats PascalCase entity type keys (e.g. "PlotThread" -> "Plot Thread") for readable UI badges.
+ */
+export function formatEntityTypeLabel(type: string): string {
+  return type.replace(/([a-z])([A-Z])/g, '$1 $2');
+}
+
+/**
  * Extracts all unique [[WikiLink]] target titles/slugs from note content.
  */
 export function extractWikiLinkTargets(content: string): string[] {

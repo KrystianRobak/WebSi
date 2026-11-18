@@ -389,7 +389,7 @@ export const WorldsmithInspectorSection: React.FC<{ activeMap: VaultMap }> = ({
                 Clear Paint
               </button>
             </div>
-            <div className="grid grid-cols-3 gap-1">
+            <div className="grid grid-cols-2 gap-1.5">
               {BIOME_PAINT_PALETTE.map((swatch) => {
                 const active =
                   worldsmithTool === 'paint-biome' && activeBiomePaint === swatch.kind;
@@ -400,10 +400,10 @@ export const WorldsmithInspectorSection: React.FC<{ activeMap: VaultMap }> = ({
                       setActiveBiomePaint(swatch.kind);
                       setWorldsmithTool('paint-biome');
                     }}
-                    className={`px-1.5 py-1 rounded border text-[10px] flex items-center gap-1.5 transition-colors ${
+                    className={`px-2 py-1.5 rounded-md border text-[11px] flex items-center gap-1.5 transition-colors ${
                       active
                         ? 'bg-[#d4a853]/20 border-[#d4a853]/65 text-[#f5df9d]'
-                        : 'bg-[#12161e] border-[#1d222b] text-[#c7c2b7] hover:border-[#303744]'
+                        : 'bg-[#12161e] border-[#1d222b] text-[#d4cfc4] hover:border-[#303744]'
                     }`}
                   >
                     <span

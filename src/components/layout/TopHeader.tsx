@@ -1,6 +1,8 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   Cloud,
   CloudOff,
   Columns2,
@@ -71,10 +73,33 @@ export const TopHeader: React.FC = () => {
 
   const [exportOpen, setExportOpen] = useState(false);
   const [campaignMenuOpen, setCampaignMenuOpen] = useState(false);
+  const [canScrollTabsLeft, setCanScrollTabsLeft] = useState(false);
+  const [canScrollTabsRight, setCanScrollTabsRight] = useState(false);
   const campaignMenuRef = useRef<HTMLDivElement>(null);
+  const tabStripRef = useRef<HTMLDivElement>(null);
   const canToggleGm = myRole === 'gm' || myRole === 'co_gm';
   const effectiveGm = isEffectiveGm();
   const activeCampaign = campaigns.find((c) => c.id === activeCampaignId) || null;
+
+  const updateTabScrollState = useCallback(() => {
+    const el = tabStripRef.current;
+    if (!el) return;
+    setCanScrollTabsLeft(el.scrollLeft > 4);
+    setCanScrollTabsRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 4);
+  }, []);
+
+  useEffect(() => {
+    updateTabScrollState();
+    const el = tabStripRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => updateTabScrollState());
+    ro.observe(el);
+    window.addEventListener('resize', updateTabScrollState);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener('resize', updateTabScrollState);
+    };
+  }, [tabs.length, updateTabScrollState]);
 
   useEffect(() => {
     if (!campaignMenuOpen) return;
@@ -163,41 +188,52 @@ export const TopHeader: React.FC = () => {
   })();
 
   return (
-    <header className="h-[42px] select-none bg-[#050608] border-b border-[#11151d] px-2.5 flex items-center justify-between gap-2 shrink-0 z-50">
+    <header className="h-12 select-none bg-[#090c12] border-b border-[#181e2b] px-2 sm:px-3 flex items-center justify-between gap-2 shrink-0 z-50">
       {/* Left: Brand + Campaign Switcher + Undo/Redo */}
-      <div className="flex items-center gap-1.5 shrink-0">
+      <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
         <button
           onClick={openProfileHubTab}
           title={`Aethelgard Vault — ${syncDot.label}`}
-          className="flex items-center gap-1.5 px-1.5 py-1 rounded-md hover:bg-[#0d1016] transition-colors"
+          className="flex items-center gap-2 px-1.5 py-1 rounded-lg hover:bg-[#131823] transition-colors"
         >
-          <AethelgardCrest className="w-4 h-4" />
-          <span className="hidden xl:inline font-serif text-[12.5px] font-semibold tracking-wider text-[#e8dfd0]">
+          <AethelgardCrest className="w-4 h-4 shrink-0" />
+          <span className="hidden xl:inline font-serif text-[13px] font-semibold tracking-wider text-[#f2eadb]">
             Aethelgard
           </span>
-          <span className={`w-1.5 h-1.5 rounded-full ${syncDot.dot}`} />
+          <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${syncDot.dot}`} />
         </button>
 
         {campaigns.length > 0 && (
-          <div className="relative flex items-center gap-1 border-l border-[#12161f] pl-1.5" ref={campaignMenuRef}>
+          <div className="relative flex items-center gap-1.5 border-l border-[#1a2130] pl-1.5 sm:pl-2" ref={campaignMenuRef}>
             <button
               type="button"
               aria-label="Switch Campaign"
               aria-haspopup="listbox"
               aria-expanded={campaignMenuOpen}
               onClick={() => setCampaignMenuOpen((v) => !v)}
-              className="h-[26px] max-w-[185px] bg-[#0a0d13] border border-[#191f2c] hover:border-[#b68d40]/50 rounded-md px-2 text-[11px] text-[#e5ded0] flex items-center gap-1.5 focus:outline-none focus:border-[#b68d40] transition-colors"
+              className="h-7 max-w-[116px] sm:max-w-[205px] bg-[#10141d] border border-[#1f2636] hover:border-[#d4a853]/55 rounded-lg px-2 text-[11.5px] text-[#e8e2d5] flex items-center gap-1.5 focus:outline-none focus:border-[#d4a853] transition-colors"
             >
-              <span data-testid="active-campaign-name" className="truncate font-medium text-[#f0e6d2]">
+              <span data-testid="active-campaign-name" className="truncate font-medium text-[#f3ead8]">
                 {activeCampaign?.name || world.name || 'Campaign'}
               </span>
-              <ChevronDown className="w-3 h-3 text-[#7a8291] shrink-0" />
+              {world.id && (
+                <span
+                  className={`hidden md:inline-block text-[9px] px-1.5 py-0.5 rounded font-semibold tracking-wide shrink-0 ${
+                    world.mode === 'west_marches'
+                      ? 'bg-amber-500/15 text-amber-300'
+                      : 'bg-sky-500/15 text-sky-300'
+                  }`}
+                >
+                  {world.mode === 'west_marches' ? 'WM' : 'Normal'}
+                </span>
+              )}
+              <ChevronDown className="w-3 h-3 text-[#8b94a5] shrink-0" />
             </button>
             {campaignMenuOpen && (
               <div
                 role="listbox"
                 aria-label="Campaigns"
-                className="absolute left-1.5 top-full mt-1.5 w-60 rounded-md dark-glass shadow-glass py-1 z-50 border border-[#1d2432]"
+                className="absolute left-1.5 top-full mt-1.5 w-64 rounded-xl dark-glass shadow-glass py-1.5 z-50 border border-[#252d3d]"
               >
                 {campaigns.map((c) => {
                   const selected = c.id === activeCampaignId;
@@ -211,15 +247,15 @@ export const TopHeader: React.FC = () => {
                         switchCampaign(c.id);
                         setCampaignMenuOpen(false);
                       }}
-                      className={`w-full text-left px-3 py-1.5 text-xs flex items-center justify-between gap-2 transition-colors ${
+                      className={`w-full text-left px-3 py-2 text-xs flex items-center justify-between gap-2 transition-colors ${
                         selected
-                          ? 'bg-[#b68d40]/18 text-[#f0e6d2] font-medium'
-                          : 'text-[#ded8cc] hover:bg-[#b68d40]/12'
+                          ? 'bg-[#d4a853]/18 text-[#f5ecda] font-medium'
+                          : 'text-[#ded8cc] hover:bg-[#d4a853]/10'
                       }`}
                     >
                       <span className="truncate">{c.name}</span>
                       <span
-                        className={`text-[9px] px-1 py-0.5 rounded border shrink-0 ${
+                        className={`text-[9.5px] px-1.5 py-0.5 rounded border shrink-0 ${
                           c.mode === 'west_marches'
                             ? 'bg-amber-500/10 border-amber-500/35 text-amber-300'
                             : 'bg-sky-500/10 border-sky-500/35 text-sky-300'
@@ -232,27 +268,16 @@ export const TopHeader: React.FC = () => {
                 })}
               </div>
             )}
-            {world.id && (
-              <span
-                className={`hidden md:inline-block text-[9.5px] px-1.5 py-0.5 rounded border font-medium ${
-                  world.mode === 'west_marches'
-                    ? 'bg-amber-500/10 border-amber-500/35 text-amber-300'
-                    : 'bg-sky-500/10 border-sky-500/35 text-sky-300'
-                }`}
-              >
-                {world.mode === 'west_marches' ? 'WM' : 'Normal'}
-              </span>
-            )}
           </div>
         )}
 
         {effectiveGm && (
-          <div className="hidden sm:flex items-center gap-0.5 border-l border-[#12161f] pl-1.5">
+          <div className="hidden lg:flex items-center gap-0.5 border-l border-[#1a2130] pl-1.5">
             <button
               onClick={undo}
               disabled={past.length === 0}
               title="Undo (Ctrl+Z)"
-              className="p-1 rounded text-[#6f7887] hover:text-[#e5ded0] hover:bg-[#0e1218] disabled:opacity-25 disabled:pointer-events-none transition-colors"
+              className="p-1.5 rounded-lg text-[#7d8799] hover:text-[#f0e9db] hover:bg-[#131823] disabled:opacity-25 disabled:pointer-events-none transition-colors"
             >
               <Undo2 className="w-3.5 h-3.5" />
             </button>
@@ -260,7 +285,7 @@ export const TopHeader: React.FC = () => {
               onClick={redo}
               disabled={future.length === 0}
               title="Redo (Ctrl+Y)"
-              className="p-1 rounded text-[#6f7887] hover:text-[#e5ded0] hover:bg-[#0e1218] disabled:opacity-25 disabled:pointer-events-none transition-colors"
+              className="p-1.5 rounded-lg text-[#7d8799] hover:text-[#f0e9db] hover:bg-[#131823] disabled:opacity-25 disabled:pointer-events-none transition-colors"
             >
               <Redo2 className="w-3.5 h-3.5" />
             </button>
@@ -268,9 +293,23 @@ export const TopHeader: React.FC = () => {
         )}
       </div>
 
-      {/* Center: Inline Browser-Style Tab Strip + New/Split */}
-      <div className="flex-1 min-w-0 flex items-center gap-1 h-full py-1">
-        <div className="flex items-center gap-1 overflow-x-auto no-scrollbar min-w-0">
+      {/* Center: Scrollable Tab Strip + Scroll Chevrons + New/Split */}
+      <div className="flex-1 min-w-0 flex items-center gap-1 h-full py-1.5">
+        {canScrollTabsLeft && (
+          <button
+            type="button"
+            aria-label="Scroll tabs left"
+            onClick={() => tabStripRef.current?.scrollBy({ left: -160, behavior: 'smooth' })}
+            className="hidden sm:flex p-1 rounded-md text-[#8b94a5] hover:text-[#f3ead8] hover:bg-[#131823] shrink-0"
+          >
+            <ChevronLeft className="w-3.5 h-3.5" />
+          </button>
+        )}
+        <div
+          ref={tabStripRef}
+          onScroll={updateTabScrollState}
+          className="flex items-center gap-1 overflow-x-auto no-scrollbar min-w-0"
+        >
           {tabs
             .filter((tab) => {
               if (effectiveGm || tab.kind !== 'entity') return true;
@@ -287,18 +326,18 @@ export const TopHeader: React.FC = () => {
               <div
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                className={`group relative h-[28px] px-2.5 flex items-center gap-1.5 rounded-md cursor-pointer text-[11px] shrink-0 min-w-[84px] max-w-[168px] border transition-all ${
+                className={`group relative h-8 px-2.5 flex items-center gap-1.5 rounded-lg cursor-pointer text-[11.5px] shrink-0 min-w-[76px] sm:min-w-[96px] max-w-[176px] border transition-all ${
                   isActive
-                    ? 'bg-[#0c0f15] text-[#ede5d6] border-[#1d2330] shadow-[inset_0_-2px_0_#b68d40]'
+                    ? 'bg-[#131823] text-[#f3ead8] border-[#263044] shadow-[inset_0_-2px_0_#d4a853]'
                     : isSplit
-                    ? 'bg-[#090c11]/90 text-[#c9a050] border-[#181e29]'
-                    : 'bg-transparent text-[#6f7786] border-transparent hover:bg-[#0a0d12] hover:text-[#ccc6ba]'
+                    ? 'bg-[#10141d] text-[#d6b16a] border-[#1f2636]'
+                    : 'bg-transparent text-[#858f9f] border-transparent hover:bg-[#10141d] hover:text-[#ded8cc]'
                 }`}
               >
                 <EntityIcon
                   type={tab.iconType}
-                  className={`w-3 h-3 shrink-0 transition-colors ${
-                    isActive ? 'text-[#c9a050]' : 'text-[#5b6473] group-hover:text-[#9c7c3e]'
+                  className={`w-3.5 h-3.5 shrink-0 transition-colors ${
+                    isActive ? 'text-[#deb25e]' : 'text-[#6c7587] group-hover:text-[#b68d40]'
                   }`}
                 />
                 <span className="truncate font-medium">{tab.title}</span>
@@ -308,7 +347,8 @@ export const TopHeader: React.FC = () => {
                       e.stopPropagation();
                       closeTab(tab.id);
                     }}
-                    className="ml-auto p-0.5 rounded opacity-25 group-hover:opacity-100 hover:bg-[#1a1f29] text-[#7c8493] hover:text-[#ede5d6] transition-opacity"
+                    aria-label={`Close ${tab.title}`}
+                    className="ml-auto p-0.5 rounded opacity-35 group-hover:opacity-100 hover:bg-[#1e2534] text-[#8b94a5] hover:text-[#f3ead8] transition-opacity"
                   >
                     <X className="w-2.5 h-2.5" />
                   </button>
@@ -317,12 +357,23 @@ export const TopHeader: React.FC = () => {
             );
           })}
         </div>
+        {canScrollTabsRight && (
+          <button
+            type="button"
+            aria-label="Scroll tabs right"
+            onClick={() => tabStripRef.current?.scrollBy({ left: 160, behavior: 'smooth' })}
+            className="hidden sm:flex p-1 rounded-md text-[#8b94a5] hover:text-[#f3ead8] hover:bg-[#131823] shrink-0"
+          >
+            <ChevronRight className="w-3.5 h-3.5" />
+          </button>
+        )}
 
         {effectiveGm && (
           <button
             onClick={() => openNewEntryModal('Location', 'encyclopedia')}
             title="New Entry"
-            className="p-1 rounded-md text-[#7a8291] hover:text-[#c9a050] hover:bg-[#0e1218] shrink-0 transition-colors"
+            aria-label="New Entry"
+            className="hidden sm:flex p-1.5 rounded-lg text-[#8b94a5] hover:text-[#deb25e] hover:bg-[#131823] shrink-0 transition-colors"
           >
             <Plus className="w-3.5 h-3.5" />
           </button>
@@ -330,10 +381,11 @@ export const TopHeader: React.FC = () => {
         <button
           onClick={toggleSplitPane}
           title={splitPaneTabId ? 'Close Dual Tab Split' : 'Split Tab View'}
-          className={`p-1 rounded-md shrink-0 transition-colors ${
+          aria-label={splitPaneTabId ? 'Close Dual Tab Split' : 'Split Tab View'}
+          className={`hidden md:flex p-1.5 rounded-lg shrink-0 transition-colors ${
             splitPaneTabId
-              ? 'bg-[#b68d40]/18 text-[#caa257]'
-              : 'text-[#7a8291] hover:text-[#ded8cc] hover:bg-[#0e1218]'
+              ? 'bg-[#d4a853]/18 text-[#deb25e]'
+              : 'text-[#8b94a5] hover:text-[#f0e9db] hover:bg-[#131823]'
           }`}
         >
           <Columns2 className="w-3.5 h-3.5" />
@@ -345,11 +397,12 @@ export const TopHeader: React.FC = () => {
         <button
           onClick={() => setCommandPaletteOpen(true)}
           title="Search Vault (Ctrl+K)"
-          className="h-[26px] px-2 rounded-md bg-[#090b0f] border border-[#141821] hover:border-[#b68d40]/45 flex items-center gap-1.5 text-[11px] text-[#7e8796] hover:text-[#e8dfd0] transition-colors"
+          aria-label="Search Vault"
+          className="h-7 px-2 rounded-lg bg-[#10141d] border border-[#1d2433] hover:border-[#d4a853]/50 flex items-center gap-1.5 text-[11.5px] text-[#8b94a5] hover:text-[#f3ead8] transition-colors"
         >
-          <Search className="w-3 h-3 text-[#b68d40]" />
-          <span className="hidden md:inline">Search</span>
-          <kbd className="hidden sm:inline font-mono text-[9.5px] px-1 rounded bg-[#040507] border border-[#181d27] text-[#6d7686]">
+          <Search className="w-3.5 h-3.5 text-[#d4a853]" />
+          <span className="hidden lg:inline">Search</span>
+          <kbd className="hidden xl:inline font-mono text-[9.5px] px-1 rounded bg-[#07090d] border border-[#1f2636] text-[#7a8394]">
             ⌘K
           </kbd>
         </button>
@@ -359,14 +412,14 @@ export const TopHeader: React.FC = () => {
           onClick={() => setDiceDrawerOpen(!diceDrawerOpen)}
           title="Dice Roller & Log"
           aria-label="Dice Roller"
-          className={`h-[26px] px-2 rounded-md border flex items-center gap-1 text-[11px] font-medium transition-colors ${
+          className={`h-7 px-2 rounded-lg border flex items-center gap-1.5 text-[11.5px] font-medium transition-colors ${
             diceDrawerOpen
-              ? 'bg-[#b68d40]/18 border-[#b68d40]/50 text-[#e8dfd0]'
-              : 'bg-[#090b0f] border-[#141821] text-[#848d9c] hover:text-[#ded8cc]'
+              ? 'bg-[#d4a853]/18 border-[#d4a853]/50 text-[#f3ead8]'
+              : 'bg-[#10141d] border-[#1d2433] text-[#959eb0] hover:text-[#f3ead8]'
           }`}
         >
           <Dices className="w-3.5 h-3.5 text-[#d4a853]" />
-          <span className="hidden lg:inline">Dice</span>
+          <span className="hidden xl:inline">Dice</span>
         </button>
 
         {/* Role-Gated GM Mode Toggle (hidden for plain players) */}
@@ -378,16 +431,17 @@ export const TopHeader: React.FC = () => {
                 ? 'GM Mode ON — Secrets and hidden map pins visible'
                 : 'Player View — Secrets & hidden pins stripped'
             }
-            className={`h-[26px] flex items-center gap-1 px-2 rounded-md text-[11px] font-medium border transition-all ${
+            aria-label={gmMode ? 'GM Mode' : 'Player View'}
+            className={`h-7 flex items-center gap-1.5 px-2 rounded-lg text-[11.5px] font-medium border transition-all ${
               gmMode
-                ? 'bg-[#1c0b0e] border-red-500/35 text-red-200/90'
-                : 'bg-[#090b0f] border-[#141821] text-[#7e8796] hover:text-[#ded8cc]'
+                ? 'bg-[#211014] border-red-500/40 text-red-200'
+                : 'bg-[#10141d] border-[#1d2433] text-[#8b94a5] hover:text-[#f0e9db]'
             }`}
           >
             {gmMode ? (
-              <Eye className="w-3 h-3 text-red-400" />
+              <Eye className="w-3.5 h-3.5 text-red-400" />
             ) : (
-              <EyeOff className="w-3 h-3 text-[#5c6473]" />
+              <EyeOff className="w-3.5 h-3.5 text-[#7a8394]" />
             )}
             <span className="hidden xl:inline">{gmMode ? 'GM Mode' : 'Player View'}</span>
           </button>
@@ -395,29 +449,30 @@ export const TopHeader: React.FC = () => {
 
         {/* Export Dropdown */}
         {world.id && (
-          <div className="relative">
+          <div className="relative hidden sm:block">
             <button
               onClick={() => setExportOpen((v) => !v)}
               title="Export Campaign"
-              className="h-[26px] px-1.5 rounded-md bg-[#090b0f] border border-[#141821] hover:border-[#b68d40]/40 text-[#bdb7ac] flex items-center gap-1 text-[11px] transition-colors"
+              aria-label="Export Campaign"
+              className="h-7 px-2 rounded-lg bg-[#10141d] border border-[#1d2433] hover:border-[#d4a853]/45 text-[#c8c2b6] flex items-center gap-1 text-[11.5px] transition-colors"
             >
-              <Download className="w-3.5 h-3.5 text-[#b68d40]" />
+              <Download className="w-3.5 h-3.5 text-[#d4a853]" />
             </button>
             {exportOpen && (
               <div
                 onMouseLeave={() => setExportOpen(false)}
-                className="absolute right-0 mt-1.5 w-52 rounded-md dark-glass shadow-glass py-1 z-50"
+                className="absolute right-0 mt-1.5 w-52 rounded-xl dark-glass shadow-glass py-1.5 z-50"
               >
                 <button
                   onClick={handleExportJson}
-                  className="w-full text-left px-3 py-1.5 text-xs text-[#ded8cc] hover:bg-[#b68d40]/15 flex items-center justify-between"
+                  className="w-full text-left px-3 py-1.5 text-xs text-[#ded8cc] hover:bg-[#d4a853]/15 flex items-center justify-between"
                 >
                   <span>Export Archive v2 JSON</span>
                   <span className="font-mono text-[10px] text-[#7a8291]">.json</span>
                 </button>
                 <button
                   onClick={handleExportMarkdown}
-                  className="w-full text-left px-3 py-1.5 text-xs text-[#ded8cc] hover:bg-[#b68d40]/15 flex items-center justify-between"
+                  className="w-full text-left px-3 py-1.5 text-xs text-[#ded8cc] hover:bg-[#d4a853]/15 flex items-center justify-between"
                 >
                   <span>Export Grimoire MD</span>
                   <span className="font-mono text-[10px] text-[#7a8291]">.md</span>
@@ -432,10 +487,10 @@ export const TopHeader: React.FC = () => {
           onClick={toggleRightInspector}
           title={rightInspectorCollapsed ? 'Open Inspector Drawer' : 'Close Inspector Drawer'}
           aria-label={rightInspectorCollapsed ? 'Open Inspector Drawer' : 'Close Inspector Drawer'}
-          className={`h-[26px] px-2 rounded-md border flex items-center gap-1 text-[11px] font-medium transition-colors ${
+          className={`h-7 px-2 rounded-lg border flex items-center gap-1.5 text-[11.5px] font-medium transition-colors ${
             !rightInspectorCollapsed
-              ? 'bg-[#b68d40]/16 border-[#b68d40]/45 text-[#d6b16a]'
-              : 'bg-[#090b0f] border-[#141821] text-[#848d9c] hover:text-[#ded8cc] hover:border-[#202633]'
+              ? 'bg-[#d4a853]/16 border-[#d4a853]/45 text-[#e2b969]'
+              : 'bg-[#10141d] border-[#1d2433] text-[#959eb0] hover:text-[#f3ead8] hover:border-[#2a3346]'
           }`}
         >
           {rightInspectorCollapsed ? (
@@ -451,11 +506,11 @@ export const TopHeader: React.FC = () => {
           onClick={openProfileHubTab}
           title="Adventurer Account"
           aria-label="Adventurer Account"
-          className="h-[26px] px-2 rounded-md text-[#b9c0cd] hover:text-[#c9a050] hover:bg-[#0e1218] transition-colors flex items-center gap-1.5 text-[11px]"
+          className="hidden sm:flex h-7 px-2 rounded-lg text-[#c4cbd8] hover:text-[#e2b969] hover:bg-[#131823] transition-colors items-center gap-1.5 text-[11.5px]"
         >
           <User className="w-3.5 h-3.5 text-[#d4a853]" />
           {profile?.display_name && (
-            <span className="hidden md:inline max-w-[110px] truncate font-medium text-[#ede5d6]">
+            <span className="hidden lg:inline max-w-[100px] truncate font-medium text-[#f0e9db]">
               {profile.display_name}
             </span>
           )}
@@ -466,7 +521,7 @@ export const TopHeader: React.FC = () => {
           onClick={() => setSettingsModalOpen(true)}
           title="Supabase & Terrain Settings"
           aria-label="Settings"
-          className="p-1.5 rounded-md text-[#7a8291] hover:text-[#c9a050] hover:bg-[#0e1218] transition-colors"
+          className="h-7 w-7 rounded-lg flex items-center justify-center text-[#8b94a5] hover:text-[#deb25e] hover:bg-[#131823] transition-colors"
         >
           <Settings className="w-3.5 h-3.5" />
         </button>
@@ -476,7 +531,7 @@ export const TopHeader: React.FC = () => {
           onClick={signOutVault}
           title="Sign Out"
           aria-label="Sign Out"
-          className="p-1.5 rounded-md bg-[#090b0f] border border-[#141821] text-[#bdb7ac] hover:border-red-500/40 hover:text-red-300 transition-colors"
+          className="h-7 w-7 rounded-lg flex items-center justify-center bg-[#10141d] border border-[#1d2433] text-[#c4beb3] hover:border-red-500/45 hover:text-red-300 transition-colors"
         >
           <LogOut className="w-3.5 h-3.5" />
         </button>

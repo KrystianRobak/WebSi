@@ -33,7 +33,7 @@ import {
   ZONE_COLOR_PALETTE,
   createDefaultWorldLayers,
 } from '../../lib/worldLayers';
-import { getVisibleMetadataEntries } from '../../lib/wikilinks';
+import { formatEntityTypeLabel, getVisibleMetadataEntries } from '../../lib/wikilinks';
 import { useVaultStore } from '../../store/useVaultStore';
 import {
   EntityType,
@@ -196,9 +196,9 @@ export const RightInspector: React.FC = () => {
     : [];
 
   return (
-    <aside className="h-full bg-[#07090d] border-l border-[#12161f] flex flex-col select-none overflow-hidden">
+    <aside className="h-full bg-[#0a0d14] border-l border-[#1a202d] flex flex-col select-none overflow-hidden">
       {/* Top Sub-Tabs: Details | Connections | References + Collapse */}
-      <div className="h-[38px] px-2 border-b border-[#12161f] flex items-center justify-between bg-[#050608] shrink-0">
+      <div className="h-10 px-2.5 border-b border-[#181e2b] flex items-center justify-between bg-[#090c12] shrink-0">
         <div className="flex items-center justify-around flex-1 h-full">
           {(
             [
@@ -213,12 +213,12 @@ export const RightInspector: React.FC = () => {
                 key={tab.id}
                 onClick={() => setInspectorSubTab(tab.id)}
                 className={`relative h-full px-2.5 text-[12px] font-medium transition-colors ${
-                  active ? 'text-[#d6b16a]' : 'text-[#757e8d] hover:text-[#ded8cc]'
+                  active ? 'text-[#e2b969]' : 'text-[#858f9f] hover:text-[#f0e9db]'
                 }`}
               >
                 <span>{tab.label}</span>
                 {active && (
-                  <span className="absolute bottom-0 left-1 right-1 h-[2px] bg-[#b68d40] rounded-t" />
+                  <span className="absolute bottom-0 left-1 right-1 h-[2px] bg-[#d4a853] rounded-t" />
                 )}
               </button>
             );
@@ -228,7 +228,7 @@ export const RightInspector: React.FC = () => {
           onClick={() => setRightInspectorCollapsed(true)}
           title="Collapse Inspector Drawer"
           aria-label="Collapse Inspector Drawer"
-          className="p-1.5 rounded text-[#6d7686] hover:text-[#d6b16a] hover:bg-[#0e1218] transition-colors shrink-0"
+          className="p-1.5 rounded-lg text-[#7d8799] hover:text-[#e2b969] hover:bg-[#131823] transition-colors shrink-0"
         >
           <PanelRightClose className="w-3.5 h-3.5" />
         </button>
@@ -1545,7 +1545,9 @@ export const RightInspector: React.FC = () => {
                 <div className="surface-card rounded-lg divide-y divide-[#12161f] text-[11.5px]">
                   <div className="flex items-center justify-between px-3 py-2">
                     <span className="text-[#757e8d]">Target Type</span>
-                    <span className="text-[#c9a050] font-medium">{focusedTemplate.type}</span>
+                    <span className="text-[#c9a050] font-medium">
+                      {formatEntityTypeLabel(focusedTemplate.type)}
+                    </span>
                   </div>
                   <div className="flex items-center justify-between px-3 py-2">
                     <span className="text-[#757e8d]">Default Attributes</span>
@@ -1640,16 +1642,18 @@ export const RightInspector: React.FC = () => {
                         <button
                           key={src.id}
                           onClick={() => openEntityTab(src.id)}
-                          className="w-full text-left p-2.5 rounded-lg bg-[#090b0f] border border-[#141821] hover:border-[#b68d40]/45 transition-colors"
+                          className="w-full text-left p-2.5 rounded-lg bg-[#0d1119] border border-[#1a2130] hover:border-[#d4a853]/45 transition-colors"
                         >
-                          <div className="flex items-center justify-between gap-2 mb-0.5">
-                            <span className="flex items-center gap-1.5 text-xs font-semibold text-[#e8dfd0] truncate">
-                              <EntityIcon type={src.type} className="w-3.5 h-3.5 text-[#b68d40]" />
-                              {src.title}
+                          <div className="flex items-center justify-between gap-2 mb-1">
+                            <span className="flex items-center gap-1.5 min-w-0 flex-1 text-xs font-semibold text-[#f0e9db]">
+                              <EntityIcon type={src.type} className="w-3.5 h-3.5 text-[#d4a853] shrink-0" />
+                              <span className="truncate">{src.title}</span>
                             </span>
-                            <span className="text-[10px] font-mono text-[#6d7686]">{src.type}</span>
+                            <span className="shrink-0 px-1.5 py-0.5 rounded bg-[#141925] border border-[#202838] text-[9.5px] font-mono text-[#8b94a5]">
+                              {formatEntityTypeLabel(src.type)}
+                            </span>
                           </div>
-                          <p className="text-[11px] text-[#757e8d] line-clamp-2">{src.summary}</p>
+                          <p className="text-[11px] text-[#8b94a5] line-clamp-2">{src.summary}</p>
                         </button>
                       ))}
                     </div>

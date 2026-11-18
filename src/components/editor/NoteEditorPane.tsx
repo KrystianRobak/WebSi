@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { uploadVaultAsset } from '../../lib/supabase';
 import {
+  formatEntityTypeLabel,
   getEntityAppearance,
   getEntityCustomCss,
   getVisibleMetadataEntries,
@@ -49,6 +50,8 @@ export const NoteEditorPane: React.FC<{ entityId: string }> = ({ entityId }) => 
     maps,
     editorMode,
     setEditorMode,
+    gmMode,
+    myRole,
     isEffectiveGm,
     updateEntity,
     deleteEntity,
@@ -98,9 +101,29 @@ export const NoteEditorPane: React.FC<{ entityId: string }> = ({ entityId }) => 
     setCustomCssDraft(getEntityCustomCss(entity.metadata));
   }, [entityId, entity]);
 
+  const readMarkdownBody = useMemo(() => {
+    if (!entity?.title) return rawMarkdown;
+    const lines = rawMarkdown.split(/\r?\n/);
+    const firstNonEmptyIdx = lines.findIndex((l) => l.trim().length > 0);
+    if (firstNonEmptyIdx === -1) return rawMarkdown;
+    const headingMatch = lines[firstNonEmptyIdx].trim().match(/^#\s+(.+)$/);
+    if (
+      headingMatch &&
+      headingMatch[1].trim().toLowerCase() === entity.title.trim().toLowerCase()
+    ) {
+      return [
+        ...lines.slice(0, firstNonEmptyIdx),
+        ...lines.slice(firstNonEmptyIdx + 1),
+      ]
+        .join('\n')
+        .replace(/^\s*\n/, '');
+    }
+    return rawMarkdown;
+  }, [rawMarkdown, entity?.title]);
+
   const renderedPreviewHtml = useMemo(
-    () => markdownToHtml(rawMarkdown, assets, entities),
-    [rawMarkdown, assets, entities]
+    () => markdownToHtml(readMarkdownBody, assets, entities),
+    [readMarkdownBody, assets, entities]
   );
   const { noteVars } = useMemo(
     () => parseNoteMarkdownStyleBlock(rawMarkdown),
@@ -204,6 +227,7 @@ export const NoteEditorPane: React.FC<{ entityId: string }> = ({ entityId }) => 
 
   const coverHeightCls = COVER_HEIGHT_CLASS[appearance.coverHeight];
   const showReadMode = editorMode === 'preview' || !canGmEdit;
+  const isGmPreviewingAsPlayer = (myRole === 'gm' || myRole === 'co_gm') && !gmMode;
 
   return (
     <div className="relative h-full bg-[#06070a] flex flex-col overflow-hidden">
@@ -224,6 +248,12 @@ export const NoteEditorPane: React.FC<{ entityId: string }> = ({ entityId }) => 
 
       {showReadMode ? (
         <div className="relative z-10 flex-1 overflow-y-auto">
+          {isGmPreviewingAsPlayer && (
+            <div className="px-4 py-1.5 bg-[#0f141e] border-b border-sky-500/25 flex items-center justify-center gap-2 text-[11.5px] text-sky-200/90">
+              <span className="w-1.5 h-1.5 rounded-full bg-sky-400" />
+              <span>Player View Active — GM secrets &amp; hidden map pins are masked.</span>
+            </div>
+          )}
           <div
             className={`relative w-full ${coverHeightCls} bg-[#040507] border-b border-[#12161f] overflow-hidden`}
           >
@@ -271,7 +301,7 @@ export const NoteEditorPane: React.FC<{ entityId: string }> = ({ entityId }) => 
               <div className="flex items-center gap-2 mb-1.5 flex-wrap">
                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider bg-[#050608]/85 text-[#d6b16a] border border-[#b68d40]/45 backdrop-blur-sm">
                   <EntityIcon type={entity.type} className="w-3 h-3" />
-                  {entity.type}
+                  {formatEntityTypeLabel(entity.type)}
                 </span>
                 {linkedPins.map((pin) => {
                   const mapObj = maps.find((m) => m.id === pin.map_id);
@@ -473,7 +503,10 @@ export const NoteEditorPane: React.FC<{ entityId: string }> = ({ entityId }) => 
                   <span className="hidden lg:inline">Visual</span>
                 </button>
                 <button
-                  onClick={() => setEditorMode('preview')}
+                  onClick={() => {
+                    setShowPropertiesDrawer(false);
+                    setEditorMode('preview');
+                  }}
                   title="Full Reading View"
                   className="flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium text-[#757e8d] hover:text-[#d6b16a] border border-transparent transition-all"
                 >
@@ -572,10 +605,12 @@ export const NoteEditorPane: React.FC<{ entityId: string }> = ({ entityId }) => 
                     {visibleMetadata.map(([k, v]) => (
                       <div
                         key={k}
-                        className="flex items-center justify-between gap-1.5 bg-[#040507] border border-[#141821] rounded px-2 py-1"
+                        className="flex items-center justify-between gap-2 bg-[#06080c] border border-[#1a202d] rounded-md px-2.5 py-1.5"
                       >
-                        <span className="text-[10.5px] text-[#7a8291] truncate">{k}</span>
-                        <div className="flex items-center gap-1">
+                        <span className="text-[11px] text-[#8b94a5] shrink-0 max-w-[42%] truncate">
+                          {k}
+                        </span>
+                        <div className="flex items-center gap-1.5 flex-1 min-w-0 justify-end">
                           <input
                             value={String(v)}
                             onChange={(e) =>
@@ -583,7 +618,7 @@ export const NoteEditorPane: React.FC<{ entityId: string }> = ({ entityId }) => 
                                 metadata: { ...entity.metadata, [k]: e.target.value },
                               })
                             }
-                            className="bg-transparent text-right text-[11px] text-[#e8dfd0] focus:outline-none w-28"
+                            className="bg-transparent text-right text-[11.5px] text-[#f0e9db] focus:outline-none flex-1 min-w-0"
                           />
                           <button
                             onClick={() => {
@@ -591,7 +626,8 @@ export const NoteEditorPane: React.FC<{ entityId: string }> = ({ entityId }) => 
                               delete nextMeta[k];
                               updateEntity(entity.id, { metadata: nextMeta });
                             }}
-                            className="text-[#565f6e] hover:text-red-400"
+                            aria-label={`Remove ${k}`}
+                            className="text-[#667082] hover:text-red-400 shrink-0"
                           >
                             <X className="w-3 h-3" />
                           </button>

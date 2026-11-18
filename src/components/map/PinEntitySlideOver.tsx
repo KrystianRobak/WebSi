@@ -20,8 +20,6 @@ export const PinEntitySlideOver: React.FC = () => {
     selectedPinId,
     setSelectedPinId,
     isEffectiveGm,
-    rightInspectorCollapsed,
-    inspectorWidth,
     openEntityTab,
     openEntityByTitle,
     toggleFavorite,
@@ -30,7 +28,7 @@ export const PinEntitySlideOver: React.FC = () => {
   } = useVaultStore();
 
   const effectiveGm = isEffectiveGm();
-  const rightInsetPx = rightInspectorCollapsed ? 12 : inspectorWidth + 12;
+  const rightInsetPx = 14;
   const pin = mapPins.find((p) => p.id === selectedPinId);
   if (!pin) return null;
   if (!effectiveGm && pin.is_gm_only) return null;

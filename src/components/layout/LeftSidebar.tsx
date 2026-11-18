@@ -19,11 +19,13 @@ import {
   Settings,
   Settings2,
   Star,
+  Upload,
   UserCheck,
   Users,
   X,
 } from 'lucide-react';
 import { uploadVaultAsset } from '../../lib/supabase';
+import { formatEntityTypeLabel } from '../../lib/wikilinks';
 import { useVaultStore } from '../../store/useVaultStore';
 import { Entity, EntityCategory, EntityType } from '../../types/vault';
 import { EntityIcon } from '../common/EntityIcon';
@@ -88,7 +90,6 @@ export const LeftSidebar: React.FC = () => {
     addAsset,
     openNewEntryModal,
     setMapGeneratorModalOpen,
-    setCommandPaletteOpen,
     setSettingsModalOpen,
   } = useVaultStore();
 
@@ -198,179 +199,168 @@ export const LeftSidebar: React.FC = () => {
     </div>
   );
 
+  const railItemClass = (isActive: boolean) =>
+    `group relative w-full py-1.5 px-1 rounded-lg flex flex-col items-center justify-center gap-0.5 transition-all shrink-0 ${
+      isActive
+        ? 'bg-[#131823] text-[#e2b969] border border-[#d4a853]/40 shadow-[0_0_12px_rgba(212,168,83,0.12)]'
+        : 'text-[#8791a3] hover:text-[#f0e9db] hover:bg-[#11151f] border border-transparent'
+    }`;
+
   return (
     <div className="relative h-full flex shrink-0 select-none z-30">
-      {/* 44px Obsidian Studio Icon Rail */}
+      {/* Labeled Obsidian Studio Navigation Rail */}
       <nav
         aria-label="Workspace Rail"
-        className="w-11 h-full bg-[#050608] border-r border-[#11151d] flex flex-col items-center py-2.5 gap-1.5 shrink-0 z-30 overflow-y-auto"
+        className="w-[54px] sm:w-[64px] h-full bg-[#090c12] border-r border-[#181e2b] flex flex-col items-center py-2.5 px-1.5 gap-1 shrink-0 z-30 overflow-y-auto no-scrollbar"
       >
         <button
           onClick={() => handleRailSectionClick('vault')}
           title="Vault Explorer (Ctrl+\)"
           aria-label="Vault Explorer"
-          className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors shrink-0 ${
-            leftNavOpen && leftNavSection === 'vault'
-              ? 'bg-[#0e1219] text-[#d6b16a] border border-[#b68d40]/45 shadow-gold-sm'
-              : 'text-[#757e8d] hover:text-[#e8dfd0] hover:bg-[#0d1016]'
-          }`}
+          className={railItemClass(leftNavOpen && leftNavSection === 'vault')}
         >
           <FolderTree className="w-4 h-4" />
+          <span className="hidden sm:block text-[9.5px] font-medium tracking-tight leading-none">
+            Vault
+          </span>
         </button>
 
         <button
           onClick={() => {
-            setLeftNavOpen(false);
             openJournalTab();
           }}
           title="Player Journals"
           aria-label="Journals"
-          className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors shrink-0 ${
-            activeTab?.kind === 'journal'
-              ? 'bg-[#0e1219] text-[#d6b16a] border border-[#b68d40]/45 shadow-gold-sm'
-              : 'text-[#757e8d] hover:text-[#e8dfd0] hover:bg-[#0d1016]'
-          }`}
+          className={railItemClass(activeTab?.kind === 'journal')}
         >
           <NotebookPen className="w-4 h-4" />
+          <span className="hidden sm:block text-[9.5px] font-medium tracking-tight leading-none">
+            Journals
+          </span>
         </button>
 
         <button
           onClick={() => {
-            setLeftNavOpen(false);
             openCharacterTab();
           }}
           title="Characters & Sheets"
           aria-label="Characters"
-          className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors shrink-0 ${
-            activeTab?.kind === 'character'
-              ? 'bg-[#0e1219] text-[#d6b16a] border border-[#b68d40]/45 shadow-gold-sm'
-              : 'text-[#757e8d] hover:text-[#e8dfd0] hover:bg-[#0d1016]'
-          }`}
+          className={railItemClass(activeTab?.kind === 'character')}
         >
           <Users className="w-4 h-4" />
+          <span className="hidden sm:block text-[9.5px] font-medium tracking-tight leading-none">
+            Party
+          </span>
         </button>
 
         <button
           onClick={() => {
-            setLeftNavOpen(false);
             openSheetStudioTab();
           }}
           title="Sheet Template Studio"
           aria-label="Sheet Studio"
-          className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors shrink-0 ${
-            activeTab?.kind === 'sheet_studio'
-              ? 'bg-[#0e1219] text-[#d6b16a] border border-[#b68d40]/45 shadow-gold-sm'
-              : 'text-[#757e8d] hover:text-[#e8dfd0] hover:bg-[#0d1016]'
-          }`}
+          className={railItemClass(activeTab?.kind === 'sheet_studio')}
         >
           <ScrollText className="w-4 h-4" />
+          <span className="hidden sm:block text-[9.5px] font-medium tracking-tight leading-none">
+            Studio
+          </span>
         </button>
 
         <button
           onClick={() => {
-            setLeftNavOpen(false);
             openTimelineTab();
           }}
           title="Campaign Timeline & Calendar"
           aria-label="Timeline"
-          className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors shrink-0 ${
-            activeTab?.kind === 'timeline'
-              ? 'bg-[#0e1219] text-[#d6b16a] border border-[#b68d40]/45 shadow-gold-sm'
-              : 'text-[#757e8d] hover:text-[#e8dfd0] hover:bg-[#0d1016]'
-          }`}
+          className={railItemClass(activeTab?.kind === 'timeline')}
         >
           <Calendar className="w-4 h-4" />
+          <span className="hidden sm:block text-[9.5px] font-medium tracking-tight leading-none">
+            Timeline
+          </span>
         </button>
 
         <button
           onClick={() => handleRailSectionClick('assets')}
           title={`Vault Assets (${assets.length})`}
           aria-label="Vault Assets"
-          className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors shrink-0 ${
-            leftNavOpen && leftNavSection === 'assets'
-              ? 'bg-[#0e1219] text-[#d6b16a] border border-[#b68d40]/45 shadow-gold-sm'
-              : 'text-[#757e8d] hover:text-[#e8dfd0] hover:bg-[#0d1016]'
-          }`}
+          className={railItemClass(leftNavOpen && leftNavSection === 'assets')}
         >
           <ImageIcon className="w-4 h-4" />
+          <span className="hidden sm:block text-[9.5px] font-medium tracking-tight leading-none">
+            Assets
+          </span>
         </button>
 
         <button
           onClick={() => handleRailSectionClick('templates')}
           title="Record Templates"
           aria-label="Record Templates"
-          className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors shrink-0 ${
-            leftNavOpen && leftNavSection === 'templates'
-              ? 'bg-[#0e1219] text-[#d6b16a] border border-[#b68d40]/45 shadow-gold-sm'
-              : 'text-[#757e8d] hover:text-[#e8dfd0] hover:bg-[#0d1016]'
-          }`}
+          className={railItemClass(leftNavOpen && leftNavSection === 'templates')}
         >
           <FileCode2 className="w-4 h-4" />
-        </button>
-
-        <div className="w-5 h-px bg-[#12161f] my-1 shrink-0" />
-
-        <button
-          onClick={() => setCommandPaletteOpen(true)}
-          title="Quick Search (Ctrl+K)"
-          aria-label="Quick Search"
-          className="w-8 h-8 rounded-lg text-[#757e8d] hover:text-[#e8dfd0] hover:bg-[#0d1016] flex items-center justify-center transition-colors shrink-0"
-        >
-          <Search className="w-4 h-4" />
+          <span className="hidden sm:block text-[9.5px] font-medium tracking-tight leading-none">
+            Templates
+          </span>
         </button>
 
         {canGmEdit && (
           <>
-            <button
-              onClick={() => openNewEntryModal('Location', 'encyclopedia')}
-              title="Create New Entry"
-              aria-label="Create New Entry"
-              className="w-8 h-8 rounded-lg text-[#b68d40] hover:bg-[#b68d40]/15 flex items-center justify-center transition-colors shrink-0"
-            >
-              <Plus className="w-4 h-4" />
-            </button>
-
+            <div className="w-6 h-px bg-[#1a212e] my-1 shrink-0" />
             <button
               onClick={() => setMapGeneratorModalOpen(true, '3d')}
               title="Generate 3D World / 2D Battlemap"
               aria-label="Generate Map"
-              className="w-8 h-8 rounded-lg text-[#757e8d] hover:text-[#c9a050] hover:bg-[#0d1016] flex items-center justify-center transition-colors shrink-0"
+              className="w-full py-1.5 px-1 rounded-lg text-[#c9a050] hover:text-[#f0d394] hover:bg-[#131823] flex flex-col items-center justify-center gap-0.5 transition-colors shrink-0"
             >
               <Globe className="w-4 h-4" />
+              <span className="hidden sm:block text-[9.5px] font-medium tracking-tight leading-none">
+                New Map
+              </span>
             </button>
           </>
         )}
 
-        <div className="mt-auto flex flex-col items-center gap-1.5 pt-2">
+        <div className="mt-auto w-full flex flex-col items-center gap-1 pt-2 border-t border-[#151b26]">
           <button
             onClick={() => {
-              setLeftNavOpen(false);
               openProfileHubTab();
             }}
             title="Profile & Campaigns Hub"
             aria-label="Profile & Campaigns"
-            className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors shrink-0 ${
-              activeTab?.kind === 'profile_hub'
-                ? 'bg-[#0e1219] text-[#d6b16a] border border-[#b68d40]/45'
-                : 'text-[#6d7686] hover:text-[#e8dfd0] hover:bg-[#0d1016]'
-            }`}
+            className={railItemClass(activeTab?.kind === 'profile_hub')}
           >
             <UserCheck className="w-4 h-4" />
+            <span className="hidden sm:block text-[9.5px] font-medium tracking-tight leading-none">
+              Hub
+            </span>
           </button>
           <button
             onClick={() => setSettingsModalOpen(true)}
             title="Vault & Sync Settings"
             aria-label="Settings"
-            className="w-8 h-8 rounded-lg text-[#6d7686] hover:text-[#e8dfd0] hover:bg-[#0d1016] flex items-center justify-center transition-colors shrink-0"
+            className="w-full py-1.5 px-1 rounded-lg text-[#7d8799] hover:text-[#f0e9db] hover:bg-[#11151f] flex flex-col items-center justify-center gap-0.5 transition-colors shrink-0"
           >
             <Settings className="w-4 h-4" />
+            <span className="hidden sm:block text-[9.5px] font-medium tracking-tight leading-none">
+              Settings
+            </span>
           </button>
         </div>
       </nav>
 
-      {/* Collapsible 268px Slide-Over Vault Drawer (Zero Reflow!) */}
+      {/* Mobile backdrop for slide-over drawer */}
       {leftNavOpen && (
-        <aside className="absolute left-11 inset-y-0 w-[268px] bg-[#06080b]/98 backdrop-blur-md border-r border-[#141821] shadow-[18px_0_44px_rgba(0,0,0,0.8)] flex flex-col overflow-hidden z-40">
+        <div
+          onClick={() => setLeftNavOpen(false)}
+          className="md:hidden fixed inset-0 top-12 z-30 bg-black/60 backdrop-blur-[2px]"
+        />
+      )}
+
+      {/* Docked Desktop / Slide-Over Mobile 272px Explorer Drawer */}
+      {leftNavOpen && (
+        <aside className="max-md:fixed max-md:left-[54px] max-md:sm:left-[64px] max-md:top-12 max-md:bottom-0 max-md:z-40 md:relative w-[272px] max-w-[calc(100vw-60px)] h-full bg-[#0a0d14] border-r border-[#1a202d] max-md:shadow-[18px_0_44px_rgba(0,0,0,0.82)] flex flex-col overflow-hidden shrink-0">
           {/* Drawer Header + Tabs */}
           <div className="p-2.5 border-b border-[#12161f] space-y-2 shrink-0">
             <div className="flex items-center justify-between gap-2">
@@ -477,13 +467,13 @@ export const LeftSidebar: React.FC = () => {
           {/* Drawer Content */}
           <div className="flex-1 overflow-y-auto px-2 py-2 space-y-2.5">
             {leftNavSection === 'assets' ? (
-              <div className="space-y-2">
+              <div className="space-y-2.5">
                 <div className="flex items-center justify-between px-1">
-                  <span className="text-[10.5px] font-mono uppercase tracking-wider text-[#7c8594]">
+                  <span className="text-[10.5px] font-mono uppercase tracking-wider text-[#8b94a5]">
                     Media Assets ({assets.length})
                   </span>
                   {canGmEdit && (
-                    <label className="cursor-pointer px-2 py-1 rounded bg-[#0c0f15] border border-[#1a202c] hover:border-[#b68d40] text-[10.5px] text-[#c9a050] flex items-center gap-1">
+                    <label className="cursor-pointer px-2 py-1 rounded-md bg-[#111620] border border-[#1f2636] hover:border-[#d4a853]/60 text-[10.5px] text-[#e2b969] flex items-center gap-1 transition-colors">
                       <Plus className="w-3 h-3" />
                       <span>Upload</span>
                       <input
@@ -495,38 +485,62 @@ export const LeftSidebar: React.FC = () => {
                     </label>
                   )}
                 </div>
-                <div className="space-y-1">
-                  {assets.map((asset) => {
-                    const isCurrent = activeTab?.kind === 'asset' && activeTab.targetId === asset.id;
-                    return (
-                      <button
-                        key={asset.id}
-                        onClick={() => openAssetTab(asset.id)}
-                        className={`w-full flex items-center gap-2.5 px-2 py-1.5 rounded-md text-left text-[11.5px] transition-colors ${
-                          isCurrent
-                            ? 'bg-[#b68d40]/14 text-[#d6b16a] border border-[#b68d40]/30'
-                            : 'text-[#aba59b] hover:text-[#e8dfd0] hover:bg-[#0d1016]'
-                        }`}
-                      >
-                        <img
-                          src={asset.url}
-                          alt={asset.name}
-                          className="w-7 h-7 rounded object-cover border border-[#1a202c] shrink-0"
-                        />
-                        <div className="min-w-0 flex-1">
-                          <div className="truncate font-medium">{asset.name}</div>
-                          <div className="font-mono text-[9.5px] text-[#616978] truncate">
-                            ![[{asset.slug}]]
+                {assets.length === 0 ? (
+                  <label className="cursor-pointer flex flex-col items-center justify-center text-center gap-2 p-5 rounded-xl border border-dashed border-[#242c3c] bg-[#0e121a]/60 hover:border-[#d4a853]/50 hover:bg-[#111620] transition-colors">
+                    <div className="w-9 h-9 rounded-full bg-[#151a26] border border-[#232b3b] flex items-center justify-center text-[#d4a853]">
+                      <Upload className="w-4 h-4" />
+                    </div>
+                    <div className="space-y-0.5">
+                      <p className="text-xs font-medium text-[#e8e2d5]">No media assets yet</p>
+                      <p className="text-[11px] text-[#8b94a5]">
+                        {canGmEdit
+                          ? 'Click to upload maps, portraits, or scenes (PNG, JPG, WebP).'
+                          : 'Media uploaded by the GM will appear here.'}
+                      </p>
+                    </div>
+                    {canGmEdit && (
+                      <input
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={handleUploadAssetFile}
+                      />
+                    )}
+                  </label>
+                ) : (
+                  <div className="space-y-1">
+                    {assets.map((asset) => {
+                      const isCurrent = activeTab?.kind === 'asset' && activeTab.targetId === asset.id;
+                      return (
+                        <button
+                          key={asset.id}
+                          onClick={() => openAssetTab(asset.id)}
+                          className={`w-full flex items-center gap-2.5 px-2 py-1.5 rounded-md text-left text-[11.5px] transition-colors ${
+                            isCurrent
+                              ? 'bg-[#b68d40]/14 text-[#d6b16a] border border-[#b68d40]/30'
+                              : 'text-[#aba59b] hover:text-[#e8dfd0] hover:bg-[#0d1016]'
+                          }`}
+                        >
+                          <img
+                            src={asset.url}
+                            alt={asset.name}
+                            className="w-7 h-7 rounded object-cover border border-[#1a202c] shrink-0"
+                          />
+                          <div className="min-w-0 flex-1">
+                            <div className="truncate font-medium">{asset.name}</div>
+                            <div className="font-mono text-[9.5px] text-[#616978] truncate">
+                              ![[{asset.slug}]]
+                            </div>
                           </div>
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             ) : leftNavSection === 'templates' ? (
               <div className="space-y-1">
-                <div className="px-1 pb-1 text-[10.5px] font-mono uppercase tracking-wider text-[#7c8594]">
+                <div className="px-1 pb-1 text-[10.5px] font-mono uppercase tracking-wider text-[#8b94a5]">
                   Entry Templates ({Object.keys(templates).length})
                 </div>
                 {Object.values(templates).map((tpl) => {
@@ -546,7 +560,7 @@ export const LeftSidebar: React.FC = () => {
                         type={tpl.type}
                         className="w-3.5 h-3.5 shrink-0 text-[#b68d40]/85"
                       />
-                      <span className="truncate flex-1">{tpl.type}</span>
+                      <span className="truncate flex-1">{formatEntityTypeLabel(tpl.type)}</span>
                     </button>
                   );
                 })}
@@ -748,6 +762,8 @@ export const LeftSidebar: React.FC = () => {
                                       {canGmEdit && (
                                         <button
                                           onClick={() => openNewEntryModal(item.type as EntityType, item.category)}
+                                          title={`New ${formatEntityTypeLabel(item.type)}`}
+                                          aria-label={`New ${formatEntityTypeLabel(item.type)}`}
                                           className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-[#171c25] text-[#c9a050]"
                                         >
                                           <Plus className="w-3 h-3" />
@@ -817,7 +833,8 @@ export const LeftSidebar: React.FC = () => {
                                               ? setMapGeneratorModalOpen(true, '3d')
                                               : openNewEntryModal(item.type as EntityType, item.category)
                                           }
-                                          title={isMapGroup ? 'Create Custom Map' : `New ${item.label}`}
+                                          title={isMapGroup ? 'Create Custom Map' : `New ${formatEntityTypeLabel(item.type)}`}
+                                          aria-label={isMapGroup ? 'Create Custom Map' : `New ${formatEntityTypeLabel(item.type)}`}
                                           className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-[#171c25] text-[#c9a050]"
                                         >
                                           <Plus className="w-3 h-3" />
