@@ -19,7 +19,7 @@ export const createJournalSlice: VaultSlice<JournalSlice> = (set, get) => ({
   createJournalPage: async ({ title, content = '', tags = [] }) => {
     const client = getSupabaseClient();
     const state = get();
-    if (!client || !state.user || !state.activeCampaignId) return null;
+    if (!state.user || !state.activeCampaignId) return null;
 
     const newPage: JournalPage = {
       id: crypto.randomUUID(),
@@ -31,6 +31,11 @@ export const createJournalSlice: VaultSlice<JournalSlice> = (set, get) => ({
       share_scope: 'private',
       updated_at: new Date().toISOString(),
     };
+
+    if (!client) {
+      set((s) => ({ journalPages: [newPage, ...s.journalPages] }));
+      return newPage;
+    }
 
     const { data, error } = await client
       .from('journal_pages')
@@ -52,7 +57,7 @@ export const createJournalSlice: VaultSlice<JournalSlice> = (set, get) => ({
   updateJournalPage: async (pageId, patch) => {
     const client = getSupabaseClient();
     const state = get();
-    if (!client || !state.user) return;
+    if (!state.user) return;
     const target = state.journalPages.find((p) => p.id === pageId);
     if (!target) return;
 
@@ -76,6 +81,8 @@ export const createJournalSlice: VaultSlice<JournalSlice> = (set, get) => ({
           )
         : s.tabs,
     }));
+
+    if (!client) return;
 
     const existingTimer = syncRuntime.journalSyncTimers.get(pageId);
     if (existingTimer) clearTimeout(existingTimer);
@@ -111,7 +118,7 @@ export const createJournalSlice: VaultSlice<JournalSlice> = (set, get) => ({
   deleteJournalPage: async (pageId) => {
     const client = getSupabaseClient();
     const state = get();
-    if (!client || !state.user) return;
+    if (!state.user) return;
     const target = state.journalPages.find((p) => p.id === pageId);
     if (!target || target.owner_id !== state.user.id) return;
 
@@ -120,26 +127,21 @@ export const createJournalSlice: VaultSlice<JournalSlice> = (set, get) => ({
       journalPageShares: s.journalPageShares.filter((sh) => sh.page_id !== pageId),
       tabs: s.tabs.filter((t) => !(t.kind === 'journal' && t.targetId === pageId)),
     }));
-    await client.from('journal_pages').delete().eq('id', pageId);
-    broadcastVaultChange('journal_pages');
+    if (client) {
+      await client.from('journal_pages').delete().eq('id', pageId);
+      broadcastVaultChange('journal_pages');
+    }
   },
 
   updateJournalSharing: async (pageId, scope, shares) => {
     const client = getSupabaseClient();
     const state = get();
-    if (!client || !state.user) return { error: 'Not authenticated.' };
+    if (!state.user) return { error: 'Not authenticated.' };
     const target = state.journalPages.find((p) => p.id === pageId);
     if (!target || target.owner_id !== state.user.id) {
       return { error: 'Only the journal owner can change sharing settings.' };
     }
 
-    const { error: scopeErr } = await client
-      .from('journal_pages')
-      .update({ share_scope: scope, updated_at: new Date().toISOString() })
-      .eq('id', pageId);
-    if (scopeErr) return { error: scopeErr.message };
-
-    await client.from('journal_page_shares').delete().eq('page_id', pageId);
     const shareRows: JournalPageShare[] =
       scope === 'selected'
         ? shares
@@ -151,9 +153,19 @@ export const createJournalSlice: VaultSlice<JournalSlice> = (set, get) => ({
             }))
         : [];
 
-    if (shareRows.length > 0) {
-      const { error: shErr } = await client.from('journal_page_shares').insert(shareRows);
-      if (shErr) return { error: shErr.message };
+    if (client) {
+      const { error: scopeErr } = await client
+        .from('journal_pages')
+        .update({ share_scope: scope, updated_at: new Date().toISOString() })
+        .eq('id', pageId);
+      if (scopeErr) return { error: scopeErr.message };
+
+      await client.from('journal_page_shares').delete().eq('page_id', pageId);
+
+      if (shareRows.length > 0) {
+        const { error: shErr } = await client.from('journal_page_shares').insert(shareRows);
+        if (shErr) return { error: shErr.message };
+      }
     }
 
     set((s) => ({

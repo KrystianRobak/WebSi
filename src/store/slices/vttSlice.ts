@@ -144,7 +144,7 @@ export const createVttSlice: VaultSlice<VttSlice> = (set, get) => ({
   createQuestBoard: async (payload) => {
     const client = getSupabaseClient();
     const state = get();
-    if (!client || !state.user || !state.activeCampaignId || !state.isEffectiveGm()) return null;
+    if (!state.user || !state.activeCampaignId || !state.isEffectiveGm()) return null;
 
     const board: MapQuestBoard = {
       id: crypto.randomUUID(),
@@ -158,6 +158,16 @@ export const createVttSlice: VaultSlice<VttSlice> = (set, get) => ({
       created_by: state.user.id,
       created_at: new Date().toISOString(),
     };
+
+    if (!client) {
+      set((s) => ({
+        questBoards: [...s.questBoards, board],
+        selectedQuestBoardId: board.id,
+        activeQuestBoardModalId: board.id,
+        mapToolMode: 'select',
+      }));
+      return board;
+    }
 
     const { data, error } = await client
       .from('map_quest_boards')
@@ -183,7 +193,7 @@ export const createVttSlice: VaultSlice<VttSlice> = (set, get) => ({
   deleteQuestBoard: async (boardId) => {
     const client = getSupabaseClient();
     const state = get();
-    if (!client || !state.isEffectiveGm()) return;
+    if (!state.isEffectiveGm()) return;
     set((s) => ({
       questBoards: s.questBoards.filter((b) => b.id !== boardId),
       guildQuests: s.guildQuests.filter((q) => q.board_id !== boardId),
@@ -191,14 +201,16 @@ export const createVttSlice: VaultSlice<VttSlice> = (set, get) => ({
       activeQuestBoardModalId:
         s.activeQuestBoardModalId === boardId ? null : s.activeQuestBoardModalId,
     }));
-    await client.from('map_quest_boards').delete().eq('id', boardId);
-    broadcastVaultChange('map_quest_boards');
+    if (client) {
+      await client.from('map_quest_boards').delete().eq('id', boardId);
+      broadcastVaultChange('map_quest_boards');
+    }
   },
 
   createGuildQuest: async (payload) => {
     const client = getSupabaseClient();
     const state = get();
-    if (!client || !state.user || !state.activeCampaignId || !state.isEffectiveGm()) return null;
+    if (!state.user || !state.activeCampaignId || !state.isEffectiveGm()) return null;
 
     const quest: GuildQuest = {
       id: crypto.randomUUID(),
@@ -216,6 +228,11 @@ export const createVttSlice: VaultSlice<VttSlice> = (set, get) => ({
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     };
+
+    if (!client) {
+      set((s) => ({ guildQuests: [...s.guildQuests, quest] }));
+      return quest;
+    }
 
     const { data, error } = await client
       .from('guild_quests')
@@ -236,37 +253,67 @@ export const createVttSlice: VaultSlice<VttSlice> = (set, get) => ({
   updateGuildQuest: async (questId, patch) => {
     const client = getSupabaseClient();
     const state = get();
-    if (!client || !state.isEffectiveGm()) return;
+    if (!state.isEffectiveGm()) return;
     const updatedAt = new Date().toISOString();
     set((s) => ({
       guildQuests: s.guildQuests.map((q) =>
         q.id === questId ? { ...q, ...patch, updated_at: updatedAt } : q
       ),
     }));
-    const { error } = await client
-      .from('guild_quests')
-      .update({ ...patch, updated_at: updatedAt })
-      .eq('id', questId);
-    if (error) set({ syncStatus: 'error', lastSyncError: error.message });
-    else broadcastVaultChange('guild_quests');
+    if (client) {
+      const { error } = await client
+        .from('guild_quests')
+        .update({ ...patch, updated_at: updatedAt })
+        .eq('id', questId);
+      if (error) set({ syncStatus: 'error', lastSyncError: error.message });
+      else broadcastVaultChange('guild_quests');
+    }
   },
 
   deleteGuildQuest: async (questId) => {
     const client = getSupabaseClient();
     const state = get();
-    if (!client || !state.isEffectiveGm()) return;
+    if (!state.isEffectiveGm()) return;
     set((s) => ({
       guildQuests: s.guildQuests.filter((q) => q.id !== questId),
       guildQuestSignups: s.guildQuestSignups.filter((sg) => sg.quest_id !== questId),
     }));
-    await client.from('guild_quests').delete().eq('id', questId);
-    broadcastVaultChange('guild_quests');
+    if (client) {
+      await client.from('guild_quests').delete().eq('id', questId);
+      broadcastVaultChange('guild_quests');
+    }
   },
 
   signupForQuest: async (questId, characterId, note = '') => {
     const client = getSupabaseClient();
     const state = get();
-    if (!client || !state.user) return { error: 'Not authenticated.' };
+    if (!state.user || !state.activeCampaignId) return { error: 'Not authenticated.' };
+    if (!client) {
+      const quest = state.guildQuests.find((q) => q.id === questId);
+      if (!quest) return { error: 'Quest not found.' };
+      const existing = state.guildQuestSignups.filter((sg) => sg.quest_id === questId);
+      if (existing.some((sg) => sg.user_id === state.user!.id)) {
+        return { error: null };
+      }
+      if (existing.length >= quest.max_players) {
+        return { error: 'This expedition roster is already full.' };
+      }
+      set((s) => ({
+        guildQuestSignups: [
+          ...s.guildQuestSignups,
+          {
+            id: crypto.randomUUID(),
+            quest_id: questId,
+            campaign_id: s.activeCampaignId!,
+            user_id: s.user!.id,
+            character_id: characterId,
+            note,
+            signed_up_at: new Date().toISOString(),
+          },
+        ],
+      }));
+      return { error: null };
+    }
     const { error } = await client.rpc('signup_for_guild_quest', {
       p_quest_id: questId,
       p_character_id: characterId,
@@ -283,7 +330,15 @@ export const createVttSlice: VaultSlice<VttSlice> = (set, get) => ({
   withdrawFromQuest: async (questId) => {
     const client = getSupabaseClient();
     const state = get();
-    if (!client || !state.user) return { error: 'Not authenticated.' };
+    if (!state.user) return { error: 'Not authenticated.' };
+    if (!client) {
+      set((s) => ({
+        guildQuestSignups: s.guildQuestSignups.filter(
+          (sg) => !(sg.quest_id === questId && sg.user_id === s.user!.id)
+        ),
+      }));
+      return { error: null };
+    }
     const { error } = await client.rpc('withdraw_from_guild_quest', {
       p_quest_id: questId,
     });
@@ -297,7 +352,7 @@ export const createVttSlice: VaultSlice<VttSlice> = (set, get) => ({
   updateMapFogState: async (mapId, userId, maskUrl) => {
     const client = getSupabaseClient();
     const state = get();
-    if (!client || !state.activeCampaignId || !state.isEffectiveGm()) return;
+    if (!state.activeCampaignId || !state.isEffectiveGm()) return;
 
     const now = new Date().toISOString();
     const targetIds =
@@ -332,20 +387,22 @@ export const createVttSlice: VaultSlice<VttSlice> = (set, get) => ({
       return { mapFogStates: next };
     });
 
-    const { error } = await client
-      .from('map_fog_states')
-      .upsert(rows, { onConflict: 'map_id,user_id' });
-    if (error) {
-      set({ syncStatus: 'error', lastSyncError: error.message });
-    } else {
-      broadcastVaultChange('map_fog_states');
+    if (client) {
+      const { error } = await client
+        .from('map_fog_states')
+        .upsert(rows, { onConflict: 'map_id,user_id' });
+      if (error) {
+        set({ syncStatus: 'error', lastSyncError: error.message });
+      } else {
+        broadcastVaultChange('map_fog_states');
+      }
     }
   },
 
   upsertMapFogShare: async (mapId, sharedWithUserId, shareAll) => {
     const client = getSupabaseClient();
     const state = get();
-    if (!client || !state.user || !state.activeCampaignId) return;
+    if (!state.user || !state.activeCampaignId) return;
 
     const row: MapFogShare = {
       id: crypto.randomUUID(),
@@ -355,6 +412,11 @@ export const createVttSlice: VaultSlice<VttSlice> = (set, get) => ({
       shared_with_user_id: shareAll ? null : sharedWithUserId,
       share_all: shareAll,
     };
+
+    if (!client) {
+      set((s) => ({ mapFogShares: [...s.mapFogShares, row] }));
+      return;
+    }
 
     const { data, error } = await client
       .from('map_fog_shares')
@@ -373,10 +435,11 @@ export const createVttSlice: VaultSlice<VttSlice> = (set, get) => ({
 
   revokeMapFogShare: async (shareId) => {
     const client = getSupabaseClient();
-    if (!client) return;
     set((s) => ({ mapFogShares: s.mapFogShares.filter((sh) => sh.id !== shareId) }));
-    await client.from('map_fog_shares').delete().eq('id', shareId);
-    broadcastVaultChange('map_fog_shares');
+    if (client) {
+      await client.from('map_fog_shares').delete().eq('id', shareId);
+      broadcastVaultChange('map_fog_shares');
+    }
   },
 
   // --- Dice Roller ---
@@ -385,8 +448,8 @@ export const createVttSlice: VaultSlice<VttSlice> = (set, get) => ({
   rollDiceAndPublish: async (rawExpression, options = {}) => {
     const client = getSupabaseClient();
     const state = get();
-    if (!client || !state.user || !state.activeCampaignId) {
-      return { result: null, error: 'Sign into an active campaign to roll dice.' };
+    if (!state.user || !state.activeCampaignId) {
+      return { result: null, error: 'Open an active campaign to roll dice.' };
     }
 
     const activeChar = options.characterId
@@ -410,6 +473,13 @@ export const createVttSlice: VaultSlice<VttSlice> = (set, get) => ({
         is_gm_blind: isGmBlind,
         created_at: new Date().toISOString(),
       };
+
+      if (!client) {
+        set((s) => ({
+          diceRolls: [rollRecord, ...s.diceRolls.filter((r) => r.id !== rollRecord.id)].slice(0, 60),
+        }));
+        return { result, error: null };
+      }
 
       const { data, error } = await client
         .from('dice_rolls')
@@ -438,7 +508,7 @@ export const createVttSlice: VaultSlice<VttSlice> = (set, get) => ({
   createTimelineEvent: async (payload) => {
     const client = getSupabaseClient();
     const state = get();
-    if (!client || !state.user || !state.activeCampaignId || !state.isEffectiveGm()) return null;
+    if (!state.user || !state.activeCampaignId || !state.isEffectiveGm()) return null;
 
     const ev: TimelineEvent = {
       id: crypto.randomUUID(),
@@ -453,6 +523,15 @@ export const createVttSlice: VaultSlice<VttSlice> = (set, get) => ({
       created_by: state.user.id,
       created_at: new Date().toISOString(),
     };
+
+    if (!client) {
+      set((s) => ({
+        timelineEvents: [...s.timelineEvents, ev].sort(
+          (a, b) => a.sort_order - b.sort_order
+        ),
+      }));
+      return ev;
+    }
 
     const { data, error } = await client
       .from('timeline_events')
@@ -476,26 +555,30 @@ export const createVttSlice: VaultSlice<VttSlice> = (set, get) => ({
   updateTimelineEvent: async (id, patch) => {
     const client = getSupabaseClient();
     const state = get();
-    if (!client || !state.isEffectiveGm()) return;
+    if (!state.isEffectiveGm()) return;
     set((s) => ({
       timelineEvents: s.timelineEvents
         .map((ev) => (ev.id === id ? { ...ev, ...patch } : ev))
         .sort((a, b) => a.sort_order - b.sort_order),
     }));
-    const { error } = await client.from('timeline_events').update(patch).eq('id', id);
-    if (error) set({ syncStatus: 'error', lastSyncError: error.message });
-    else broadcastVaultChange('timeline_events');
+    if (client) {
+      const { error } = await client.from('timeline_events').update(patch).eq('id', id);
+      if (error) set({ syncStatus: 'error', lastSyncError: error.message });
+      else broadcastVaultChange('timeline_events');
+    }
   },
 
   deleteTimelineEvent: async (id) => {
     const client = getSupabaseClient();
     const state = get();
-    if (!client || !state.isEffectiveGm()) return;
+    if (!state.isEffectiveGm()) return;
     set((s) => ({
       timelineEvents: s.timelineEvents.filter((ev) => ev.id !== id),
     }));
-    await client.from('timeline_events').delete().eq('id', id);
-    broadcastVaultChange('timeline_events');
+    if (client) {
+      await client.from('timeline_events').delete().eq('id', id);
+      broadcastVaultChange('timeline_events');
+    }
   },
 
   stepCampaignCalendar: async (deltaDays) => {

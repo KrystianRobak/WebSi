@@ -9,6 +9,12 @@ import {
   serializeMapRow,
   serializeTemplateRow,
 } from '../../lib/campaignSync';
+import {
+  buildLocalCampaignBundle,
+  createDefaultLocalProfile,
+  loadLocalVaultStorage,
+  saveLocalVaultStorage,
+} from '../../lib/localVault';
 import { getSupabaseClient } from '../../lib/supabase';
 import type {
   BattlemapToken,
@@ -260,6 +266,65 @@ export const createCampaignSlice: VaultSlice<CampaignSlice> = (set, get) => ({
     if (!campaignId) return;
     if (state.activeCampaignId === campaignId && state.world.id === campaignId) return;
 
+    const client = getSupabaseClient();
+    if (!client) {
+      const storage = loadLocalVaultStorage();
+      const target = storage.campaigns[campaignId];
+      if (!target) return;
+      saveLocalVaultStorage({ ...storage, activeCampaignId: campaignId });
+      storeActiveCampaignId(campaignId);
+      const firstEnt = target.entities[0];
+      const firstMap = target.maps[0];
+      const nextTabs: TabItem[] = [
+        ...(firstEnt
+          ? [{ id: `tab-${firstEnt.id}`, kind: 'entity' as const, targetId: firstEnt.id, title: firstEnt.title, iconType: firstEnt.type }]
+          : []),
+        ...(firstMap
+          ? [{ id: `tab-map-${firstMap.id}`, kind: 'map' as const, targetId: firstMap.id, title: firstMap.name, iconType: 'Map' as const }]
+          : []),
+      ];
+      if (nextTabs.length === 0) {
+        nextTabs.push({
+          id: 'tab-profile-hub',
+          kind: 'profile_hub',
+          targetId: 'profile_hub',
+          title: 'Profile & Campaigns',
+          iconType: 'Campaign',
+        });
+      }
+      set({
+        activeCampaignId: campaignId,
+        world: target.world,
+        campaignMembers: target.campaignMembers,
+        myRole: 'gm',
+        entities: target.entities,
+        entityLinks: target.entityLinks,
+        maps: target.maps,
+        mapPins: target.mapPins,
+        mapPaths: target.mapPaths,
+        assets: target.assets,
+        templates: target.templates,
+        sheetTemplates: target.sheetTemplates,
+        characters: target.characters,
+        questBoards: target.questBoards,
+        guildQuests: target.guildQuests,
+        guildQuestSignups: target.guildQuestSignups,
+        journalPages: target.journalPages,
+        journalPageShares: target.journalPageShares,
+        mapFogStates: target.mapFogStates,
+        mapFogShares: target.mapFogShares,
+        diceRolls: target.diceRolls,
+        timelineEvents: target.timelineEvents,
+        tabs: nextTabs,
+        activeTabId: nextTabs[0]?.id || '',
+        splitPaneTabId: null,
+        playActiveMapId: target.maps.find((m) => m.kind === '2d')?.id ?? target.maps[0]?.id ?? null,
+        past: [],
+        future: [],
+      });
+      return;
+    }
+
     storeActiveCampaignId(campaignId);
     set({
       activeCampaignId: campaignId,
@@ -284,7 +349,7 @@ export const createCampaignSlice: VaultSlice<CampaignSlice> = (set, get) => ({
   createCampaign: async ({ name, description = '', mode, maxPlayersPerParty = 5, seedStarter = false }) => {
     const client = getSupabaseClient();
     const state = get();
-    if (!client || !state.user) {
+    if (!state.user) {
       return { worldId: null, error: 'You must be signed in to create a campaign.' };
     }
 
@@ -294,6 +359,53 @@ export const createCampaignSlice: VaultSlice<CampaignSlice> = (set, get) => ({
     }
 
     const worldId = crypto.randomUUID();
+
+    if (!client) {
+      const storage = loadLocalVaultStorage();
+      const { bundle } = buildLocalCampaignBundle({
+        worldId,
+        name: cleanName,
+        description,
+        mode,
+        maxPlayersPerParty,
+        seedStarter,
+        ownerProfile: state.profile || storage.profile || createDefaultLocalProfile(),
+      });
+      const nextStorage = {
+        ...storage,
+        activeCampaignId: worldId,
+        campaigns: { ...storage.campaigns, [worldId]: bundle },
+      };
+      saveLocalVaultStorage(nextStorage);
+      set({
+        campaigns: Object.values(nextStorage.campaigns).map((b) => b.world),
+        activeCampaignId: worldId,
+        world: bundle.world,
+        campaignMembers: bundle.campaignMembers,
+        myRole: 'gm',
+        gmMode: true,
+        entities: bundle.entities,
+        entityLinks: bundle.entityLinks,
+        maps: bundle.maps,
+        mapPins: bundle.mapPins,
+        mapPaths: bundle.mapPaths,
+        assets: bundle.assets,
+        templates: bundle.templates,
+        sheetTemplates: bundle.sheetTemplates,
+        characters: bundle.characters,
+        questBoards: bundle.questBoards,
+        guildQuests: bundle.guildQuests,
+        guildQuestSignups: bundle.guildQuestSignups,
+        journalPages: bundle.journalPages,
+        journalPageShares: bundle.journalPageShares,
+        mapFogStates: bundle.mapFogStates,
+        mapFogShares: bundle.mapFogShares,
+        diceRolls: bundle.diceRolls,
+        timelineEvents: bundle.timelineEvents,
+        playActiveMapId: bundle.maps.find((m) => m.kind === '2d')?.id ?? bundle.maps[0]?.id ?? null,
+      });
+      return { worldId, error: null };
+    }
 
     if (seedStarter) {
       const res = await seedStarterCampaign(client, state.user.id, {
@@ -344,7 +456,7 @@ export const createCampaignSlice: VaultSlice<CampaignSlice> = (set, get) => ({
   importCampaignArchiveJson: async (rawJson, options) => {
     const client = getSupabaseClient();
     const state = get();
-    if (!client || !state.user) {
+    if (!state.user) {
       return { worldId: null, error: 'Sign in before importing a campaign archive.' };
     }
 
@@ -353,6 +465,79 @@ export const createCampaignSlice: VaultSlice<CampaignSlice> = (set, get) => ({
         campaignNameOverride: options?.nameOverride,
         campaignModeOverride: options?.modeOverride,
       });
+
+      if (!client) {
+        const storage = loadLocalVaultStorage();
+        const ownerProf = state.profile || storage.profile || createDefaultLocalProfile();
+        const tplMap = { ...DEFAULT_TEMPLATES };
+        for (const tpl of bundle.entityTemplates) {
+          tplMap[tpl.type] = tpl;
+        }
+        const localBundle = {
+          world: bundle.world,
+          campaignMembers: [
+            {
+              campaign_id: bundle.world.id,
+              user_id: state.user.id,
+              role: 'gm' as const,
+              joined_at: new Date().toISOString(),
+              profile: ownerProf,
+            },
+          ],
+          entities: bundle.entities,
+          entityLinks: bundle.entityLinks,
+          maps: bundle.maps,
+          mapPins: bundle.mapPins,
+          mapPaths: bundle.mapPaths,
+          assets: bundle.assets,
+          templates: tplMap,
+          sheetTemplates: bundle.sheetTemplates,
+          characters: bundle.characters,
+          questBoards: bundle.mapQuestBoards,
+          guildQuests: bundle.guildQuests,
+          guildQuestSignups: [],
+          journalPages: [],
+          journalPageShares: [],
+          mapFogStates: [],
+          mapFogShares: [],
+          diceRolls: [],
+          timelineEvents: bundle.timelineEvents,
+        };
+        const nextStorage = {
+          ...storage,
+          activeCampaignId: bundle.world.id,
+          campaigns: { ...storage.campaigns, [bundle.world.id]: localBundle },
+        };
+        saveLocalVaultStorage(nextStorage);
+        set({
+          campaigns: Object.values(nextStorage.campaigns).map((b) => b.world),
+          activeCampaignId: bundle.world.id,
+          world: localBundle.world,
+          campaignMembers: localBundle.campaignMembers,
+          myRole: 'gm',
+          gmMode: true,
+          entities: localBundle.entities,
+          entityLinks: localBundle.entityLinks,
+          maps: localBundle.maps,
+          mapPins: localBundle.mapPins,
+          mapPaths: localBundle.mapPaths,
+          assets: localBundle.assets,
+          templates: localBundle.templates,
+          sheetTemplates: localBundle.sheetTemplates,
+          characters: localBundle.characters,
+          questBoards: localBundle.questBoards,
+          guildQuests: localBundle.guildQuests,
+          guildQuestSignups: [],
+          journalPages: [],
+          journalPageShares: [],
+          mapFogStates: [],
+          mapFogShares: [],
+          diceRolls: [],
+          timelineEvents: localBundle.timelineEvents,
+          playActiveMapId: localBundle.maps.find((m) => m.kind === '2d')?.id ?? localBundle.maps[0]?.id ?? null,
+        });
+        return { worldId: bundle.world.id, error: null };
+      }
 
       const { error: wErr } = await client.from('worlds').insert({
         id: bundle.world.id,
@@ -438,7 +623,10 @@ export const createCampaignSlice: VaultSlice<CampaignSlice> = (set, get) => ({
   joinCampaignByInvite: async (inviteCode) => {
     const client = getSupabaseClient();
     const state = get();
-    if (!client || !state.user) {
+    if (!client) {
+      return { worldId: null, error: 'Joining remote campaigns by invite requires a Supabase connection in Settings.' };
+    }
+    if (!state.user) {
       return { worldId: null, error: 'You must be signed in to join a campaign.' };
     }
     const clean = inviteCode.trim();
@@ -461,9 +649,22 @@ export const createCampaignSlice: VaultSlice<CampaignSlice> = (set, get) => ({
   updateCampaignSettings: async (patch) => {
     const client = getSupabaseClient();
     const state = get();
-    if (!client || !state.activeCampaignId) return { error: 'No active campaign.' };
+    if (!state.activeCampaignId) return { error: 'No active campaign.' };
     if (state.myRole !== 'gm' && state.myRole !== 'co_gm') {
       return { error: 'Only a GM or Co-GM can update campaign settings.' };
+    }
+
+    if (!client) {
+      const updated: World = {
+        ...state.world,
+        ...patch,
+        updated_at: new Date().toISOString(),
+      };
+      set((s) => ({
+        world: updated,
+        campaigns: s.campaigns.map((c) => (c.id === updated.id ? updated : c)),
+      }));
+      return { error: null };
     }
 
     const { data, error } = await client
@@ -485,9 +686,17 @@ export const createCampaignSlice: VaultSlice<CampaignSlice> = (set, get) => ({
   regenerateInviteCode: async () => {
     const client = getSupabaseClient();
     const state = get();
-    if (!client || !state.activeCampaignId) return null;
+    if (!state.activeCampaignId) return null;
     if (state.myRole !== 'gm' && state.myRole !== 'co_gm') return null;
     const newCode = crypto.randomUUID().replace(/-/g, '').slice(0, 8).toUpperCase();
+    if (!client) {
+      const updated: World = { ...state.world, invite_code: newCode, updated_at: new Date().toISOString() };
+      set((s) => ({
+        world: updated,
+        campaigns: s.campaigns.map((c) => (c.id === updated.id ? updated : c)),
+      }));
+      return newCode;
+    }
     const { data, error } = await client
       .from('worlds')
       .update({ invite_code: newCode, updated_at: new Date().toISOString() })
@@ -550,7 +759,29 @@ export const createCampaignSlice: VaultSlice<CampaignSlice> = (set, get) => ({
   leaveCampaign: async (campaignId) => {
     const client = getSupabaseClient();
     const state = get();
-    if (!client || !state.user) return;
+    if (!state.user) return;
+    if (!client) {
+      const storage = loadLocalVaultStorage();
+      const remaining = { ...storage.campaigns };
+      delete remaining[campaignId];
+      const nextId = Object.keys(remaining)[0] || null;
+      saveLocalVaultStorage({ ...storage, activeCampaignId: nextId, campaigns: remaining });
+      if (nextId) {
+        set({
+          campaigns: Object.values(remaining).map((b) => b.world),
+        });
+        await get().switchCampaign(nextId);
+      } else {
+        set({
+          campaigns: [],
+          activeCampaignId: null,
+          world: EMPTY_WORLD,
+          entities: [],
+          maps: [],
+        });
+      }
+      return;
+    }
     await client
       .from('campaign_members')
       .delete()
@@ -566,7 +797,11 @@ export const createCampaignSlice: VaultSlice<CampaignSlice> = (set, get) => ({
   seedSupabaseWorld: async () => {
     const client = getSupabaseClient();
     const state = get();
-    if (!client || !state.user) return;
+    if (!client) {
+      get().resetLocalVault();
+      return;
+    }
+    if (!state.user) return;
     const res = await seedStarterCampaign(client, state.user.id, {
       mode: 'west_marches',
     });

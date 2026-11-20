@@ -23,7 +23,7 @@ export const createCharacterSlice: VaultSlice<CharacterSlice> = (set, get) => ({
   createSheetTemplate: async (payload) => {
     const client = getSupabaseClient();
     const state = get();
-    if (!client || !state.user || !state.activeCampaignId) return null;
+    if (!state.user || !state.activeCampaignId) return null;
     if (!state.isEffectiveGm()) return null;
 
     const row: CharacterSheetTemplate = {
@@ -39,19 +39,21 @@ export const createCharacterSlice: VaultSlice<CharacterSlice> = (set, get) => ({
     };
 
     set((s) => ({ sheetTemplates: [...s.sheetTemplates, row] }));
-    const { error } = await client.from('character_sheet_templates').insert(row);
-    if (error) {
-      set({ syncStatus: 'error', lastSyncError: error.message });
-      return null;
+    if (client) {
+      const { error } = await client.from('character_sheet_templates').insert(row);
+      if (error) {
+        set({ syncStatus: 'error', lastSyncError: error.message });
+        return null;
+      }
+      broadcastVaultChange('character_sheet_templates');
     }
-    broadcastVaultChange('character_sheet_templates');
     return row;
   },
 
   updateSheetTemplate: async (id, patch) => {
     const client = getSupabaseClient();
     const state = get();
-    if (!client || !state.user || !state.isEffectiveGm()) return;
+    if (!state.user || !state.isEffectiveGm()) return;
     const updatedAt = new Date().toISOString();
 
     set((s) => ({
@@ -60,27 +62,31 @@ export const createCharacterSlice: VaultSlice<CharacterSlice> = (set, get) => ({
       ),
     }));
 
-    const { error } = await client
-      .from('character_sheet_templates')
-      .update({ ...patch, updated_by: state.user.id, updated_at: updatedAt })
-      .eq('id', id);
+    if (client) {
+      const { error } = await client
+        .from('character_sheet_templates')
+        .update({ ...patch, updated_by: state.user.id, updated_at: updatedAt })
+        .eq('id', id);
 
-    if (error) {
-      set({ syncStatus: 'error', lastSyncError: error.message });
-    } else {
-      broadcastVaultChange('character_sheet_templates');
+      if (error) {
+        set({ syncStatus: 'error', lastSyncError: error.message });
+      } else {
+        broadcastVaultChange('character_sheet_templates');
+      }
     }
   },
 
   deleteSheetTemplate: async (id) => {
     const client = getSupabaseClient();
     const state = get();
-    if (!client || !state.isEffectiveGm()) return;
+    if (!state.isEffectiveGm()) return;
     set((s) => ({
       sheetTemplates: s.sheetTemplates.filter((t) => t.id !== id),
     }));
-    await client.from('character_sheet_templates').delete().eq('id', id);
-    broadcastVaultChange('character_sheet_templates');
+    if (client) {
+      await client.from('character_sheet_templates').delete().eq('id', id);
+      broadcastVaultChange('character_sheet_templates');
+    }
   },
 
   setActiveCampaignSheetTemplate: async (templateId) => {
@@ -90,7 +96,7 @@ export const createCharacterSlice: VaultSlice<CharacterSlice> = (set, get) => ({
   createCharacter: async (payload) => {
     const client = getSupabaseClient();
     const state = get();
-    if (!client || !state.user || !state.activeCampaignId) {
+    if (!state.user || !state.activeCampaignId) {
       return { character: null, error: 'You must be in an active campaign to create a character.' };
     }
 
@@ -138,6 +144,11 @@ export const createCharacterSlice: VaultSlice<CharacterSlice> = (set, get) => ({
       updated_at: new Date().toISOString(),
     };
 
+    if (!client) {
+      set((s) => ({ characters: [...s.characters, row] }));
+      return { character: row, error: null };
+    }
+
     const { data, error } = await client
       .from('characters')
       .insert(row)
@@ -157,7 +168,7 @@ export const createCharacterSlice: VaultSlice<CharacterSlice> = (set, get) => ({
   updateCharacter: async (id, patch) => {
     const client = getSupabaseClient();
     const state = get();
-    if (!client || !state.user) return { error: 'Not authenticated.' };
+    if (!state.user) return { error: 'Not authenticated.' };
 
     const target = state.characters.find((c) => c.id === id);
     if (!target) return { error: 'Character not found.' };
@@ -176,6 +187,8 @@ export const createCharacterSlice: VaultSlice<CharacterSlice> = (set, get) => ({
           )
         : s.tabs,
     }));
+
+    if (!client) return { error: null };
 
     // Debounce frequent sheet attribute typing updates
     const isAttrOnly =
@@ -218,7 +231,7 @@ export const createCharacterSlice: VaultSlice<CharacterSlice> = (set, get) => ({
   setActiveCharacter: async (characterId) => {
     const client = getSupabaseClient();
     const state = get();
-    if (!client || !state.user) return { error: 'Not authenticated.' };
+    if (!state.user) return { error: 'Not authenticated.' };
     const target = state.characters.find((c) => c.id === characterId);
     if (!target) return { error: 'Character not found.' };
 
@@ -227,12 +240,14 @@ export const createCharacterSlice: VaultSlice<CharacterSlice> = (set, get) => ({
       const others = state.characters.filter(
         (c) => c.user_id === target.user_id && c.is_active && c.id !== characterId
       );
-      for (const other of others) {
-        const { error: deactErr } = await client
-          .from('characters')
-          .update({ is_active: false, updated_at: new Date().toISOString() })
-          .eq('id', other.id);
-        if (deactErr) return { error: deactErr.message };
+      if (client) {
+        for (const other of others) {
+          const { error: deactErr } = await client
+            .from('characters')
+            .update({ is_active: false, updated_at: new Date().toISOString() })
+            .eq('id', other.id);
+          if (deactErr) return { error: deactErr.message };
+        }
       }
       set((s) => ({
         characters: s.characters.map((c) =>
@@ -249,7 +264,7 @@ export const createCharacterSlice: VaultSlice<CharacterSlice> = (set, get) => ({
   deleteCharacter: async (id) => {
     const client = getSupabaseClient();
     const state = get();
-    if (!client || !state.user) return;
+    if (!state.user) return;
     const target = state.characters.find((c) => c.id === id);
     if (!target) return;
     if (target.user_id !== state.user.id && !state.isEffectiveGm()) return;
@@ -258,7 +273,9 @@ export const createCharacterSlice: VaultSlice<CharacterSlice> = (set, get) => ({
       characters: s.characters.filter((c) => c.id !== id),
       tabs: s.tabs.filter((t) => !(t.kind === 'character' && t.targetId === id)),
     }));
-    await client.from('characters').delete().eq('id', id);
-    broadcastVaultChange('characters');
+    if (client) {
+      await client.from('characters').delete().eq('id', id);
+      broadcastVaultChange('characters');
+    }
   },
 });

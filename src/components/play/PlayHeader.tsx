@@ -81,6 +81,8 @@ export const PlayHeader: React.FC = () => {
       case 'syncing':
       case 'connecting':
         return { dot: 'bg-[#b68d40]', label: 'Syncing...' };
+      case 'local':
+        return { dot: 'bg-sky-400', label: 'Local Browser Vault' };
       case 'error':
         return { dot: 'bg-red-400', label: 'Sync Error' };
       default:

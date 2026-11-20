@@ -165,6 +165,12 @@ export const StudioHeader: React.FC = () => {
           icon: <RefreshCw className="w-3 h-3 text-[#b68d40] animate-spin" />,
           label: 'Syncing...',
         };
+      case 'local':
+        return {
+          dot: 'bg-sky-400',
+          icon: <Cloud className="w-3 h-3 text-sky-400" />,
+          label: 'Local Browser Vault',
+        };
       case 'error':
         return {
           dot: 'bg-red-400',

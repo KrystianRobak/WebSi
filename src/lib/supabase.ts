@@ -1,4 +1,5 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { sourceToLocalDataUrl } from './localVault';
 
 export interface SupabaseRuntimeConfig {
   url: string;
@@ -109,7 +110,7 @@ export async function uploadAssetDataUrlOrBlob(
 ): Promise<string> {
   const client = getSupabaseClient();
   if (!client) {
-    throw new Error('Supabase is not configured. Please check VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.');
+    return sourceToLocalDataUrl(source);
   }
 
   const { data: sessionRes } = await client.auth.getSession();

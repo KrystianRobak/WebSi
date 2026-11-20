@@ -77,7 +77,7 @@ import type {
   ZoneBorderStyle,
 } from '../../types/vault';
 
-export type SyncStatus = 'offline' | 'connecting' | 'synced' | 'syncing' | 'error';
+export type SyncStatus = 'offline' | 'local' | 'connecting' | 'synced' | 'syncing' | 'error';
 
 export type LeftNavSection =
   | 'vault'
@@ -295,6 +295,8 @@ export interface VaultState {
   ) => Promise<{ error: string | null; needsConfirmation?: boolean }>;
   requestPasswordReset: (email: string) => Promise<{ error: string | null }>;
   signOutVault: () => Promise<void>;
+  enterLocalVault: () => void;
+  resetLocalVault: () => void;
   updateProfile: (patch: Partial<Pick<PlayerProfile, 'display_name' | 'avatar_url' | 'bio'>>) => Promise<void>;
   setPendingInviteCode: (code: string | null) => void;
 

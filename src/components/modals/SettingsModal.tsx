@@ -1,7 +1,9 @@
 import React, { useEffect, useState } from 'react';
-import { Cloud, Database, Image as ImageIcon, Mountain, RefreshCw, X } from 'lucide-react';
+import { Cloud, Database, Image as ImageIcon, Mountain, RefreshCw, RotateCcw, X } from 'lucide-react';
 import {
+  clearSupabaseConfig,
   getSupabaseConfig,
+  isSupabaseConfigured,
   saveSupabaseConfig,
   uploadVaultAsset,
 } from '../../lib/supabase';
@@ -14,6 +16,7 @@ export const SettingsModal: React.FC = () => {
     maps,
     updateMapAssets,
     initSupabaseSync,
+    resetLocalVault,
     syncStatus,
     lastSyncError,
     isAuthenticated,
@@ -47,6 +50,13 @@ export const SettingsModal: React.FC = () => {
       url: url.trim(),
       anonKey: anonKey.trim(),
     });
+    await initSupabaseSync();
+  };
+
+  const handleUseLocalVault = async () => {
+    clearSupabaseConfig();
+    setUrl('');
+    setAnonKey('');
     await initSupabaseSync();
   };
 
@@ -125,23 +135,42 @@ export const SettingsModal: React.FC = () => {
         )}
 
         <div className="p-5 space-y-5 max-h-[80vh] overflow-y-auto">
-          {/* Supabase Connection */}
+          {/* Storage Mode & Optional Supabase Connection */}
           {activeTab === 'backend' && (
             <form onSubmit={handleSaveConfig} className="space-y-3.5">
             <div className="flex items-center justify-between">
               <h4 className="text-xs font-semibold uppercase tracking-wider text-[#d4a853] flex items-center gap-1.5">
                 <Cloud className="w-3.5 h-3.5" />
-                <span>Supabase Realtime Backend</span>
+                <span>{isSupabaseConfigured() ? 'Supabase Realtime Backend' : 'Default Local Browser Vault'}</span>
               </h4>
               <span className="font-mono text-[10.5px] text-[#8b93a1]">
-                Status: {syncStatus}{' '}
-                {isAuthenticated ? `(${userEmail || 'Signed in'})` : '(Signed Out)'}
+                Status: {syncStatus === 'local' ? 'Local Vault' : syncStatus}{' '}
+                {isAuthenticated ? `(${userEmail || 'Active'})` : '(Signed Out)'}
               </span>
             </div>
 
+            {!isSupabaseConfigured() && (
+              <div className="p-3 rounded-lg bg-[#0d111a] border border-[#1d2536] text-[11.5px] text-[#b4becd] flex items-center justify-between gap-3">
+                <span>
+                  Running in <strong className="text-[#f3ead8]">Default Local Vault</strong> mode. Changes save automatically in your browser.
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    resetLocalVault();
+                    setSettingsModalOpen(false);
+                  }}
+                  className="shrink-0 px-2.5 py-1.5 rounded-md bg-[#161c28] hover:bg-[#1e2636] border border-[#2a3346] text-[11px] text-[#e2b969] inline-flex items-center gap-1"
+                >
+                  <RotateCcw className="w-3 h-3" />
+                  <span>Reset Starter</span>
+                </button>
+              </div>
+            )}
+
             <div>
               <label className="block text-[11px] text-[#9aa3b2] mb-1">
-                Supabase Project URL (<code className="font-mono">VITE_SUPABASE_URL</code>)
+                Optional Supabase Project URL (<code className="font-mono">VITE_SUPABASE_URL</code>)
               </label>
               <input
                 value={url}
@@ -153,7 +182,7 @@ export const SettingsModal: React.FC = () => {
 
             <div>
               <label className="block text-[11px] text-[#9aa3b2] mb-1">
-                Supabase Anon Key (<code className="font-mono">VITE_SUPABASE_ANON_KEY</code>)
+                Optional Supabase Anon Key (<code className="font-mono">VITE_SUPABASE_ANON_KEY</code>)
               </label>
               <input
                 type="password"
@@ -170,13 +199,24 @@ export const SettingsModal: React.FC = () => {
               </div>
             )}
 
-            <button
-              type="submit"
-              className="px-3.5 py-2 rounded-lg btn-gold-metallic text-xs font-semibold inline-flex items-center gap-1.5"
-            >
-              <RefreshCw className="w-3.5 h-3.5" />
-              <span>Save &amp; Reconnect</span>
-            </button>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="submit"
+                className="px-3.5 py-2 rounded-lg btn-gold-metallic text-xs font-semibold inline-flex items-center gap-1.5"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+                <span>{url.trim() && anonKey.trim() ? 'Save & Connect Supabase' : 'Use Default Local Vault'}</span>
+              </button>
+              {isSupabaseConfigured() && (
+                <button
+                  type="button"
+                  onClick={handleUseLocalVault}
+                  className="px-3 py-2 rounded-lg bg-[#141923] hover:bg-[#1b2230] border border-[#273042] text-xs text-[#c7c2b8]"
+                >
+                  Switch to Local Vault
+                </button>
+              )}
+            </div>
           </form>
           )}
 

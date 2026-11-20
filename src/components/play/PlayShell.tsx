@@ -5,6 +5,7 @@ import { BattlemapViewport2D } from '../battlemap/BattlemapViewport2D';
 import { PlayerJournalsPane } from '../journals/PlayerJournalsPane';
 import { MapViewport3D } from '../map/MapViewport3D';
 import { CommandPalette } from '../modals/CommandPalette';
+import { SettingsModal } from '../modals/SettingsModal';
 import { ProfileCampaignHub } from '../profile/ProfileCampaignHub';
 import { GuildQuestBoardModal } from '../quests/GuildQuestBoardModal';
 import { CharacterManagerPane } from '../sheets/CharacterManagerPane';
@@ -110,6 +111,7 @@ export const PlayShell: React.FC = () => {
       <DiceRollerDrawer />
       <GuildQuestBoardModal />
       <CommandPalette mode="play" />
+      <SettingsModal />
     </div>
   );
 };

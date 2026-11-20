@@ -1,7 +1,111 @@
 import { DEFAULT_TEMPLATES } from '../../data/templates';
+import {
+  LOCAL_USER_EMAIL,
+  LOCAL_USER_ID,
+  buildDefaultLocalVaultStorage,
+  clearLocalVaultStorage,
+  loadLocalVaultStorage,
+  saveLocalVaultStorage,
+  type LocalVaultStorage,
+} from '../../lib/localVault';
 import { getSupabaseClient, isSupabaseConfigured } from '../../lib/supabase';
-import type { PlayerProfile } from '../../types/vault';
-import { EMPTY_WORLD, syncRuntime, type VaultSlice } from './types';
+import type { PlayerProfile, TabItem } from '../../types/vault';
+import { EMPTY_WORLD, syncRuntime, type VaultSlice, type VaultState } from './types';
+
+function hydrateLocalVaultState(
+  set: (partial: Partial<VaultState>) => void,
+  storage: LocalVaultStorage
+) {
+  const worlds = Object.values(storage.campaigns).map((b) => b.world);
+  const chosenId =
+    storage.activeCampaignId && storage.campaigns[storage.activeCampaignId]
+      ? storage.activeCampaignId
+      : worlds[0]?.id || null;
+  const activeBundle = chosenId ? storage.campaigns[chosenId] : null;
+  const firstEntity = activeBundle?.entities[0];
+  const firstMap = activeBundle?.maps[0];
+  const defaultTabs: TabItem[] = activeBundle
+    ? [
+        ...(firstEntity
+          ? [
+              {
+                id: `tab-${firstEntity.id}`,
+                kind: 'entity' as const,
+                targetId: firstEntity.id,
+                title: firstEntity.title,
+                iconType: firstEntity.type,
+              },
+            ]
+          : []),
+        ...(firstMap
+          ? [
+              {
+                id: `tab-map-${firstMap.id}`,
+                kind: 'map' as const,
+                targetId: firstMap.id,
+                title: firstMap.name,
+                iconType: 'Map' as const,
+              },
+            ]
+          : []),
+      ]
+    : [];
+
+  if (!activeBundle) {
+    defaultTabs.push({
+      id: 'tab-profile-hub',
+      kind: 'profile_hub',
+      targetId: 'profile_hub',
+      title: 'Profile & Campaigns',
+      iconType: 'Campaign',
+    });
+  }
+
+  const preferredPlayMap =
+    activeBundle?.maps.find((m) => m.kind === '2d')?.id ?? activeBundle?.maps[0]?.id ?? null;
+
+  set({
+    isAuthenticated: true,
+    authLoading: false,
+    authError: null,
+    user: { id: LOCAL_USER_ID, email: LOCAL_USER_EMAIL },
+    userEmail: LOCAL_USER_EMAIL,
+    profile: storage.profile,
+    campaigns: worlds,
+    activeCampaignId: chosenId,
+    world: activeBundle?.world || EMPTY_WORLD,
+    campaignMembers: activeBundle?.campaignMembers || [],
+    myRole: 'gm',
+    gmMode: true,
+    entities: activeBundle?.entities || [],
+    entityLinks: activeBundle?.entityLinks || [],
+    maps: activeBundle?.maps || [],
+    mapPins: activeBundle?.mapPins || [],
+    mapPaths: activeBundle?.mapPaths || [],
+    assets: activeBundle?.assets || [],
+    templates: activeBundle?.templates || { ...DEFAULT_TEMPLATES },
+    sheetTemplates: activeBundle?.sheetTemplates || [],
+    characters: activeBundle?.characters || [],
+    questBoards: activeBundle?.questBoards || [],
+    guildQuests: activeBundle?.guildQuests || [],
+    guildQuestSignups: activeBundle?.guildQuestSignups || [],
+    journalPages: activeBundle?.journalPages || [],
+    journalPageShares: activeBundle?.journalPageShares || [],
+    mapFogStates: activeBundle?.mapFogStates || [],
+    mapFogShares: activeBundle?.mapFogShares || [],
+    diceRolls: activeBundle?.diceRolls || [],
+    timelineEvents: activeBundle?.timelineEvents || [],
+    tabs: defaultTabs,
+    activeTabId: defaultTabs[0]?.id || '',
+    splitPaneTabId: null,
+    playActiveMapId: preferredPlayMap,
+    playActiveSection: activeBundle ? 'table' : 'hub',
+    past: [],
+    future: [],
+    syncStatus: 'local',
+    lastSyncError: null,
+  });
+}
 
 function readInviteFromUrl(): string | null {
   if (typeof window === 'undefined') return null;
@@ -28,7 +132,7 @@ export function clearInviteFromUrl(): void {
 }
 
 export type AuthSlice = Pick<
-  import('./types').VaultState,
+  VaultState,
   | 'isAuthenticated'
   | 'authLoading'
   | 'authError'
@@ -41,6 +145,8 @@ export type AuthSlice = Pick<
   | 'signUpWithPassword'
   | 'requestPasswordReset'
   | 'signOutVault'
+  | 'enterLocalVault'
+  | 'resetLocalVault'
   | 'updateProfile'
   | 'setPendingInviteCode'
 >;
@@ -56,6 +162,18 @@ export const createAuthSlice: VaultSlice<AuthSlice> = (set, get) => ({
 
   setPendingInviteCode: (code) => set({ pendingInviteCode: code ? code.trim().toUpperCase() : null }),
 
+  enterLocalVault: () => {
+    const storage = loadLocalVaultStorage();
+    hydrateLocalVaultState(set, storage);
+  },
+
+  resetLocalVault: () => {
+    clearLocalVaultStorage();
+    const fresh = buildDefaultLocalVaultStorage();
+    saveLocalVaultStorage(fresh);
+    hydrateLocalVaultState(set, fresh);
+  },
+
   initSupabaseSync: async () => {
     const inviteFromUrl = readInviteFromUrl();
     if (inviteFromUrl) {
@@ -64,14 +182,8 @@ export const createAuthSlice: VaultSlice<AuthSlice> = (set, get) => ({
 
     const client = getSupabaseClient();
     if (!client || !isSupabaseConfigured()) {
-      set({
-        syncStatus: 'offline',
-        isAuthenticated: false,
-        authLoading: false,
-        user: null,
-        userEmail: null,
-        profile: null,
-      });
+      const storage = loadLocalVaultStorage();
+      hydrateLocalVaultState(set, storage);
       return;
     }
 
@@ -307,7 +419,7 @@ export const createAuthSlice: VaultSlice<AuthSlice> = (set, get) => ({
   updateProfile: async (patch) => {
     const client = getSupabaseClient();
     const state = get();
-    if (!client || !state.user) return;
+    if (!state.user) return;
     const nextProfile: PlayerProfile = {
       id: state.user.id,
       display_name: patch.display_name ?? state.profile?.display_name ?? 'Adventurer',
@@ -315,7 +427,13 @@ export const createAuthSlice: VaultSlice<AuthSlice> = (set, get) => ({
       bio: patch.bio ?? state.profile?.bio ?? '',
       updated_at: new Date().toISOString(),
     };
-    set({ profile: nextProfile });
+    set((s) => ({
+      profile: nextProfile,
+      campaignMembers: s.campaignMembers.map((m) =>
+        m.user_id === nextProfile.id ? { ...m, profile: nextProfile } : m
+      ),
+    }));
+    if (!client) return;
     const { data: updatedRows, error: updateErr } = await client
       .from('profiles')
       .update({
@@ -331,14 +449,7 @@ export const createAuthSlice: VaultSlice<AuthSlice> = (set, get) => ({
       const upsertRes = await client.from('profiles').upsert(nextProfile);
       error = upsertRes.error;
     }
-    if (!error) {
-      // Also update cached profile inside campaignMembers
-      set((s) => ({
-        campaignMembers: s.campaignMembers.map((m) =>
-          m.user_id === nextProfile.id ? { ...m, profile: nextProfile } : m
-        ),
-      }));
-    } else {
+    if (error) {
       set({ syncStatus: 'error', lastSyncError: error.message });
     }
   },
