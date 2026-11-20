@@ -1,9 +1,23 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Calendar, Eye, Map as MapIcon, NotebookPen, Plus, Search, Users, X } from 'lucide-react';
+import {
+  BookMarked,
+  Calendar,
+  Dices,
+  Eye,
+  Hammer,
+  Map as MapIcon,
+  NotebookPen,
+  Play,
+  Plus,
+  Search,
+  Users,
+  X,
+} from 'lucide-react';
 import { useVaultStore } from '../../store/useVaultStore';
+import type { AppMode } from '../../types/vault';
 import { EntityIcon } from '../common/EntityIcon';
 
-export const CommandPalette: React.FC = () => {
+export const CommandPalette: React.FC<{ mode: AppMode }> = ({ mode }) => {
   const {
     commandPaletteOpen,
     setCommandPaletteOpen,
@@ -18,6 +32,9 @@ export const CommandPalette: React.FC = () => {
     openJournalTab,
     openTimelineTab,
     openNewEntryModal,
+    openPlayCodex,
+    setDiceDrawerOpen,
+    setAppMode,
     myRole,
     gmMode,
     setGmMode,
@@ -26,6 +43,7 @@ export const CommandPalette: React.FC = () => {
 
   const canSwitchGm = myRole === 'gm' || myRole === 'co_gm';
   const canGmEdit = isEffectiveGm();
+  const isStudio = mode === 'studio';
 
   const [query, setQuery] = useState('');
   const [activeIdx, setActiveIdx] = useState(0);
@@ -62,32 +80,36 @@ export const CommandPalette: React.FC = () => {
         type: m.kind === '2d' ? '2D Map' : '3D Map',
       }));
 
-    const matchedCharacters = characters
-      .filter((c) => !q || c.name.toLowerCase().includes(q))
-      .slice(0, 8)
-      .map((c) => ({
-        id: c.id,
-        kind: 'character' as const,
-        title: c.name,
-        subtitle: `Character Sheet • ${c.is_active ? 'Active' : 'Inactive'}`,
-        type: 'Character',
-      }));
+    const matchedCharacters = !isStudio
+      ? characters
+          .filter((c) => !q || c.name.toLowerCase().includes(q))
+          .slice(0, 8)
+          .map((c) => ({
+            id: c.id,
+            kind: 'character' as const,
+            title: c.name,
+            subtitle: `Character Sheet • ${c.is_active ? 'Active' : 'Inactive'}`,
+            type: 'Character',
+          }))
+      : [];
 
-    const matchedJournals = journalPages
-      .filter(
-        (j) =>
-          !q ||
-          j.title.toLowerCase().includes(q) ||
-          j.tags.some((t) => t.toLowerCase().includes(q))
-      )
-      .slice(0, 8)
-      .map((j) => ({
-        id: j.id,
-        kind: 'journal' as const,
-        title: j.title,
-        subtitle: `Journal (${j.share_scope})`,
-        type: 'Journal',
-      }));
+    const matchedJournals = !isStudio
+      ? journalPages
+          .filter(
+            (j) =>
+              !q ||
+              j.title.toLowerCase().includes(q) ||
+              j.tags.some((t) => t.toLowerCase().includes(q))
+          )
+          .slice(0, 8)
+          .map((j) => ({
+            id: j.id,
+            kind: 'journal' as const,
+            title: j.title,
+            subtitle: `Journal (${j.share_scope})`,
+            type: 'Journal',
+          }))
+      : [];
 
     const matchedTimeline = timelineEvents
       .filter(
@@ -124,7 +146,7 @@ export const CommandPalette: React.FC = () => {
         id: e.id,
         kind: 'entity' as const,
         title: e.title,
-        subtitle: `${e.type} • ${e.summary}`,
+        subtitle: `${e.type}${!isStudio ? ' (Codex)' : ''} • ${e.summary}`,
         type: e.type,
       }));
 
@@ -135,7 +157,7 @@ export const CommandPalette: React.FC = () => {
       ...matchedTimeline,
       ...matchedEntities,
     ];
-  }, [query, maps, characters, journalPages, timelineEvents, entities, canGmEdit]);
+  }, [query, maps, characters, journalPages, timelineEvents, entities, canGmEdit, isStudio]);
 
   if (!commandPaletteOpen) return null;
 
@@ -180,7 +202,11 @@ export const CommandPalette: React.FC = () => {
                 handleSelect(results[activeIdx]);
               }
             }}
-            placeholder="Search lore, characters, journals, maps, timeline..."
+            placeholder={
+              isStudio
+                ? 'Search lore notes, maps, timeline...'
+                : 'Search scenes, characters, journals, codex, timeline...'
+            }
             className="flex-1 bg-transparent text-sm text-[#f3ead8] placeholder:text-[#6c7585] focus:outline-none"
           />
           <button
@@ -191,9 +217,9 @@ export const CommandPalette: React.FC = () => {
           </button>
         </div>
 
-        {/* Quick Actions */}
+        {/* Mode-Scoped Quick Actions */}
         <div className="px-3 py-2 bg-[#0b0d10]/70 border-b border-[#181d25] flex items-center gap-2 flex-wrap">
-          {canGmEdit && (
+          {isStudio && canGmEdit && (
             <button
               onClick={() => {
                 setCommandPaletteOpen(false);
@@ -205,38 +231,64 @@ export const CommandPalette: React.FC = () => {
               <span>New Entry</span>
             </button>
           )}
-          {canSwitchGm && (
-            <button
-              onClick={() => {
-                setGmMode(!gmMode);
-                setCommandPaletteOpen(false);
-              }}
-              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-[#171b22] border border-[#272e3a] hover:border-[#d4a853]/50 text-[11px] text-[#d5d0c5]"
-            >
-              <Eye className="w-3 h-3 text-[#d4a853]" />
-              <span>Toggle GM Mode ({gmMode ? 'ON' : 'OFF'})</span>
-            </button>
+
+          {!isStudio && (
+            <>
+              <button
+                onClick={() => {
+                  setDiceDrawerOpen(true);
+                  setCommandPaletteOpen(false);
+                }}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-[#171b22] border border-[#272e3a] hover:border-[#d4a853]/50 text-[11px] text-[#e5be58]"
+              >
+                <Dices className="w-3 h-3" />
+                <span>Dice Roller</span>
+              </button>
+              <button
+                onClick={() => {
+                  openPlayCodex();
+                  setCommandPaletteOpen(false);
+                }}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-[#171b22] border border-[#272e3a] hover:border-[#d4a853]/50 text-[11px] text-[#d5d0c5]"
+              >
+                <BookMarked className="w-3 h-3 text-[#d4a853]" />
+                <span>Codex</span>
+              </button>
+              <button
+                onClick={() => {
+                  openJournalTab();
+                  setCommandPaletteOpen(false);
+                }}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-[#171b22] border border-[#272e3a] hover:border-[#d4a853]/50 text-[11px] text-[#d5d0c5]"
+              >
+                <NotebookPen className="w-3 h-3 text-[#d4a853]" />
+                <span>Journals</span>
+              </button>
+              <button
+                onClick={() => {
+                  openCharacterTab();
+                  setCommandPaletteOpen(false);
+                }}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-[#171b22] border border-[#272e3a] hover:border-[#d4a853]/50 text-[11px] text-[#d5d0c5]"
+              >
+                <Users className="w-3 h-3 text-[#d4a853]" />
+                <span>Characters</span>
+              </button>
+              {canSwitchGm && (
+                <button
+                  onClick={() => {
+                    setGmMode(!gmMode);
+                    setCommandPaletteOpen(false);
+                  }}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-[#171b22] border border-[#272e3a] hover:border-[#d4a853]/50 text-[11px] text-[#d5d0c5]"
+                >
+                  <Eye className="w-3 h-3 text-[#d4a853]" />
+                  <span>Toggle Player View ({gmMode ? 'GM' : 'Player'})</span>
+                </button>
+              )}
+            </>
           )}
-          <button
-            onClick={() => {
-              openJournalTab();
-              setCommandPaletteOpen(false);
-            }}
-            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-[#171b22] border border-[#272e3a] hover:border-[#d4a853]/50 text-[11px] text-[#d5d0c5]"
-          >
-            <NotebookPen className="w-3 h-3 text-[#d4a853]" />
-            <span>Journals</span>
-          </button>
-          <button
-            onClick={() => {
-              openCharacterTab();
-              setCommandPaletteOpen(false);
-            }}
-            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-[#171b22] border border-[#272e3a] hover:border-[#d4a853]/50 text-[11px] text-[#d5d0c5]"
-          >
-            <Users className="w-3 h-3 text-[#d4a853]" />
-            <span>Characters</span>
-          </button>
+
           <button
             onClick={() => {
               openTimelineTab();
@@ -247,6 +299,7 @@ export const CommandPalette: React.FC = () => {
             <Calendar className="w-3 h-3 text-[#d4a853]" />
             <span>Timeline</span>
           </button>
+
           {maps[0] && (
             <button
               onClick={() => {
@@ -257,6 +310,19 @@ export const CommandPalette: React.FC = () => {
             >
               <MapIcon className="w-3 h-3 text-[#d4a853]" />
               <span>Focus Map</span>
+            </button>
+          )}
+
+          {canSwitchGm && (
+            <button
+              onClick={() => {
+                setAppMode(isStudio ? 'play' : 'studio');
+                setCommandPaletteOpen(false);
+              }}
+              className="ml-auto inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-[#141923] border border-[#d4a853]/35 hover:border-[#d4a853] text-[11px] text-[#e2b969]"
+            >
+              {isStudio ? <Play className="w-3 h-3" /> : <Hammer className="w-3 h-3" />}
+              <span>{isStudio ? 'Switch to Play Mode' : 'Switch to Studio'}</span>
             </button>
           )}
         </div>

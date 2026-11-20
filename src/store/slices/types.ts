@@ -5,6 +5,7 @@ import type { DiceRollResult } from '../../lib/diceParser';
 import type { FogPresetId } from '../../lib/worldEnvironment';
 import type { getSupabaseClient } from '../../lib/supabase';
 import type {
+  AppMode,
   AssetKind,
   BattlemapAoeTemplate,
   BattlemapCombatState,
@@ -55,6 +56,7 @@ import type {
   PathPoint,
   PinIconType,
   PlayerProfile,
+  PlaySection,
   SheetAttributeValue,
   SheetFieldSchema,
   TabItem,
@@ -195,6 +197,14 @@ export interface VaultState {
   timelineEvents: TimelineEvent[];
 
   // Navigation & Tabs
+  appMode: AppMode;
+  playActiveSection: PlaySection;
+  playActiveMapId: string | null;
+  playFocusedCharacterId: string | null;
+  playFocusedJournalId: string | null;
+  playCodexOpen: boolean;
+  playCodexEntityId: string | null;
+  playSideDrawerOpen: boolean;
   tabs: TabItem[];
   activeTabId: string;
   splitPaneTabId: string | null;
@@ -264,6 +274,7 @@ export interface VaultState {
   newEntryModalOpen: boolean;
   newEntryDefaultType: EntityType;
   newEntryDefaultCategory: EntityCategory;
+  newEntryDefaultTitle: string;
 
   // History
   past: HistorySnapshot[];
@@ -271,6 +282,7 @@ export interface VaultState {
 
   // Permission Helpers
   isEffectiveGm: () => boolean;
+  isStudioEditing: () => boolean;
   canEditToken: (token: BattlemapToken) => boolean;
 
   // Auth Actions
@@ -317,6 +329,13 @@ export interface VaultState {
   seedSupabaseWorld: () => Promise<void>;
 
   // UI Actions
+  setAppMode: (mode: AppMode, options?: { syncUrl?: boolean }) => void;
+  setPlayActiveSection: (section: PlaySection) => void;
+  setPlayActiveMapId: (mapId: string | null) => void;
+  openPlayCodex: (entityId?: string | null) => void;
+  closePlayCodex: () => void;
+  setPlaySideDrawerOpen: (open: boolean) => void;
+  togglePlaySideDrawer: () => void;
   setGmMode: (val: boolean) => void;
   setEditorMode: (mode: EditorMode) => void;
   setInspectorSubTab: (tab: InspectorSubTab) => void;
@@ -328,7 +347,7 @@ export interface VaultState {
   toggleRightInspector: () => void;
   setCommandPaletteOpen: (open: boolean) => void;
   setSettingsModalOpen: (open: boolean) => void;
-  openNewEntryModal: (defaultType?: EntityType, defaultCategory?: EntityCategory) => void;
+  openNewEntryModal: (defaultType?: EntityType, defaultCategory?: EntityCategory, defaultTitle?: string) => void;
   closeNewEntryModal: () => void;
   setSelectedSidebarFilter: (filter: string | null) => void;
   setLeftFilterQuery: (q: string) => void;
@@ -414,6 +433,7 @@ export interface VaultState {
     useTemplate?: boolean;
   }) => Promise<Entity>;
   updateEntity: (id: string, patch: Partial<Entity>) => void;
+  toggleEntityPlayerVisibility: (id: string) => void;
   deleteEntity: (id: string) => Promise<void>;
   toggleFavorite: (id: string) => void;
 
@@ -657,6 +677,8 @@ export interface VaultState {
   setBattlemapCombatState: (mapId: string, combat: BattlemapCombatState | null) => void;
   nextCombatTurn: (mapId: string) => void;
   prevCombatTurn: (mapId: string) => void;
+  spawnEntityAsBattlemapToken: (mapId: string, entityId: string) => BattlemapToken | null;
+  addEntityToInitiative: (mapId: string, entityId: string) => void;
 }
 
 export type VaultSlice<T> = StateCreator<VaultState, [], [], T>;

@@ -25,9 +25,12 @@ import {
   Users,
 } from 'lucide-react';
 import { useVaultStore } from '../../store/useVaultStore';
-import { BattlemapPropKind, VaultMap } from '../../types/vault';
+import { BattlemapPropKind, VaultMap, ViewportSurface } from '../../types/vault';
 
-export const BattlemapInspectorSection: React.FC<{ activeMap: VaultMap }> = ({ activeMap }) => {
+export const BattlemapInspectorSection: React.FC<{
+  activeMap: VaultMap;
+  surface?: ViewportSurface;
+}> = ({ activeMap, surface = 'studio' }) => {
   const {
     entities,
     characters,
@@ -60,6 +63,7 @@ export const BattlemapInspectorSection: React.FC<{ activeMap: VaultMap }> = ({ a
   } = useVaultStore();
 
   const canGmEdit = isEffectiveGm();
+  const canAuthorScene = surface === 'studio' && canGmEdit;
   const bm = activeMap.battlemap;
   if (!bm) return null;
 
@@ -938,7 +942,7 @@ export const BattlemapInspectorSection: React.FC<{ activeMap: VaultMap }> = ({ a
           </span>
         </div>
 
-        {canGmEdit && (
+        {canAuthorScene && (
           <div className="grid grid-cols-3 gap-1">
             <button
               onClick={() => spawnQuickProp('crate')}
@@ -987,7 +991,7 @@ export const BattlemapInspectorSection: React.FC<{ activeMap: VaultMap }> = ({ a
                   </span>
                 )}
               </span>
-              {canGmEdit && (
+              {canAuthorScene && (
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
@@ -1004,8 +1008,8 @@ export const BattlemapInspectorSection: React.FC<{ activeMap: VaultMap }> = ({ a
         </div>
       </div>
 
-      {/* Sight-Blocking Walls Architecture */}
-      {canGmEdit && (
+      {/* Sight-Blocking Walls Architecture (Studio Only) */}
+      {canAuthorScene && (
         <div className="space-y-2 pt-2 border-t border-[#181d25]">
           <div className="flex items-center justify-between">
             <span className="text-[11.5px] font-semibold text-[#b8b3a8] flex items-center gap-1.5">

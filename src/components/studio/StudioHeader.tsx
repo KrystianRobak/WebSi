@@ -6,13 +6,12 @@ import {
   Cloud,
   CloudOff,
   Columns2,
-  Dices,
   Download,
-  Eye,
-  EyeOff,
+  ExternalLink,
   LogOut,
   PanelRightClose,
   PanelRightOpen,
+  Play,
   Plus,
   Redo2,
   RefreshCw,
@@ -22,25 +21,24 @@ import {
   User,
   X,
 } from 'lucide-react';
+import { getSubSiteUrl } from '../../lib/appRouter';
 import { exportCampaignArchive } from '../../lib/campaignArchive';
 import { useVaultStore } from '../../store/useVaultStore';
 import { AethelgardCrest, EntityIcon } from '../common/EntityIcon';
 
-export const TopHeader: React.FC = () => {
+export const StudioHeader: React.FC = () => {
   const {
     campaigns,
     activeCampaignId,
     switchCampaign,
-    myRole,
     isEffectiveGm,
+    setAppMode,
     tabs,
     activeTabId,
     splitPaneTabId,
     setActiveTab,
     closeTab,
     toggleSplitPane,
-    gmMode,
-    setGmMode,
     syncStatus,
     past,
     future,
@@ -50,8 +48,6 @@ export const TopHeader: React.FC = () => {
     setSettingsModalOpen,
     openNewEntryModal,
     openProfileHubTab,
-    diceDrawerOpen,
-    setDiceDrawerOpen,
     signOutVault,
     profile,
     world,
@@ -77,7 +73,6 @@ export const TopHeader: React.FC = () => {
   const [canScrollTabsRight, setCanScrollTabsRight] = useState(false);
   const campaignMenuRef = useRef<HTMLDivElement>(null);
   const tabStripRef = useRef<HTMLDivElement>(null);
-  const canToggleGm = myRole === 'gm' || myRole === 'co_gm';
   const effectiveGm = isEffectiveGm();
   const activeCampaign = campaigns.find((c) => c.id === activeCampaignId) || null;
 
@@ -133,9 +128,7 @@ export const TopHeader: React.FC = () => {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `${(world.name || 'aethelgard').toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${
-      effectiveGm ? 'gm' : 'player'
-    }-v2.json`;
+    a.download = `${(world.name || 'aethelgard').toLowerCase().replace(/[^a-z0-9]+/g, '-')}-studio-v2.json`;
     a.click();
     URL.revokeObjectURL(url);
     setExportOpen(false);
@@ -189,16 +182,19 @@ export const TopHeader: React.FC = () => {
 
   return (
     <header className="h-12 select-none bg-[#090c12] border-b border-[#181e2b] px-2 sm:px-3 flex items-center justify-between gap-2 shrink-0 z-50">
-      {/* Left: Brand + Campaign Switcher + Undo/Redo */}
+      {/* Left: Studio Brand + Campaign Switcher + Undo/Redo */}
       <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
         <button
           onClick={openProfileHubTab}
-          title={`Aethelgard Vault — ${syncDot.label}`}
+          title={`Aethelgard Worldbuilding Studio — ${syncDot.label}`}
           className="flex items-center gap-2 px-1.5 py-1 rounded-lg hover:bg-[#131823] transition-colors"
         >
           <AethelgardCrest className="w-4 h-4 shrink-0" />
           <span className="hidden xl:inline font-serif text-[13px] font-semibold tracking-wider text-[#f2eadb]">
             Aethelgard
+          </span>
+          <span className="hidden sm:inline-block px-1.5 py-0.5 rounded bg-[#d4a853]/15 border border-[#d4a853]/35 text-[9.5px] font-mono uppercase tracking-wider text-[#e2b969]">
+            Studio
           </span>
           <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${syncDot.dot}`} />
         </button>
@@ -293,7 +289,7 @@ export const TopHeader: React.FC = () => {
         )}
       </div>
 
-      {/* Center: Scrollable Tab Strip + Scroll Chevrons + New/Split */}
+      {/* Center: Scrollable Studio Tab Strip + New/Split */}
       <div className="flex-1 min-w-0 flex items-center gap-1 h-full py-1.5">
         {canScrollTabsLeft && (
           <button
@@ -310,16 +306,7 @@ export const TopHeader: React.FC = () => {
           onScroll={updateTabScrollState}
           className="flex items-center gap-1 overflow-x-auto no-scrollbar min-w-0"
         >
-          {tabs
-            .filter((tab) => {
-              if (effectiveGm || tab.kind !== 'entity') return true;
-              const ent = entities.find((e) => e.id === tab.targetId);
-              const isGmOnly = Boolean(
-                ent?.metadata?.is_gm_only || (ent as { is_gm_only?: boolean } | undefined)?.is_gm_only
-              );
-              return !isGmOnly;
-            })
-            .map((tab) => {
+          {tabs.map((tab) => {
             const isActive = tab.id === activeTabId;
             const isSplit = tab.id === splitPaneTabId;
             return (
@@ -392,11 +379,11 @@ export const TopHeader: React.FC = () => {
         </button>
       </div>
 
-      {/* Right: Search, Dice Drawer, Role-Gated GM Mode, Export, Inspector Toggle, Profile, Settings, SignOut */}
+      {/* Right: Search, Export, Inspector, Switch to Play Mode, Profile, Settings, SignOut */}
       <div className="flex items-center gap-1 shrink-0">
         <button
           onClick={() => setCommandPaletteOpen(true)}
-          title="Search Vault (Ctrl+K)"
+          title="Search Studio (Ctrl+K)"
           aria-label="Search Vault"
           className="h-7 px-2 rounded-lg bg-[#10141d] border border-[#1d2433] hover:border-[#d4a853]/50 flex items-center gap-1.5 text-[11.5px] text-[#8b94a5] hover:text-[#f3ead8] transition-colors"
         >
@@ -406,46 +393,6 @@ export const TopHeader: React.FC = () => {
             ⌘K
           </kbd>
         </button>
-
-        {/* Dice Roller Toggle */}
-        <button
-          onClick={() => setDiceDrawerOpen(!diceDrawerOpen)}
-          title="Dice Roller & Log"
-          aria-label="Dice Roller"
-          className={`h-7 px-2 rounded-lg border flex items-center gap-1.5 text-[11.5px] font-medium transition-colors ${
-            diceDrawerOpen
-              ? 'bg-[#d4a853]/18 border-[#d4a853]/50 text-[#f3ead8]'
-              : 'bg-[#10141d] border-[#1d2433] text-[#959eb0] hover:text-[#f3ead8]'
-          }`}
-        >
-          <Dices className="w-3.5 h-3.5 text-[#d4a853]" />
-          <span className="hidden xl:inline">Dice</span>
-        </button>
-
-        {/* Role-Gated GM Mode Toggle (hidden for plain players) */}
-        {canToggleGm && (
-          <button
-            onClick={() => setGmMode(!gmMode)}
-            title={
-              gmMode
-                ? 'GM Mode ON — Secrets and hidden map pins visible'
-                : 'Player View — Secrets & hidden pins stripped'
-            }
-            aria-label={gmMode ? 'GM Mode' : 'Player View'}
-            className={`h-7 flex items-center gap-1.5 px-2 rounded-lg text-[11.5px] font-medium border transition-all ${
-              gmMode
-                ? 'bg-[#211014] border-red-500/40 text-red-200'
-                : 'bg-[#10141d] border-[#1d2433] text-[#8b94a5] hover:text-[#f0e9db]'
-            }`}
-          >
-            {gmMode ? (
-              <Eye className="w-3.5 h-3.5 text-red-400" />
-            ) : (
-              <EyeOff className="w-3.5 h-3.5 text-[#7a8394]" />
-            )}
-            <span className="hidden xl:inline">{gmMode ? 'GM Mode' : 'Player View'}</span>
-          </button>
-        )}
 
         {/* Export Dropdown */}
         {world.id && (
@@ -501,6 +448,30 @@ export const TopHeader: React.FC = () => {
           <span className="hidden lg:inline">Inspector</span>
         </button>
 
+        {/* Sub-Site Switch: Enter Playing Mode */}
+        <div className="flex items-center rounded-lg overflow-hidden border border-emerald-500/40 bg-emerald-950/35">
+          <button
+            type="button"
+            onClick={() => setAppMode('play')}
+            title="Switch to Playing Mode (#/play)"
+            aria-label="Play Mode"
+            className="h-7 px-2.5 flex items-center gap-1.5 text-[11.5px] font-semibold text-emerald-200 hover:bg-emerald-500/20 transition-colors"
+          >
+            <Play className="w-3 h-3 fill-emerald-300 text-emerald-300" />
+            <span className="hidden md:inline">Play Mode</span>
+          </button>
+          <a
+            href={getSubSiteUrl('play')}
+            target="_blank"
+            rel="noopener noreferrer"
+            title="Open Playing Mode in New Browser Tab"
+            aria-label="Open Playing Mode in New Tab"
+            className="h-7 px-1.5 flex items-center justify-center border-l border-emerald-500/30 text-emerald-300/80 hover:text-emerald-100 hover:bg-emerald-500/20 transition-colors"
+          >
+            <ExternalLink className="w-3 h-3" />
+          </a>
+        </div>
+
         {/* Profile Hub */}
         <button
           onClick={openProfileHubTab}
@@ -510,7 +481,7 @@ export const TopHeader: React.FC = () => {
         >
           <User className="w-3.5 h-3.5 text-[#d4a853]" />
           {profile?.display_name && (
-            <span className="hidden lg:inline max-w-[100px] truncate font-medium text-[#f0e9db]">
+            <span className="hidden lg:inline max-w-[90px] truncate font-medium text-[#f0e9db]">
               {profile.display_name}
             </span>
           )}

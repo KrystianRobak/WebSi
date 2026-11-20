@@ -118,6 +118,8 @@ export type VttSlice = Pick<
   | 'setBattlemapCombatState'
   | 'nextCombatTurn'
   | 'prevCombatTurn'
+  | 'spawnEntityAsBattlemapToken'
+  | 'addEntityToInitiative'
 >;
 
 export const createVttSlice: VaultSlice<VttSlice> = (set, get) => ({
@@ -911,6 +913,106 @@ export const createVttSlice: VaultSlice<VttSlice> = (set, get) => ({
       active: true,
       activeTurnIndex: prevIdx,
       round: prevRound,
+    });
+  },
+
+  spawnEntityAsBattlemapToken: (mapId, entityId) => {
+    const state = get();
+    if (!state.isEffectiveGm()) return null;
+    const map = state.maps.find((m) => m.id === mapId);
+    const bm = map?.battlemap;
+    const entity = state.entities.find((e) => e.id === entityId);
+    if (!map || !bm || !entity) return null;
+
+    const meta = entity.metadata || {};
+    const parseMetaInt = (keys: string[], fallback: number) => {
+      for (const key of Object.keys(meta)) {
+        if (keys.includes(key.toLowerCase())) {
+          const m = String(meta[key]).match(/\d+/);
+          if (m) return Math.max(1, Number(m[0]));
+        }
+      }
+      return fallback;
+    };
+
+    const hp = parseMetaInt(['hp', 'hit points', 'max hp', 'health'], entity.type === 'Bestiary' ? 36 : 28);
+    const ac = parseMetaInt(['ac', 'armor class', 'defense'], entity.type === 'Bestiary' ? 14 : 13);
+    const disposition =
+      entity.type === 'Bestiary'
+        ? 'enemy'
+        : entity.type === 'Character'
+        ? 'ally'
+        : 'neutral';
+
+    const grid = bm.gridSizePx || 64;
+    const offsetCount = bm.tokens.length % 5;
+    const cx = Math.round((bm.width * 0.5) / grid) * grid + grid * 0.5 + (offsetCount - 2) * (grid * 0.6);
+    const cy = Math.round((bm.height * 0.5) / grid) * grid + grid * 0.5;
+
+    return state.addBattlemapToken(mapId, {
+      name: entity.title,
+      entity_id: entity.id,
+      disposition,
+      x: cx,
+      y: cy,
+      sizeCells: 1,
+      hp,
+      maxHp: hp,
+      ac,
+      visionRangeFt: 60,
+      lightRadiusFt: disposition === 'ally' ? 20 : 0,
+      lightColor: '#f59e0b',
+      isHidden: Boolean(meta.is_gm_only),
+    });
+  },
+
+  addEntityToInitiative: (mapId, entityId) => {
+    const state = get();
+    if (!state.isEffectiveGm()) return;
+    const map = state.maps.find((m) => m.id === mapId);
+    const entity = state.entities.find((e) => e.id === entityId);
+    if (!map || !entity) return;
+
+    const meta = entity.metadata || {};
+    const parseMetaInt = (keys: string[], fallback: number) => {
+      for (const key of Object.keys(meta)) {
+        if (keys.includes(key.toLowerCase())) {
+          const m = String(meta[key]).match(/\d+/);
+          if (m) return Math.max(1, Number(m[0]));
+        }
+      }
+      return fallback;
+    };
+
+    const hp = parseMetaInt(['hp', 'hit points', 'max hp', 'health'], entity.type === 'Bestiary' ? 36 : 28);
+    const ac = parseMetaInt(['ac', 'armor class', 'defense'], entity.type === 'Bestiary' ? 14 : 13);
+    const linkedToken = map.battlemap?.tokens.find((t) => t.entity_id === entity.id);
+    const currentCombat = map.combat_state || {
+      active: true,
+      round: 1,
+      activeTurnIndex: 0,
+      entries: [],
+    };
+    const initRoll = 10 + Math.floor(Math.random() * 10);
+    const entry = {
+      id: crypto.randomUUID(),
+      name: entity.title,
+      initiative: initRoll,
+      tokenId: linkedToken?.id ?? null,
+      hp: linkedToken?.hp ?? hp,
+      maxHp: linkedToken?.maxHp ?? hp,
+      ac: linkedToken?.ac ?? ac,
+      conditions: [],
+      isHidden: Boolean(meta.is_gm_only),
+    };
+    const nextEntries = [...currentCombat.entries, entry].sort(
+      (a, b) => b.initiative - a.initiative
+    );
+    state.setBattlemapCombatState(mapId, {
+      ...currentCombat,
+      active: true,
+      round: Math.max(1, currentCombat.round || 1),
+      entries: nextEntries,
     });
   },
 });

@@ -1,12 +1,21 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle,
+  ArrowUpRight,
   BookOpen,
+  ChevronDown,
+  ChevronRight,
   Code2,
   Columns2,
+  Eye,
+  EyeOff,
+  FileText,
   Layers,
   Link2,
+  ListTree,
   MapPin,
+  Maximize2,
+  Minimize2,
   Paintbrush,
   Plus,
   SlidersHorizontal,
@@ -18,6 +27,7 @@ import {
 } from 'lucide-react';
 import { uploadVaultAsset } from '../../lib/supabase';
 import {
+  extractMarkdownHeadings,
   formatEntityTypeLabel,
   getEntityAppearance,
   getEntityCustomCss,
@@ -25,6 +35,7 @@ import {
   markdownToHtml,
   parseNoteMarkdownStyleBlock,
   scopeCustomCss,
+  toggleMarkdownTaskAtIndex,
 } from '../../lib/wikilinks';
 import { useVaultStore } from '../../store/useVaultStore';
 import { Entity } from '../../types/vault';
@@ -35,16 +46,35 @@ import {
   MarkdownGrimoireEditor,
   MarkdownGrimoireEditorHandle,
 } from './MarkdownGrimoireEditor';
+import { WikiLinkHoverCard } from './WikiLinkHoverCard';
 
 const COVER_HEIGHT_CLASS: Record<'md' | 'lg' | 'xl', string> = {
   md: 'h-44',
-  lg: 'h-60',
-  xl: 'h-76',
+  lg: 'h-56',
+  xl: 'h-72',
 };
+
+function findMentionSnippet(content: string, targetTitle: string): string {
+  if (!content) return '';
+  const needle = targetTitle.toLowerCase();
+  const lines = content.split(/\r?\n/);
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    if (trimmed.toLowerCase().includes(`[[${needle}`)) {
+      return trimmed
+        .replace(/\[\[([^\]|]+)\|([^\]]+)\]\]/g, '$2')
+        .replace(/\[\[([^\]]+)\]\]/g, '$1')
+        .replace(/^#+\s*/, '');
+    }
+  }
+  return '';
+}
 
 export const NoteEditorPane: React.FC<{ entityId: string }> = ({ entityId }) => {
   const {
     entities,
+    entityLinks,
     assets,
     mapPins,
     maps,
@@ -54,10 +84,12 @@ export const NoteEditorPane: React.FC<{ entityId: string }> = ({ entityId }) => 
     myRole,
     isEffectiveGm,
     updateEntity,
+    toggleEntityPlayerVisibility,
     deleteEntity,
     toggleFavorite,
     addAsset,
     openEntityByTitle,
+    openEntityTab,
     openMapTab,
     setSelectedPinId,
     rightInspectorCollapsed,
@@ -69,6 +101,9 @@ export const NoteEditorPane: React.FC<{ entityId: string }> = ({ entityId }) => 
   const [codeSubMode, setCodeSubMode] = useState<GrimoireCodeSubMode>('split');
   const [syncScroll, setSyncScroll] = useState(true);
   const [showPropertiesDrawer, setShowPropertiesDrawer] = useState(false);
+  const [readableWidth, setReadableWidth] = useState(true);
+  const [showOutline, setShowOutline] = useState(true);
+  const [backlinksOpen, setBacklinksOpen] = useState(true);
 
   const [titleDraft, setTitleDraft] = useState(entity?.title || '');
   const [summaryDraft, setSummaryDraft] = useState(entity?.summary || '');
@@ -91,6 +126,7 @@ export const NoteEditorPane: React.FC<{ entityId: string }> = ({ entityId }) => 
   } | null>(null);
 
   const editorHandleRef = useRef<MarkdownGrimoireEditorHandle>(null);
+  const readScrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!entity) return;
@@ -121,6 +157,11 @@ export const NoteEditorPane: React.FC<{ entityId: string }> = ({ entityId }) => 
     return rawMarkdown;
   }, [rawMarkdown, entity?.title]);
 
+  const headings = useMemo(
+    () => extractMarkdownHeadings(readMarkdownBody),
+    [readMarkdownBody]
+  );
+
   const renderedPreviewHtml = useMemo(
     () => markdownToHtml(readMarkdownBody, assets, entities),
     [readMarkdownBody, assets, entities]
@@ -134,6 +175,26 @@ export const NoteEditorPane: React.FC<{ entityId: string }> = ({ entityId }) => 
     () => scopeCustomCss(customCssDraft, scopeClass),
     [customCssDraft, scopeClass]
   );
+
+  const incomingBacklinks = useMemo(() => {
+    if (!entity) return [];
+    return entityLinks
+      .filter((l) => l.target_id === entity.id)
+      .map((l) => entities.find((e) => e.id === l.source_id))
+      .filter((e): e is Entity => Boolean(e))
+      .map((src) => ({
+        entity: src,
+        snippet: findMentionSnippet(src.content, entity.title),
+      }));
+  }, [entity, entityLinks, entities]);
+
+  const outgoingReferences = useMemo(() => {
+    if (!entity) return [];
+    return entityLinks
+      .filter((l) => l.source_id === entity.id)
+      .map((l) => entities.find((e) => e.id === l.target_id))
+      .filter((e): e is Entity => Boolean(e));
+  }, [entity, entityLinks, entities]);
 
   if (!entity) {
     return (
@@ -158,8 +219,9 @@ export const NoteEditorPane: React.FC<{ entityId: string }> = ({ entityId }) => 
   const visibleMetadata = getVisibleMetadataEntries(entity.metadata);
   const linkedPins = mapPins.filter((p) => p.entity_id === entity.id && (canGmEdit || !p.is_gm_only));
   const wordCount = rawMarkdown.trim() ? rawMarkdown.trim().split(/\s+/).length : 0;
+  const readTimeMin = Math.max(1, Math.ceil(wordCount / 200));
 
-  const updateAppearance = (patch: Record<string, string | number>) => {
+  const updateAppearance = (patch: Record<string, string | number | boolean>) => {
     if (!canGmEdit) return;
     updateEntity(entity.id, {
       metadata: {
@@ -207,14 +269,39 @@ export const NoteEditorPane: React.FC<{ entityId: string }> = ({ entityId }) => 
     }
     const linkTitle = target.getAttribute('data-wikilink');
     if (!linkTitle) return;
-    const found = entities.find((ent) => ent.title.toLowerCase() === linkTitle.toLowerCase());
+    const found = entities.find(
+      (ent) =>
+        ent.title.toLowerCase() === linkTitle.toLowerCase() ||
+        ent.slug.toLowerCase() === linkTitle.toLowerCase()
+    );
     if (found) {
       const rect = target.getBoundingClientRect();
       setHoverPreview({ entity: found, x: rect.left, y: rect.bottom + 8 });
+    } else if (hoverPreview) {
+      setHoverPreview(null);
     }
   };
 
-  const handleWikiClick = (e: React.MouseEvent<HTMLDivElement>) => {
+  const handleReadBodyClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    // 1. Interactive checklist toggling in Read Mode
+    const checkboxEl = (e.target as HTMLElement).closest('[data-task-index]') as HTMLElement | null;
+    if (checkboxEl && canGmEdit) {
+      e.preventDefault();
+      const idx = Number(checkboxEl.getAttribute('data-task-index'));
+      if (!Number.isNaN(idx)) {
+        // Compute offset if H1 matching entity title was stripped in readMarkdownBody
+        const hadStrippedH1 = readMarkdownBody !== rawMarkdown;
+        const nextBody = toggleMarkdownTaskAtIndex(readMarkdownBody, idx);
+        const nextFull = hadStrippedH1
+          ? `# ${entity.title}\n\n${nextBody}`
+          : nextBody;
+        setRawMarkdown(nextFull);
+        updateEntity(entity.id, { content: nextFull });
+      }
+      return;
+    }
+
+    // 2. Bracketless WikiLink navigation (or stub creation when unresolved in Studio)
     const target = (e.target as HTMLElement).closest('[data-wikilink]') as HTMLElement | null;
     if (target) {
       const linkTitle = target.getAttribute('data-wikilink');
@@ -225,9 +312,24 @@ export const NoteEditorPane: React.FC<{ entityId: string }> = ({ entityId }) => 
     }
   };
 
+  const scrollToHeading = (headingId: string) => {
+    const container = readScrollRef.current;
+    if (!container) return;
+    const el = container.querySelector(`#${CSS.escape(headingId)}`) as HTMLElement | null;
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  };
+
   const coverHeightCls = COVER_HEIGHT_CLASS[appearance.coverHeight];
   const showReadMode = editorMode === 'preview' || !canGmEdit;
   const isGmPreviewingAsPlayer = (myRole === 'gm' || myRole === 'co_gm') && !gmMode;
+  const hasOutline = headings.length >= 2;
+  const widthClass = readableWidth
+    ? 'max-w-[800px] px-6 sm:px-10'
+    : rightInspectorCollapsed
+    ? 'max-w-[1360px] px-8 sm:px-12'
+    : 'max-w-5xl px-6 sm:px-8';
 
   return (
     <div className="relative h-full bg-[#06070a] flex flex-col overflow-hidden">
@@ -243,17 +345,19 @@ export const NoteEditorPane: React.FC<{ entityId: string }> = ({ entityId }) => 
         />
       )}
       {appearance.bgImage && (
-        <div className="pointer-events-none absolute inset-0 z-0 bg-gradient-to-b from-[#040507]/50 via-[#06080b]/75 to-[#040507]/92" />
+        <div className="pointer-events-none absolute inset-0 z-0 bg-gradient-to-b from-[#040507]/50 via-[#06080b]/78 to-[#040507]/94" />
       )}
 
       {showReadMode ? (
-        <div className="relative z-10 flex-1 overflow-y-auto">
+        <div ref={readScrollRef} className="relative z-10 flex-1 overflow-y-auto">
           {isGmPreviewingAsPlayer && (
             <div className="px-4 py-1.5 bg-[#0f141e] border-b border-sky-500/25 flex items-center justify-center gap-2 text-[11.5px] text-sky-200/90">
               <span className="w-1.5 h-1.5 rounded-full bg-sky-400" />
               <span>Player View Active — GM secrets &amp; hidden map pins are masked.</span>
             </div>
           )}
+
+          {/* Cover Hero */}
           <div
             className={`relative w-full ${coverHeightCls} bg-[#040507] border-b border-[#12161f] overflow-hidden`}
           >
@@ -265,13 +369,50 @@ export const NoteEditorPane: React.FC<{ entityId: string }> = ({ entityId }) => 
                 className="w-full h-full object-cover object-center transition-opacity duration-150"
               />
             ) : (
-              <div className="w-full h-full bg-gradient-to-r from-[#080a0e] via-[#0c0f15] to-[#06080b]" />
+              <div className="w-full h-full bg-gradient-to-br from-[#0b0e16] via-[#0e121b] to-[#06080b]" />
             )}
-            <div className="absolute inset-x-0 bottom-0 h-28 bg-gradient-to-t from-[#06070a] via-[#06070a]/75 to-transparent pointer-events-none" />
+            <div className="absolute inset-x-0 bottom-0 h-32 bg-gradient-to-t from-[#06070a] via-[#06070a]/80 to-transparent pointer-events-none" />
 
+            {/* Subtle Obsidian Floating Controls */}
             <div className="absolute top-3 right-4 flex items-center gap-1.5">
+              {hasOutline && (
+                <button
+                  onClick={() => setShowOutline((v) => !v)}
+                  title={showOutline ? 'Hide Note Outline' : 'Show Note Outline'}
+                  className={`hidden xl:flex items-center gap-1 px-2 py-1 rounded-md dark-glass-subtle text-[11px] transition-colors ${
+                    showOutline ? 'text-[#e2b969] border-[#d4a853]/40' : 'text-[#9aa3b2] hover:text-white'
+                  }`}
+                >
+                  <ListTree className="w-3.5 h-3.5" />
+                  <span>Outline</span>
+                </button>
+              )}
+              <button
+                onClick={() => setReadableWidth((v) => !v)}
+                title={readableWidth ? 'Expand to Full Width' : 'Readable Line Width'}
+                className="hidden sm:flex items-center gap-1 px-2 py-1 rounded-md dark-glass-subtle text-[11px] text-[#9aa3b2] hover:text-[#e2b969] transition-colors"
+              >
+                {readableWidth ? <Maximize2 className="w-3 h-3" /> : <Minimize2 className="w-3 h-3" />}
+              </button>
+
               {canGmEdit && (
                 <>
+                  <button
+                    onClick={() => toggleEntityPlayerVisibility(entity.id)}
+                    title={
+                      entityIsGmOnly
+                        ? 'Hidden from Players (click to reveal)'
+                        : 'Visible to Players (click to hide)'
+                    }
+                    className={`flex items-center gap-1 px-2 py-1 rounded-md dark-glass-subtle text-[11px] font-medium transition-colors ${
+                      entityIsGmOnly
+                        ? 'text-red-300 border-red-500/40'
+                        : 'text-emerald-300/90 border-emerald-500/30'
+                    }`}
+                  >
+                    {entityIsGmOnly ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                    <span className="hidden md:inline">{entityIsGmOnly ? 'GM Only' : 'Shared'}</span>
+                  </button>
                   <button
                     onClick={() => {
                       setEditorMode('code');
@@ -280,7 +421,7 @@ export const NoteEditorPane: React.FC<{ entityId: string }> = ({ entityId }) => 
                     className="flex items-center gap-1.5 px-2.5 py-1 rounded-md dark-glass text-[11.5px] font-medium text-[#d6b16a] hover:border-[#b68d40]"
                   >
                     <Columns2 className="w-3.5 h-3.5" />
-                    <span>Edit in Split</span>
+                    <span>Edit Note</span>
                   </button>
                   <button
                     onClick={() => toggleFavorite(entity.id)}
@@ -293,11 +434,7 @@ export const NoteEditorPane: React.FC<{ entityId: string }> = ({ entityId }) => 
               )}
             </div>
 
-            <div
-              className={`absolute bottom-4 left-6 right-6 mx-auto transition-all duration-300 ease-out ${
-                rightInspectorCollapsed ? 'max-w-[1360px]' : 'max-w-5xl'
-              }`}
-            >
+            <div className={`absolute bottom-4 left-0 right-0 mx-auto transition-all duration-300 ease-out ${widthClass}`}>
               <div className="flex items-center gap-2 mb-1.5 flex-wrap">
                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider bg-[#050608]/85 text-[#d6b16a] border border-[#b68d40]/45 backdrop-blur-sm">
                   <EntityIcon type={entity.type} className="w-3 h-3" />
@@ -321,85 +458,197 @@ export const NoteEditorPane: React.FC<{ entityId: string }> = ({ entityId }) => 
                     </button>
                   );
                 })}
+                <span className="ml-auto hidden sm:inline-flex items-center gap-2 text-[10.5px] font-mono text-[#9ba3b3] bg-[#050608]/75 px-2 py-0.5 rounded border border-[#1a202d]">
+                  <span>{wordCount} words</span>
+                  <span>·</span>
+                  <span>{readTimeMin} min read</span>
+                </span>
               </div>
-              <h1 className="font-serif text-3xl font-bold text-[#ede5d6] drop-shadow-[0_2px_10px_rgba(0,0,0,0.95)] tracking-wide">
+              <h1 className="font-serif text-3xl sm:text-[34px] font-bold text-[#f3ead8] drop-shadow-[0_2px_12px_rgba(0,0,0,0.95)] tracking-wide leading-tight">
                 {entity.title}
               </h1>
             </div>
           </div>
 
-          <div
-            className={`py-6 mx-auto space-y-6 transition-all duration-300 ease-out ${
-              rightInspectorCollapsed
-                ? 'max-w-[1360px] px-8 sm:px-12'
-                : 'max-w-5xl px-6 sm:px-8'
-            } ${scopeClass}`}
-          >
-            {(entity.summary || entity.tags.length > 0) && (
-              <div className="space-y-3">
-                {entity.summary && (
-                  <p className="font-editorial text-[17.5px] leading-relaxed text-[#ded8cc] border-l-2 border-[#b68d40]/60 pl-4 py-0.5 italic">
-                    {entity.summary}
-                  </p>
-                )}
-                {entity.tags.length > 0 && (
-                  <div className="flex items-center flex-wrap gap-1.5 pl-4">
-                    {entity.tags.map((tag) => (
-                      <span
-                        key={tag}
-                        className="px-2 py-0.5 rounded-full bg-[#090b10]/90 border border-[#171c25] text-[10.5px] font-mono text-[#b5a788]"
+          {/* Main Reading Grid: Note Document + Optional Obsidian Outline */}
+          <div className="flex justify-center gap-6 px-2 sm:px-4">
+            <article
+              className={`py-6 flex-1 min-w-0 space-y-6 transition-all duration-300 ease-out ${widthClass} ${scopeClass}`}
+            >
+              {/* Summary & Tags */}
+              {(entity.summary || entity.tags.length > 0) && (
+                <div className="space-y-3">
+                  {entity.summary && (
+                    <p className="font-editorial text-[18px] leading-relaxed text-[#e0d9cc] border-l-2 border-[#d4a853]/65 pl-4 py-0.5 italic">
+                      {entity.summary}
+                    </p>
+                  )}
+                  {entity.tags.length > 0 && (
+                    <div className="flex items-center flex-wrap gap-1.5 pl-4">
+                      {entity.tags.map((tag) => (
+                        <span
+                          key={tag}
+                          className="px-2.5 py-0.5 rounded-full bg-[#0a0d14]/90 border border-[#1a2130] text-[10.5px] font-mono text-[#c9a866]"
+                        >
+                          #{tag}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Obsidian Properties Card */}
+              {visibleMetadata.length > 0 && (
+                <div className="rounded-xl bg-[#090c12]/80 border border-[#171d29] px-4 py-3">
+                  <div className="text-[9.5px] font-mono uppercase tracking-[0.14em] text-[#7a8496] mb-2">
+                    Properties
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-1.5">
+                    {visibleMetadata.map(([k, v]) => (
+                      <div
+                        key={k}
+                        className="flex items-baseline justify-between gap-3 py-1 border-b border-[#121722]"
                       >
-                        #{tag}
-                      </span>
+                        <span className="text-[11px] font-mono text-[#7a8496] truncate">{k}</span>
+                        <span className="text-[12.5px] font-medium text-[#ebe3d4] text-right truncate">
+                          {String(v)}
+                        </span>
+                      </div>
                     ))}
                   </div>
-                )}
-              </div>
-            )}
+                </div>
+              )}
 
-            {visibleMetadata.length > 0 && (
-              <div className="border-t border-b border-[#131720] py-2.5">
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-8 gap-y-1.5">
-                  {visibleMetadata.map(([k, v]) => (
-                    <div
-                      key={k}
-                      className="flex items-baseline justify-between gap-3 py-1 border-b border-[#10141c]/80"
-                    >
-                      <span className="text-[11px] font-mono text-[#737c8c] truncate">{k}</span>
-                      <span className="text-[12.5px] font-medium text-[#e5ded0] text-right truncate">
-                        {String(v)}
-                      </span>
+              {/* Rendered Note Body */}
+              <div
+                style={noteVars as React.CSSProperties}
+                className="tiptap py-1 rounded-md"
+                onMouseOver={handleWikiMouseOver}
+                onMouseLeave={() => setHoverPreview(null)}
+                onClick={handleReadBodyClick}
+                dangerouslySetInnerHTML={{ __html: renderedPreviewHtml }}
+              />
+
+              {/* GM Secret Callout */}
+              {canGmEdit && entity.gm_secrets && (
+                <div className="rounded-xl border border-red-500/35 border-l-4 border-l-red-500/75 bg-red-950/15 px-4 py-3.5 space-y-1.5">
+                  <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-red-300">
+                    <AlertTriangle className="w-3.5 h-3.5 text-red-400" />
+                    <span>GM Secret</span>
+                  </div>
+                  <p className="text-[13px] text-red-100/90 leading-relaxed whitespace-pre-wrap">
+                    {entity.gm_secrets}
+                  </p>
+                </div>
+              )}
+
+              {/* Inline Obsidian Backlinks & Outgoing References Footer */}
+              {(incomingBacklinks.length > 0 || outgoingReferences.length > 0) && (
+                <section className="pt-5 mt-8 border-t border-[#151b26] space-y-3">
+                  <button
+                    type="button"
+                    onClick={() => setBacklinksOpen((v) => !v)}
+                    className="flex items-center gap-2 text-[11px] font-mono uppercase tracking-[0.14em] text-[#9aa3b2] hover:text-[#e2b969] transition-colors"
+                  >
+                    {backlinksOpen ? (
+                      <ChevronDown className="w-3.5 h-3.5 text-[#d4a853]" />
+                    ) : (
+                      <ChevronRight className="w-3.5 h-3.5 text-[#d4a853]" />
+                    )}
+                    <span>
+                      References &amp; Linked Mentions ({incomingBacklinks.length} in ·{' '}
+                      {outgoingReferences.length} out)
+                    </span>
+                  </button>
+
+                  {backlinksOpen && (
+                    <div className="space-y-4">
+                      {incomingBacklinks.length > 0 && (
+                        <div className="space-y-2">
+                          <div className="text-[10.5px] font-semibold uppercase tracking-wider text-[#c9a050]">
+                            Linked Mentions ({incomingBacklinks.length})
+                          </div>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                            {incomingBacklinks.map(({ entity: src, snippet }) => (
+                              <button
+                                key={src.id}
+                                type="button"
+                                onClick={() => openEntityTab(src.id)}
+                                className="text-left p-3 rounded-lg bg-[#0a0d14] border border-[#171d29] hover:border-[#d4a853]/45 transition-colors group"
+                              >
+                                <div className="flex items-center justify-between gap-2 mb-1">
+                                  <span className="flex items-center gap-1.5 text-xs font-semibold text-[#f0e9db] group-hover:text-[#e2b969] truncate">
+                                    <EntityIcon type={src.type} className="w-3.5 h-3.5 text-[#d4a853] shrink-0" />
+                                    <span className="truncate">{src.title}</span>
+                                  </span>
+                                  <ArrowUpRight className="w-3.5 h-3.5 text-[#5c6574] group-hover:text-[#d4a853] shrink-0" />
+                                </div>
+                                <p className="text-[11.5px] text-[#8d96a6] line-clamp-2 leading-snug">
+                                  {snippet || src.summary || 'References this note.'}
+                                </p>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {outgoingReferences.length > 0 && (
+                        <div className="space-y-1.5">
+                          <div className="text-[10.5px] font-semibold uppercase tracking-wider text-[#7e8796]">
+                            Referenced Notes ({outgoingReferences.length})
+                          </div>
+                          <div className="flex flex-wrap gap-1.5">
+                            {outgoingReferences.map((tgt) => (
+                              <button
+                                key={tgt.id}
+                                type="button"
+                                onClick={() => openEntityTab(tgt.id)}
+                                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-[#0b0e15] border border-[#1a2130] hover:border-[#d4a853]/45 text-xs text-[#e2b969] transition-colors"
+                              >
+                                <FileText className="w-3 h-3 text-[#b68d40]" />
+                                <span>{tgt.title}</span>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
-                  ))}
-                </div>
-              </div>
-            )}
+                  )}
+                </section>
+              )}
+            </article>
 
-            <div
-              style={noteVars as React.CSSProperties}
-              className="tiptap py-2 rounded-md"
-              onMouseOver={handleWikiMouseOver}
-              onMouseLeave={() => setHoverPreview(null)}
-              onClick={handleWikiClick}
-              dangerouslySetInnerHTML={{ __html: renderedPreviewHtml }}
-            />
-
-            {canGmEdit && entity.gm_secrets && (
-              <div className="border-l-2 border-red-500/60 bg-red-950/15 px-4 py-3 space-y-1">
-                <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-red-300">
-                  <AlertTriangle className="w-3.5 h-3.5 text-red-400" />
-                  <span>GM Secret</span>
+            {/* Collapsible Desktop TOC / Outline Rail */}
+            {hasOutline && showOutline && (
+              <aside className="hidden xl:block w-52 shrink-0 py-7 pr-4">
+                <div className="sticky top-6 rounded-xl bg-[#090c12]/80 border border-[#151b26] p-3 space-y-2">
+                  <div className="text-[10px] font-mono uppercase tracking-[0.14em] text-[#8b94a5] flex items-center gap-1.5">
+                    <ListTree className="w-3 h-3 text-[#d4a853]" />
+                    <span>On This Page</span>
+                  </div>
+                  <nav className="space-y-1 max-h-[65vh] overflow-y-auto">
+                    {headings.map((h) => (
+                      <button
+                        key={h.id}
+                        type="button"
+                        onClick={() => scrollToHeading(h.id)}
+                        className={`block w-full text-left text-[11.5px] leading-snug truncate rounded px-1.5 py-1 text-[#96a0b2] hover:text-[#e2b969] hover:bg-[#121722] transition-colors ${
+                          h.level === 2 ? 'pl-3' : h.level === 3 ? 'pl-5 text-[11px] text-[#7a8496]' : 'font-medium text-[#d5cebf]'
+                        }`}
+                      >
+                        {h.text}
+                      </button>
+                    ))}
+                  </nav>
                 </div>
-                <p className="text-[13px] text-red-100/90 leading-relaxed whitespace-pre-wrap">
-                  {entity.gm_secrets}
-                </p>
-              </div>
+              </aside>
             )}
           </div>
         </div>
       ) : (
         <div className="relative z-10 flex-1 flex flex-col min-h-0">
-          <div className="relative z-30 h-[40px] px-3 border-b border-[#12161e] bg-[#050608]/98 flex items-center justify-between gap-2 shrink-0">
+          <div className="relative z-30 h-[42px] px-3 border-b border-[#12161e] bg-[#050608]/98 flex items-center justify-between gap-2 shrink-0">
             <div className="flex items-center gap-2 min-w-0 flex-1">
               <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider bg-[#0b0e14] text-[#c9a050] border border-[#b68d40]/30 shrink-0">
                 <EntityIcon type={entity.type} className="w-3 h-3" />
@@ -434,6 +683,18 @@ export const NoteEditorPane: React.FC<{ entityId: string }> = ({ entityId }) => 
                   </button>
                 );
               })}
+              <button
+                onClick={() => toggleEntityPlayerVisibility(entity.id)}
+                title={entityIsGmOnly ? 'GM-Only Entry (click to share with players)' : 'Shared with Players (click to hide)'}
+                className={`hidden md:flex items-center gap-1 px-2 py-1 rounded text-[11px] font-medium border transition-colors shrink-0 ${
+                  entityIsGmOnly
+                    ? 'bg-red-950/35 border-red-500/35 text-red-300'
+                    : 'bg-[#090b0f] border-[#151a23] text-emerald-300/90 hover:border-emerald-500/40'
+                }`}
+              >
+                {entityIsGmOnly ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                <span className="hidden xl:inline">{entityIsGmOnly ? 'GM Only' : 'Shared'}</span>
+              </button>
               <button
                 onClick={() => setShowPropertiesDrawer((v) => !v)}
                 className={`flex items-center gap-1 px-2 py-1 rounded text-[11px] font-medium border transition-colors shrink-0 ${
@@ -842,36 +1103,11 @@ export const NoteEditorPane: React.FC<{ entityId: string }> = ({ entityId }) => 
       )}
 
       {hoverPreview && (
-        <div
-          style={{
-            position: 'fixed',
-            left: Math.min(hoverPreview.x, window.innerWidth - 300),
-            top: Math.min(hoverPreview.y, window.innerHeight - 230),
-          }}
-          className="z-50 w-72 rounded-lg dark-glass shadow-glass p-3 pointer-events-none"
-        >
-          {hoverPreview.entity.cover_image_url && (
-            <div className="h-24 w-full rounded overflow-hidden mb-2 border border-[#171c25]">
-              <img
-                src={hoverPreview.entity.cover_image_url}
-                alt={hoverPreview.entity.title}
-                className="w-full h-full object-cover"
-              />
-            </div>
-          )}
-          <div className="flex items-center gap-2 mb-1">
-            <EntityIcon type={hoverPreview.entity.type} className="w-3.5 h-3.5 text-[#c9a050]" />
-            <span className="text-[10px] uppercase tracking-wider font-semibold text-[#c9a050]">
-              {hoverPreview.entity.type}
-            </span>
-          </div>
-          <div className="font-serif text-sm font-semibold text-[#e8dfd0] mb-1">
-            {hoverPreview.entity.title}
-          </div>
-          <p className="text-[11.5px] text-[#aba496] leading-snug line-clamp-3">
-            {hoverPreview.entity.summary}
-          </p>
-        </div>
+        <WikiLinkHoverCard
+          entity={hoverPreview.entity}
+          x={hoverPreview.x}
+          y={hoverPreview.y}
+        />
       )}
     </div>
   );

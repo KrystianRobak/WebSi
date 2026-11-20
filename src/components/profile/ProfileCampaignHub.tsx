@@ -4,7 +4,9 @@ import {
   Compass,
   Copy,
   Crown,
+  Hammer,
   Link2,
+  Play,
   Plus,
   RefreshCw,
   Shield,
@@ -31,6 +33,8 @@ export const ProfileCampaignHub: React.FC = () => {
     world,
     campaignMembers,
     myRole,
+    appMode,
+    setAppMode,
     characters,
     sheetTemplates,
     switchCampaign,
@@ -586,20 +590,50 @@ export const ProfileCampaignHub: React.FC = () => {
                       </div>
                     </div>
 
-                    <div className="flex items-center justify-between gap-2 mt-3 pt-2.5 border-t border-[#181d27]">
-                      {isActive ? (
-                        <span className="text-[11px] font-medium text-[#d4a853]">
-                          Currently Active
-                        </span>
-                      ) : (
+                    <div className="flex flex-wrap items-center justify-between gap-2 mt-3 pt-2.5 border-t border-[#181d27]">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        {!isActive && (
+                          <button
+                            type="button"
+                            onClick={() => switchCampaign(camp.id)}
+                            className="px-2.5 py-1 rounded-md bg-[#18202e] hover:bg-[#d4a853]/20 border border-[#2a3447] text-xs font-medium text-[#f3ead8]"
+                          >
+                            Switch Campaign
+                          </button>
+                        )}
+                        {(isOwner || (isActive && isManager)) && (
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              if (!isActive) await switchCampaign(camp.id);
+                              setAppMode('studio');
+                            }}
+                            className={`px-2.5 py-1 rounded-md border text-[11px] font-medium inline-flex items-center gap-1 transition-colors ${
+                              isActive && appMode === 'studio'
+                                ? 'bg-[#d4a853]/20 border-[#d4a853]/55 text-[#f3ead8]'
+                                : 'bg-[#12161f] border-[#242c3b] hover:border-[#d4a853]/45 text-[#e2b969]'
+                            }`}
+                          >
+                            <Hammer className="w-3 h-3" />
+                            <span>Worldbuilding Studio</span>
+                          </button>
+                        )}
                         <button
                           type="button"
-                          onClick={() => switchCampaign(camp.id)}
-                          className="px-3 py-1 rounded-md bg-[#18202e] hover:bg-[#d4a853]/20 border border-[#2a3447] text-xs font-medium text-[#f3ead8]"
+                          onClick={async () => {
+                            if (!isActive) await switchCampaign(camp.id);
+                            setAppMode('play');
+                          }}
+                          className={`px-2.5 py-1 rounded-md border text-[11px] font-medium inline-flex items-center gap-1 transition-colors ${
+                            isActive && appMode === 'play'
+                              ? 'bg-emerald-500/20 border-emerald-500/55 text-emerald-200'
+                              : 'bg-[#0e1514] border-emerald-500/30 hover:border-emerald-400/60 text-emerald-300'
+                          }`}
                         >
-                          Switch to Campaign
+                          <Play className="w-3 h-3" />
+                          <span>{isActive && appMode === 'play' ? 'Playing Here' : 'Enter Play Table'}</span>
                         </button>
-                      )}
+                      </div>
 
                       {!isOwner && (
                         <button

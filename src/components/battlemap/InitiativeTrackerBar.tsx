@@ -266,7 +266,7 @@ export const InitiativeTrackerBar: React.FC<{ mapId: string }> = ({ mapId }) => 
                     {/* Conditions */}
                     <div className="flex flex-wrap gap-1 mt-1.5">
                       {CONDITIONS.map((cond) => {
-                        const active = entry.conditions.includes(cond);
+                        const active = (entry.conditions || []).includes(cond);
                         if (!active && !canManage) return null;
                         return (
                           <button

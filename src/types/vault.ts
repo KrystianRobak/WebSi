@@ -676,6 +676,10 @@ export interface TimelineEvent {
 // ----------------------------------------------------------------------------
 // Workspace Tabs & Tooling Modes
 // ----------------------------------------------------------------------------
+export type AppMode = 'studio' | 'play';
+export type ViewportSurface = 'studio' | 'play';
+export type PlaySection = 'table' | 'party' | 'journals' | 'quests' | 'timeline' | 'hub';
+
 export type TabKind =
   | 'map'
   | 'entity'

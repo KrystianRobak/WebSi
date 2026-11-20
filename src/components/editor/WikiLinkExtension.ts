@@ -46,8 +46,15 @@ export const WikiLinkNode = Node.create<WikiLinkOptions>({
       },
       label: {
         default: '',
-        parseHTML: (el) => el.textContent?.replace(/^\[\[|\]\]$/g, '') || el.getAttribute('data-wikilink') || '',
-        renderHTML: () => ({}),
+        parseHTML: (el) =>
+          el.getAttribute('data-wikilink-alias') ||
+          el.textContent?.replace(/^\[\[|\]\]$/g, '') ||
+          el.getAttribute('data-wikilink') ||
+          '',
+        renderHTML: (attrs) =>
+          attrs.label && attrs.label !== attrs.target
+            ? { 'data-wikilink-alias': attrs.label }
+            : {},
       },
     };
   },
@@ -66,13 +73,15 @@ export const WikiLinkNode = Node.create<WikiLinkOptions>({
       'span',
       mergeAttributes(this.options.HTMLAttributes, HTMLAttributes, {
         class: 'wikilink-pill',
+        role: 'link',
       }),
-      `[[${label}]]`,
+      label,
     ];
   },
 
   renderText({ node }) {
-    return `[[${node.attrs.target}]]`;
+    const alias = node.attrs.label && node.attrs.label !== node.attrs.target ? `|${node.attrs.label}` : '';
+    return `[[${node.attrs.target}${alias}]]`;
   },
 
   addProseMirrorPlugins() {

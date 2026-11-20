@@ -688,6 +688,100 @@ const CALLOUT_META: Record<string, { label: string; tone: string }> = {
   statblock: { label: 'Statblock', tone: 'statblock' },
 };
 
+export interface NoteHeadingItem {
+  level: 1 | 2 | 3;
+  text: string;
+  id: string;
+}
+
+/**
+ * Extracts h1/h2/h3 headings from Markdown outside fenced code blocks for the collapsible Note Outline.
+ */
+export function extractMarkdownHeadings(raw: string): NoteHeadingItem[] {
+  if (!raw) return [];
+  const { content } = parseNoteMarkdownStyleBlock(raw);
+  const lines = content.split(/\r?\n/);
+  const headings: NoteHeadingItem[] = [];
+  const usedIds = new Set<string>();
+  let inCode = false;
+
+  for (const rawLine of lines) {
+    const l = rawLine.trim();
+    if (l.startsWith('```')) {
+      inCode = !inCode;
+      continue;
+    }
+    if (inCode) continue;
+    const cleaned = l.replace(/\s\{([^}]+)\}\s*$/, '');
+    const m = cleaned.match(/^(#{1,3})\s+(.+)$/);
+    if (!m) continue;
+    const level = m[1].length as 1 | 2 | 3;
+    const text = m[2]
+      .replace(/\[\[([^\]|]+)\|([^\]]+)\]\]/g, '$2')
+      .replace(/\[\[([^\]]+)\]\]/g, '$1')
+      .replace(/[*_~`]/g, '')
+      .trim();
+    if (!text) continue;
+    const base = `heading-${slugify(text) || headings.length}`;
+    let candidate = base;
+    let n = 2;
+    while (usedIds.has(candidate)) {
+      candidate = `${base}-${n++}`;
+    }
+    usedIds.add(candidate);
+    headings.push({ level, text, id: candidate });
+  }
+  return headings;
+}
+
+/**
+ * Toggles the N-th Markdown task list item (`- [ ]` / `- [x]`) outside fenced code blocks.
+ */
+export function toggleMarkdownTaskAtIndex(raw: string, targetIndex: number): string {
+  if (!raw || targetIndex < 0) return raw;
+  const lines = raw.split(/\r?\n/);
+  let currentIdx = 0;
+  let inCode = false;
+
+  for (let i = 0; i < lines.length; i++) {
+    const trimmed = lines[i].trim();
+    if (trimmed.startsWith('```')) {
+      inCode = !inCode;
+      continue;
+    }
+    if (inCode) continue;
+    const taskMatch = lines[i].match(/^(\s*[-*]\s+\[)( |x|X)(\]\s+.*)$/);
+    if (taskMatch) {
+      if (currentIdx === targetIndex) {
+        const nextMark = taskMatch[2].toLowerCase() === 'x' ? ' ' : 'x';
+        lines[i] = `${taskMatch[1]}${nextMark}${taskMatch[3]}`;
+        break;
+      }
+      currentIdx++;
+    }
+  }
+  return lines.join('\n');
+}
+
+function renderWikiLinkPill(inner: string, entities: Entity[]): string {
+  const parts = inner.split('|').map((s: string) => s.trim());
+  const target = parts[0] || '';
+  const alias = parts[1] || '';
+  const display = alias || target;
+  const norm = target.toLowerCase();
+  const resolved =
+    entities.length === 0 ||
+    entities.some((e) => e.title.toLowerCase() === norm || e.slug.toLowerCase() === norm);
+  const aliasAttr = alias ? ` data-wikilink-alias="${escapeHtml(alias)}"` : '';
+  const cls = resolved ? 'wikilink-pill' : 'wikilink-pill wikilink-unresolved';
+  const titleAttr = resolved
+    ? ` title="Open ${escapeHtml(target)}"`
+    : ` title="Unresolved entry: ${escapeHtml(target)}"`;
+  return `<span role="link" tabindex="0" data-wikilink="${escapeHtml(target)}"${aliasAttr} data-wikilink-resolved="${
+    resolved ? 'true' : 'false'
+  }" class="${cls}"${titleAttr}>${escapeHtml(display)}</span>`;
+}
+
 /**
  * Converts rich Markdown + HTML into safe rendered HTML:
  * - Multi-column grids (`:::columns 2 ... :::col ... :::`)
@@ -743,10 +837,7 @@ export function markdownToHtml(
           ? `<a href="${escapeHtml(safeUrl)}" target="_blank" rel="noopener noreferrer">${label}</a>`
           : label;
       })
-      .replace(WIKILINK_REGEX, (_, inner: string) => {
-        const [target, alias] = inner.split('|').map((s: string) => s.trim());
-        return `<span data-wikilink="${escapeHtml(target)}" class="wikilink-pill">[[${escapeHtml(alias || target)}]]</span>`;
-      });
+      .replace(WIKILINK_REGEX, (_, inner: string) => renderWikiLinkPill(inner, entities));
 
     out = out.replace(/@@INLINE_(\d+)@@/g, (_, idx) => placeholders[Number(idx)] || '');
     return out;
@@ -769,10 +860,7 @@ export function markdownToHtml(
     const restored = prepared
       .replace(OBSIDIAN_IMG_REGEX, (_, inner: string) => buildEmbedTag(inner, assets, entities))
       .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (_, rawAlt: string, url: string) => buildImgTag(url, rawAlt, assets))
-      .replace(WIKILINK_REGEX, (_, inner: string) => {
-        const [target, alias] = inner.split('|').map((s: string) => s.trim());
-        return `<span data-wikilink="${escapeHtml(target)}" class="wikilink-pill">[[${escapeHtml(alias || target)}]]</span>`;
-      })
+      .replace(WIKILINK_REGEX, (_, inner: string) => renderWikiLinkPill(inner, entities))
       .replace(/@@STYLE_BLOCK_(\d+)@@/g, (_, idx) => stylePlaceholders[Number(idx)] || '');
     return sanitizeNoteHtml(restored);
   }
@@ -780,6 +868,23 @@ export function markdownToHtml(
   const lines = prepared.split(/\r?\n/);
   const htmlParts: string[] = [];
   let listType: 'ul' | 'ol' | null = null;
+  let taskIndex = 0;
+  const usedHeadingIds = new Set<string>();
+  const allocHeadingId = (rawText: string) => {
+    const plain = rawText
+      .replace(/\[\[([^\]|]+)\|([^\]]+)\]\]/g, '$2')
+      .replace(/\[\[([^\]]+)\]\]/g, '$1')
+      .replace(/[*_~`]/g, '')
+      .trim();
+    const base = `heading-${slugify(plain) || usedHeadingIds.size}`;
+    let candidate = base;
+    let n = 2;
+    while (usedHeadingIds.has(candidate)) {
+      candidate = `${base}-${n++}`;
+    }
+    usedHeadingIds.add(candidate);
+    return candidate;
+  };
 
   const closeList = () => {
     if (listType === 'ul') htmlParts.push('</ul>');
@@ -981,10 +1086,7 @@ export function markdownToHtml(
         applyInlineStyleDirectives(l)
           .replace(OBSIDIAN_IMG_REGEX, (_, inner: string) => buildEmbedTag(inner, assets, entities))
           .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (_, rawAlt: string, url: string) => buildImgTag(url, rawAlt, assets))
-          .replace(WIKILINK_REGEX, (_, inner: string) => {
-            const [target, alias] = inner.split('|').map((s: string) => s.trim());
-            return `<span data-wikilink="${escapeHtml(target)}" class="wikilink-pill">[[${escapeHtml(alias || target)}]]</span>`;
-          })
+          .replace(WIKILINK_REGEX, (_, inner: string) => renderWikiLinkPill(inner, entities))
       );
       continue;
     }
@@ -1045,13 +1147,16 @@ export function markdownToHtml(
       htmlParts.push('<hr class="vault-hr" />');
     } else if (cleanedRawLine.startsWith('### ')) {
       closeList();
-      htmlParts.push(`<h3${blockStyleAttr}>${formatInline(cleanedRawLine.slice(4))}</h3>`);
+      const hid = allocHeadingId(cleanedRawLine.slice(4));
+      htmlParts.push(`<h3 id="${hid}"${blockStyleAttr}>${formatInline(cleanedRawLine.slice(4))}</h3>`);
     } else if (cleanedRawLine.startsWith('## ')) {
       closeList();
-      htmlParts.push(`<h2${blockStyleAttr}>${formatInline(cleanedRawLine.slice(3))}</h2>`);
+      const hid = allocHeadingId(cleanedRawLine.slice(3));
+      htmlParts.push(`<h2 id="${hid}"${blockStyleAttr}>${formatInline(cleanedRawLine.slice(3))}</h2>`);
     } else if (cleanedRawLine.startsWith('# ')) {
       closeList();
-      htmlParts.push(`<h1${blockStyleAttr}>${formatInline(cleanedRawLine.slice(2))}</h1>`);
+      const hid = allocHeadingId(cleanedRawLine.slice(2));
+      htmlParts.push(`<h1 id="${hid}"${blockStyleAttr}>${formatInline(cleanedRawLine.slice(2))}</h1>`);
     } else if (l.startsWith('> ')) {
       closeList();
       const quoteLines = [cleanedRawLine.replace(/^>\s?/, '')];
@@ -1074,8 +1179,11 @@ export function markdownToHtml(
       }
       const checked = /^[-*]\s+\[[xX]\]/.test(l);
       const body = cleanedRawLine.replace(/^[-*]\s+\[( |x|X)\]\s+/, '');
+      const currentTaskIdx = taskIndex++;
       htmlParts.push(
-        `<li class="vault-task-item"><span class="vault-checkbox ${
+        `<li class="vault-task-item"><span role="checkbox" aria-checked="${
+          checked ? 'true' : 'false'
+        }" data-task-index="${currentTaskIdx}" class="vault-checkbox ${
           checked ? 'checked' : ''
         }">${checked ? '✓' : ''}</span><span${
           checked ? ' class="line-through opacity-60"' : ''
@@ -1126,7 +1234,12 @@ export function htmlToMarkdown(html: string): string {
         op < 0.99 ? `${alt ? `${alt}|` : ''}opacity=${Math.round(op * 100)}` : alt;
       return `\n\n![${altSpec}](${targetSrc})\n\n`;
     })
-    .replace(/<span[^>]*data-wikilink="([^"]+)"[^>]*>.*?<\/span>/gi, '[[$1]]')
+    .replace(/<span[^>]*data-wikilink="([^"]+)"[^>]*>([\s\S]*?)<\/span>/gi, (tag, target: string, innerText: string) => {
+      const aliasAttr = tag.match(/data-wikilink-alias="([^"]+)"/i);
+      const cleanInner = innerText.replace(/<[^>]+>/g, '').replace(/^\[\[|\]\]$/g, '').trim();
+      const alias = aliasAttr?.[1] || (cleanInner && cleanInner !== target ? cleanInner : '');
+      return alias ? `[[${target}|${alias}]]` : `[[${target}]]`;
+    })
     .replace(/<h1[^>]*>(.*?)<\/h1>/gi, '# $1\n\n')
     .replace(/<h2[^>]*>(.*?)<\/h2>/gi, '## $1\n\n')
     .replace(/<h3[^>]*>(.*?)<\/h3>/gi, '### $1\n\n')

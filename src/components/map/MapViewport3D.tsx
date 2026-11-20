@@ -113,6 +113,7 @@ import {
   PathPoint,
   TerrainShadingSettings,
   VaultMap,
+  ViewportSurface,
   WaterSettings,
   WorldAtmospherePreset,
   WorldLayerCategory,
@@ -3278,7 +3279,10 @@ const TerrainScene: React.FC<TerrainSceneProps> = ({
   );
 };
 
-export const MapViewport3D: React.FC<{ mapId: string }> = ({ mapId }) => {
+export const MapViewport3D: React.FC<{ mapId: string; surface?: ViewportSurface }> = ({
+  mapId,
+  surface = 'studio',
+}) => {
   const {
     maps,
     campaignMembers,
@@ -3372,6 +3376,8 @@ export const MapViewport3D: React.FC<{ mapId: string }> = ({ mapId }) => {
   );
 
   const effectiveGm = isEffectiveGm();
+  const isPlaySurface = surface === 'play';
+  const canAuthorMap = !isPlaySurface && effectiveGm;
   const rightInsetPx = 14;
 
   useEffect(() => {
@@ -3585,7 +3591,8 @@ export const MapViewport3D: React.FC<{ mapId: string }> = ({ mapId }) => {
             </button>
           </div>
 
-          {effectiveGm && (
+          {/* GM-Only Studio Worldsmith Switcher */}
+          {canAuthorMap && (
             <>
               <span className="w-px h-4 bg-[#1f2636] shrink-0" />
 
@@ -4107,7 +4114,7 @@ export const MapViewport3D: React.FC<{ mapId: string }> = ({ mapId }) => {
       <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1 px-2 py-1 rounded-xl dark-glass shadow-glass border border-[#1f2636] max-w-[calc(100%-24px)]">
         {/* Active Tool Buttons (horizontally scrollable on narrow screens, single clean row) */}
         <div className="flex items-center gap-0.5 flex-nowrap overflow-x-auto no-scrollbar min-w-0">
-          {worldsmithMode && effectiveGm ? (
+          {worldsmithMode && canAuthorMap ? (
             <>
               <button
                 title="Undo Terrain Sculpt (Ctrl+Z)"
@@ -4169,18 +4176,21 @@ export const MapViewport3D: React.FC<{ mapId: string }> = ({ mapId }) => {
           ) : (
             (
               [
-                { id: 'select', icon: MousePointer, label: 'Select / Move / Inspect', gmOnly: false },
-                { id: 'pin', icon: MapPin, label: 'Add Location Pin', gmOnly: true },
-                { id: 'text', icon: Type, label: 'Add Text Label', gmOnly: true },
-                { id: 'zone', icon: Pentagon, label: 'Draw Country / Region / Layer Zone', gmOnly: true },
-                { id: 'path', icon: Route, label: 'Draw Terrain Route', gmOnly: true },
-                { id: 'element', icon: Castle, label: 'Place 3D Element', gmOnly: true },
-                { id: 'quest-board', icon: ScrollText, label: 'Place Guild Quest Board', gmOnly: true },
-                { id: 'fog-brush', icon: EyeOff, label: '3D Fog Brush', gmOnly: true },
-                { id: 'link', icon: Link2, label: 'Link Note', gmOnly: true },
+                { id: 'select', icon: MousePointer, label: 'Select / Move / Inspect', gmOnly: false, playAllowed: true },
+                { id: 'pin', icon: MapPin, label: 'Add Location Pin', gmOnly: true, playAllowed: false },
+                { id: 'text', icon: Type, label: 'Add Text Label', gmOnly: true, playAllowed: false },
+                { id: 'zone', icon: Pentagon, label: 'Draw Country / Region / Layer Zone', gmOnly: true, playAllowed: false },
+                { id: 'path', icon: Route, label: 'Draw Terrain Route', gmOnly: true, playAllowed: false },
+                { id: 'element', icon: Castle, label: 'Place 3D Element', gmOnly: true, playAllowed: false },
+                { id: 'quest-board', icon: ScrollText, label: 'Place Guild Quest Board', gmOnly: true, playAllowed: false },
+                { id: 'fog-brush', icon: EyeOff, label: '3D Fog Brush', gmOnly: true, playAllowed: true },
+                { id: 'link', icon: Link2, label: 'Link Note', gmOnly: true, playAllowed: false },
               ] as const
             )
-              .filter((tool) => !tool.gmOnly || effectiveGm)
+              .filter(
+                (tool) =>
+                  (!tool.gmOnly || effectiveGm) && (!isPlaySurface || tool.playAllowed)
+              )
               .map((tool) => {
                 const Icon = tool.icon;
                 const active =
@@ -4315,7 +4325,7 @@ export const MapViewport3D: React.FC<{ mapId: string }> = ({ mapId }) => {
                   ))}
                 </div>
 
-                {effectiveGm &&
+                {canAuthorMap &&
                   (!newLayerOpen ? (
                     <button
                       onClick={() => setNewLayerOpen(true)}
@@ -4374,8 +4384,8 @@ export const MapViewport3D: React.FC<{ mapId: string }> = ({ mapId }) => {
           )}
         </div>
 
-        {/* Map Tools Upward Popover (GM Only) */}
-        {effectiveGm && (
+        {/* Map Tools Upward Popover (Studio GM Only) */}
+        {canAuthorMap && (
           <div className="relative shrink-0">
             <button
               onClick={() => {
@@ -4498,7 +4508,7 @@ export const MapViewport3D: React.FC<{ mapId: string }> = ({ mapId }) => {
         )}
 
         {/* Worldsmith Brush / Mesh Settings Trigger */}
-        {worldsmithMode && effectiveGm && (
+        {worldsmithMode && canAuthorMap && (
           <button
             onClick={() => setRightInspectorCollapsed(false)}
             className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap shrink-0 bg-[#10141d] border border-[#d4a853]/35 text-[#e2b969] hover:border-[#d4a853]"
@@ -4600,7 +4610,7 @@ export const MapViewport3D: React.FC<{ mapId: string }> = ({ mapId }) => {
       </div>
 
       {/* Slide-Over Entity Card when a 3D Pin is Clicked */}
-      <PinEntitySlideOver />
+      <PinEntitySlideOver surface={surface} />
 
       {/* West Marches Guild Quest Board Modal */}
       <GuildQuestBoardModal />

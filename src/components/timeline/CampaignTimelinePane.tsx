@@ -13,9 +13,11 @@ import {
 } from 'lucide-react';
 import { normalizeCalendarConfig } from '../../data/seedData';
 import { useVaultStore } from '../../store/useVaultStore';
-import type { CampaignCalendarConfig } from '../../types/vault';
+import type { CampaignCalendarConfig, ViewportSurface } from '../../types/vault';
 
-export const CampaignTimelinePane: React.FC = () => {
+export const CampaignTimelinePane: React.FC<{ surface?: ViewportSurface }> = ({
+  surface = 'studio',
+}) => {
   const {
     world,
     timelineEvents,
@@ -29,6 +31,7 @@ export const CampaignTimelinePane: React.FC = () => {
   } = useVaultStore();
 
   const canEdit = isEffectiveGm();
+  const canAuthorTimeline = surface === 'studio' && canEdit;
   const cal: CampaignCalendarConfig = normalizeCalendarConfig(world.calendar_config);
   const months = cal.months;
   const activeMonth = months[cal.currentMonthIndex % months.length] || months[0];
@@ -126,22 +129,24 @@ export const CampaignTimelinePane: React.FC = () => {
               >
                 +1 Week
               </button>
-              <button
-                onClick={() => {
-                  setEraInput(cal.eraName);
-                  setYearInput(cal.currentYear);
-                  setEditingCal((v) => !v);
-                }}
-                title="Configure Era & Year"
-                className="p-2 rounded-lg bg-[#050608] border border-[#1d222b] hover:border-[#d4a853]/50 text-[#9b9384]"
-              >
-                <Settings2 className="w-3.5 h-3.5" />
-              </button>
+              {canAuthorTimeline && (
+                <button
+                  onClick={() => {
+                    setEraInput(cal.eraName);
+                    setYearInput(cal.currentYear);
+                    setEditingCal((v) => !v);
+                  }}
+                  title="Configure Era & Year"
+                  className="p-2 rounded-lg bg-[#050608] border border-[#1d222b] hover:border-[#d4a853]/50 text-[#9b9384]"
+                >
+                  <Settings2 className="w-3.5 h-3.5" />
+                </button>
+              )}
             </div>
           )}
         </section>
 
-        {canEdit && editingCal && (
+        {canAuthorTimeline && editingCal && (
           <section className="rounded-xl bg-[#090c11] border border-[#1d222b] p-4 flex flex-wrap items-end gap-3">
             <label className="space-y-1 flex-1 min-w-[180px]">
               <span className="text-[11px] text-[#8c95a4]">Era Name</span>
@@ -185,7 +190,7 @@ export const CampaignTimelinePane: React.FC = () => {
                 Campaign Timeline ({visibleEvents.length})
               </h2>
             </div>
-            {canEdit && (
+            {canAuthorTimeline && (
               <button
                 onClick={() => setAddingEvent((v) => !v)}
                 className="px-3 py-1.5 rounded-lg btn-gold-metallic text-xs font-semibold flex items-center gap-1"
@@ -196,7 +201,7 @@ export const CampaignTimelinePane: React.FC = () => {
             )}
           </div>
 
-          {canEdit && addingEvent && (
+          {canAuthorTimeline && addingEvent && (
             <form
               onSubmit={handleCreateEvent}
               className="rounded-xl bg-[#0a0d13] border border-[#d4a853]/35 p-4 space-y-3"
@@ -324,7 +329,7 @@ export const CampaignTimelinePane: React.FC = () => {
                             <ArrowUpRight className="w-3 h-3" />
                           </button>
                         )}
-                        {canEdit && (
+                        {canAuthorTimeline && (
                           <button
                             onClick={() => deleteTimelineEvent(ev.id)}
                             className="p-1.5 rounded text-[#6c7585] hover:text-red-400"

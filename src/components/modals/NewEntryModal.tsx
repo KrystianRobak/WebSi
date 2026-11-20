@@ -30,6 +30,7 @@ export const NewEntryModal: React.FC = () => {
   const {
     newEntryModalOpen,
     newEntryDefaultType,
+    newEntryDefaultTitle,
     templates,
     closeNewEntryModal,
     createEntity,
@@ -49,12 +50,12 @@ export const NewEntryModal: React.FC = () => {
   useEffect(() => {
     if (newEntryModalOpen) {
       setSelectedType(newEntryDefaultType);
-      setTitle('');
+      setTitle(newEntryDefaultTitle || '');
       setSummary('');
       setTags('');
       setUseTemplate(true);
     }
-  }, [newEntryModalOpen, newEntryDefaultType]);
+  }, [newEntryModalOpen, newEntryDefaultType, newEntryDefaultTitle]);
 
   if (!newEntryModalOpen) return null;
 

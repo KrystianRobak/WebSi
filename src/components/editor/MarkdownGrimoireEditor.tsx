@@ -40,6 +40,7 @@ import { Entity } from '../../types/vault';
 import { EntityIcon } from '../common/EntityIcon';
 import { VaultImageNode } from './ImageExtension';
 import { WikiLinkNode } from './WikiLinkExtension';
+import { WikiLinkHoverCard } from './WikiLinkHoverCard';
 
 export type GrimoireCodeSubMode = 'split' | 'raw' | 'visual';
 
@@ -1643,36 +1644,11 @@ export const MarkdownGrimoireEditor = forwardRef<
         )}
 
         {hoverPreview && (
-          <div
-            style={{
-              position: 'fixed',
-              left: Math.min(hoverPreview.x, window.innerWidth - 300),
-              top: Math.min(hoverPreview.y, window.innerHeight - 230),
-            }}
-            className="z-50 w-72 rounded-lg dark-glass shadow-glass p-3 pointer-events-none"
-          >
-            {hoverPreview.entity.cover_image_url && (
-              <div className="h-24 w-full rounded overflow-hidden mb-2 border border-[#171c25]">
-                <img
-                  src={hoverPreview.entity.cover_image_url}
-                  alt={hoverPreview.entity.title}
-                  className="w-full h-full object-cover"
-                />
-              </div>
-            )}
-            <div className="flex items-center gap-2 mb-1">
-              <EntityIcon type={hoverPreview.entity.type} className="w-3.5 h-3.5 text-[#c9a050]" />
-              <span className="text-[10px] uppercase tracking-wider font-semibold text-[#c9a050]">
-                {hoverPreview.entity.type}
-              </span>
-            </div>
-            <div className="font-serif text-sm font-semibold text-[#e8dfd0] mb-1">
-              {hoverPreview.entity.title}
-            </div>
-            <p className="text-[11.5px] text-[#aba496] leading-snug line-clamp-3">
-              {hoverPreview.entity.summary}
-            </p>
-          </div>
+          <WikiLinkHoverCard
+            entity={hoverPreview.entity}
+            x={hoverPreview.x}
+            y={hoverPreview.y}
+          />
         )}
       </>
     );

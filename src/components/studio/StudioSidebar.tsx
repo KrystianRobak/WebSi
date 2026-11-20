@@ -11,7 +11,6 @@ import {
   Globe,
   Image as ImageIcon,
   Layers,
-  NotebookPen,
   PanelLeftClose,
   Plus,
   ScrollText,
@@ -21,7 +20,6 @@ import {
   Star,
   Upload,
   UserCheck,
-  Users,
   X,
 } from 'lucide-react';
 import { uploadVaultAsset } from '../../lib/supabase';
@@ -64,7 +62,7 @@ const WORLD_ITEMS: TreeItemDef[] = [
   { label: 'Languages', type: 'Language', category: 'world' },
 ];
 
-export const LeftSidebar: React.FC = () => {
+export const StudioSidebar: React.FC = () => {
   const {
     world,
     entities,
@@ -82,8 +80,6 @@ export const LeftSidebar: React.FC = () => {
     openMapTab,
     openAssetTab,
     openTemplateTab,
-    openJournalTab,
-    openCharacterTab,
     openSheetStudioTab,
     openTimelineTab,
     openProfileHubTab,
@@ -208,9 +204,9 @@ export const LeftSidebar: React.FC = () => {
 
   return (
     <div className="relative h-full flex shrink-0 select-none z-30">
-      {/* Labeled Obsidian Studio Navigation Rail */}
+      {/* Worldbuilding Studio Navigation Rail (Pure Authoring Tools) */}
       <nav
-        aria-label="Workspace Rail"
+        aria-label="Worldbuilding Studio Rail"
         className="w-[54px] sm:w-[64px] h-full bg-[#090c12] border-r border-[#181e2b] flex flex-col items-center py-2.5 px-1.5 gap-1 shrink-0 z-30 overflow-y-auto no-scrollbar"
       >
         <button
@@ -222,62 +218,6 @@ export const LeftSidebar: React.FC = () => {
           <FolderTree className="w-4 h-4" />
           <span className="hidden sm:block text-[9.5px] font-medium tracking-tight leading-none">
             Vault
-          </span>
-        </button>
-
-        <button
-          onClick={() => {
-            openJournalTab();
-          }}
-          title="Player Journals"
-          aria-label="Journals"
-          className={railItemClass(activeTab?.kind === 'journal')}
-        >
-          <NotebookPen className="w-4 h-4" />
-          <span className="hidden sm:block text-[9.5px] font-medium tracking-tight leading-none">
-            Journals
-          </span>
-        </button>
-
-        <button
-          onClick={() => {
-            openCharacterTab();
-          }}
-          title="Characters & Sheets"
-          aria-label="Characters"
-          className={railItemClass(activeTab?.kind === 'character')}
-        >
-          <Users className="w-4 h-4" />
-          <span className="hidden sm:block text-[9.5px] font-medium tracking-tight leading-none">
-            Party
-          </span>
-        </button>
-
-        <button
-          onClick={() => {
-            openSheetStudioTab();
-          }}
-          title="Sheet Template Studio"
-          aria-label="Sheet Studio"
-          className={railItemClass(activeTab?.kind === 'sheet_studio')}
-        >
-          <ScrollText className="w-4 h-4" />
-          <span className="hidden sm:block text-[9.5px] font-medium tracking-tight leading-none">
-            Studio
-          </span>
-        </button>
-
-        <button
-          onClick={() => {
-            openTimelineTab();
-          }}
-          title="Campaign Timeline & Calendar"
-          aria-label="Timeline"
-          className={railItemClass(activeTab?.kind === 'timeline')}
-        >
-          <Calendar className="w-4 h-4" />
-          <span className="hidden sm:block text-[9.5px] font-medium tracking-tight leading-none">
-            Timeline
           </span>
         </button>
 
@@ -305,6 +245,30 @@ export const LeftSidebar: React.FC = () => {
           </span>
         </button>
 
+        <button
+          onClick={() => openSheetStudioTab()}
+          title="Sheet Template Studio"
+          aria-label="Sheet Studio"
+          className={railItemClass(activeTab?.kind === 'sheet_studio')}
+        >
+          <ScrollText className="w-4 h-4" />
+          <span className="hidden sm:block text-[9.5px] font-medium tracking-tight leading-none">
+            Sheets
+          </span>
+        </button>
+
+        <button
+          onClick={() => openTimelineTab()}
+          title="Campaign Timeline & Calendar Authoring"
+          aria-label="Timeline"
+          className={railItemClass(activeTab?.kind === 'timeline')}
+        >
+          <Calendar className="w-4 h-4" />
+          <span className="hidden sm:block text-[9.5px] font-medium tracking-tight leading-none">
+            Timeline
+          </span>
+        </button>
+
         {canGmEdit && (
           <>
             <div className="w-6 h-px bg-[#1a212e] my-1 shrink-0" />
@@ -324,9 +288,7 @@ export const LeftSidebar: React.FC = () => {
 
         <div className="mt-auto w-full flex flex-col items-center gap-1 pt-2 border-t border-[#151b26]">
           <button
-            onClick={() => {
-              openProfileHubTab();
-            }}
+            onClick={() => openProfileHubTab()}
             title="Profile & Campaigns Hub"
             aria-label="Profile & Campaigns"
             className={railItemClass(activeTab?.kind === 'profile_hub')}
@@ -350,7 +312,7 @@ export const LeftSidebar: React.FC = () => {
         </div>
       </nav>
 
-      {/* Mobile backdrop for slide-over drawer */}
+      {/* Mobile backdrop */}
       {leftNavOpen && (
         <div
           onClick={() => setLeftNavOpen(false)}
@@ -361,7 +323,6 @@ export const LeftSidebar: React.FC = () => {
       {/* Docked Desktop / Slide-Over Mobile 272px Explorer Drawer */}
       {leftNavOpen && (
         <aside className="max-md:fixed max-md:left-[54px] max-md:sm:left-[64px] max-md:top-12 max-md:bottom-0 max-md:z-40 md:relative w-[272px] max-w-[calc(100vw-60px)] h-full bg-[#0a0d14] border-r border-[#1a202d] max-md:shadow-[18px_0_44px_rgba(0,0,0,0.82)] flex flex-col overflow-hidden shrink-0">
-          {/* Drawer Header + Tabs */}
           <div className="p-2.5 border-b border-[#12161f] space-y-2 shrink-0">
             <div className="flex items-center justify-between gap-2">
               <div className="flex items-center gap-1 bg-[#040507] p-0.5 rounded-md border border-[#131720] flex-1 text-[10.5px] font-medium">
@@ -437,7 +398,6 @@ export const LeftSidebar: React.FC = () => {
                   )}
                 </div>
 
-                {/* Scope Filter Pills */}
                 <div className="flex items-center gap-1 text-[10px]">
                   {(
                     [
@@ -464,7 +424,6 @@ export const LeftSidebar: React.FC = () => {
             )}
           </div>
 
-          {/* Drawer Content */}
           <div className="flex-1 overflow-y-auto px-2 py-2 space-y-2.5">
             {leftNavSection === 'assets' ? (
               <div className="space-y-2.5">
@@ -493,9 +452,7 @@ export const LeftSidebar: React.FC = () => {
                     <div className="space-y-0.5">
                       <p className="text-xs font-medium text-[#e8e2d5]">No media assets yet</p>
                       <p className="text-[11px] text-[#8b94a5]">
-                        {canGmEdit
-                          ? 'Click to upload maps, portraits, or scenes (PNG, JPG, WebP).'
-                          : 'Media uploaded by the GM will appear here.'}
+                        Click to upload maps, portraits, or scenes (PNG, JPG, WebP).
                       </p>
                     </div>
                     {canGmEdit && (
@@ -919,7 +876,6 @@ export const LeftSidebar: React.FC = () => {
             )}
           </div>
 
-          {/* Compact Footer */}
           <div className="shrink-0 h-8 px-3 border-t border-[#12161f] bg-[#040507] flex items-center justify-between text-[10px]">
             <div className="flex items-center gap-1.5 min-w-0">
               <span className="w-1.5 h-1.5 rotate-45 bg-[#b68d40]/80 shrink-0" />
@@ -934,4 +890,3 @@ export const LeftSidebar: React.FC = () => {
     </div>
   );
 };
-

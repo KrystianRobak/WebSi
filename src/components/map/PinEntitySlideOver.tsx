@@ -12,8 +12,11 @@ import {
 import { getEntityAppearance, getVisibleMetadataEntries } from '../../lib/wikilinks';
 import { useVaultStore } from '../../store/useVaultStore';
 import { EntityIcon } from '../common/EntityIcon';
+import type { ViewportSurface } from '../../types/vault';
 
-export const PinEntitySlideOver: React.FC = () => {
+export const PinEntitySlideOver: React.FC<{ surface?: ViewportSurface }> = ({
+  surface = 'studio',
+}) => {
   const {
     mapPins,
     entities,
@@ -28,6 +31,8 @@ export const PinEntitySlideOver: React.FC = () => {
   } = useVaultStore();
 
   const effectiveGm = isEffectiveGm();
+  const isPlaySurface = surface === 'play';
+  const canAuthor = !isPlaySurface && effectiveGm;
   const rightInsetPx = 14;
   const pin = mapPins.find((p) => p.id === selectedPinId);
   if (!pin) return null;
@@ -140,7 +145,7 @@ export const PinEntitySlideOver: React.FC = () => {
 
         {/* Top-right controls */}
         <div className="absolute top-2.5 right-2.5 flex items-center gap-1.5">
-          {entity && (
+          {canAuthor && entity && (
             <button
               onClick={() => toggleFavorite(entity.id)}
               title="Toggle Favorite"
@@ -149,13 +154,15 @@ export const PinEntitySlideOver: React.FC = () => {
               <Star className={`w-3.5 h-3.5 ${entity.is_favorite ? 'fill-[#d4a853]' : ''}`} />
             </button>
           )}
-          <button
-            onClick={() => deleteMapPin(pin.id)}
-            title="Remove Pin from Map"
-            className="p-1.5 rounded-md bg-[#0b0d10]/75 border border-[#272e3a] text-[#9aa3b2] hover:text-red-400 hover:border-red-500/40"
-          >
-            <Trash2 className="w-3.5 h-3.5" />
-          </button>
+          {canAuthor && (
+            <button
+              onClick={() => deleteMapPin(pin.id)}
+              title="Remove Pin from Map"
+              className="p-1.5 rounded-md bg-[#0b0d10]/75 border border-[#272e3a] text-[#9aa3b2] hover:text-red-400 hover:border-red-500/40"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          )}
           <button
             onClick={() => setSelectedPinId(null)}
             title="Close Card"
@@ -219,7 +226,7 @@ export const PinEntitySlideOver: React.FC = () => {
               </div>
             )}
 
-            {/* Lore Excerpt with [[WikiLinks]] */}
+            {/* Lore Excerpt with bracketless WikiLinks */}
             <div>{renderLoreWithWikiLinks(entity.content)}</div>
 
             {/* GM SECRET Block (Visible ONLY when effective GM Mode is ON) */}
@@ -233,7 +240,7 @@ export const PinEntitySlideOver: React.FC = () => {
               </div>
             )}
           </>
-        ) : (
+        ) : canAuthor ? (
           <div className="p-3 rounded-md bg-[#12151a] border border-[#242a35] space-y-2.5">
             <p className="text-xs text-[#9aa3b2]">
               This pin is not yet bound to a vault entry. Link it to an existing note:
@@ -255,6 +262,10 @@ export const PinEntitySlideOver: React.FC = () => {
               ))}
             </select>
           </div>
+        ) : (
+          <div className="p-3 rounded-md bg-[#12151a] border border-[#242a35] text-xs text-[#9aa3b2]">
+            Landmark marker on the map.
+          </div>
         )}
       </div>
 
@@ -266,16 +277,18 @@ export const PinEntitySlideOver: React.FC = () => {
             className="flex-1 h-8 rounded-md btn-gold-metallic flex items-center justify-center gap-1.5 text-xs font-semibold"
           >
             <ExternalLink className="w-3.5 h-3.5" />
-            <span>Open Full Note</span>
+            <span>{isPlaySurface ? 'Open in Codex' : 'Open Full Note'}</span>
           </button>
-          <button
-            onClick={() => openEntityTab(entity.id, true)}
-            title="Open in Split Pane"
-            className="h-8 px-2.5 rounded-md bg-[#171b22] border border-[#272e3a] hover:border-[#d4a853]/50 text-xs text-[#d4a853] flex items-center gap-1"
-          >
-            <Link2 className="w-3.5 h-3.5" />
-            <span>Split</span>
-          </button>
+          {!isPlaySurface && (
+            <button
+              onClick={() => openEntityTab(entity.id, true)}
+              title="Open in Split Pane"
+              className="h-8 px-2.5 rounded-md bg-[#171b22] border border-[#272e3a] hover:border-[#d4a853]/50 text-xs text-[#d4a853] flex items-center gap-1"
+            >
+              <Link2 className="w-3.5 h-3.5" />
+              <span>Split</span>
+            </button>
+          )}
         </div>
       )}
     </div>

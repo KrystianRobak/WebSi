@@ -1,9 +1,23 @@
 import { DEFAULT_TEMPLATES } from '../../data/templates';
+import {
+  getInitialAppMode,
+  resolveEffectiveAppMode,
+  setUrlAppMode,
+  storeAppMode,
+} from '../../lib/appRouter';
 import type { TabItem } from '../../types/vault';
 import type { VaultSlice, VaultState } from './types';
 
 export type UiSlice = Pick<
   VaultState,
+  | 'appMode'
+  | 'playActiveSection'
+  | 'playActiveMapId'
+  | 'playFocusedCharacterId'
+  | 'playFocusedJournalId'
+  | 'playCodexOpen'
+  | 'playCodexEntityId'
+  | 'playSideDrawerOpen'
   | 'tabs'
   | 'activeTabId'
   | 'splitPaneTabId'
@@ -21,6 +35,14 @@ export type UiSlice = Pick<
   | 'newEntryModalOpen'
   | 'newEntryDefaultType'
   | 'newEntryDefaultCategory'
+  | 'newEntryDefaultTitle'
+  | 'setAppMode'
+  | 'setPlayActiveSection'
+  | 'setPlayActiveMapId'
+  | 'openPlayCodex'
+  | 'closePlayCodex'
+  | 'setPlaySideDrawerOpen'
+  | 'togglePlaySideDrawer'
   | 'setGmMode'
   | 'setEditorMode'
   | 'setInspectorSubTab'
@@ -52,6 +74,15 @@ export type UiSlice = Pick<
 >;
 
 export const createUiSlice: VaultSlice<UiSlice> = (set, get) => ({
+  appMode: getInitialAppMode(),
+  playActiveSection: 'table',
+  playActiveMapId: null,
+  playFocusedCharacterId: null,
+  playFocusedJournalId: null,
+  playCodexOpen: false,
+  playCodexEntityId: null,
+  playSideDrawerOpen: false,
+
   tabs: [],
   activeTabId: '',
   splitPaneTabId: null,
@@ -70,6 +101,58 @@ export const createUiSlice: VaultSlice<UiSlice> = (set, get) => ({
   newEntryModalOpen: false,
   newEntryDefaultType: 'Location',
   newEntryDefaultCategory: 'encyclopedia',
+  newEntryDefaultTitle: '',
+
+  setAppMode: (mode, options) => {
+    const state = get();
+    const effective = resolveEffectiveAppMode(mode, state.myRole);
+    storeAppMode(effective);
+    if (options?.syncUrl !== false) {
+      setUrlAppMode(effective);
+    }
+
+    if (effective === 'play') {
+      const defaultPlayMap =
+        state.playActiveMapId && state.maps.some((m) => m.id === state.playActiveMapId)
+          ? state.playActiveMapId
+          : state.maps.find((m) => m.kind === '2d')?.id || state.maps[0]?.id || null;
+      set({
+        appMode: 'play',
+        playActiveMapId: defaultPlayMap,
+        worldsmithMode: false,
+        battlemapMode: 'play',
+        mapToolMode: 'select',
+        battlemapTool: 'select',
+        newEntryModalOpen: false,
+        mapGeneratorModalOpen: false,
+        commandPaletteOpen: false,
+      });
+    } else {
+      set({
+        appMode: 'studio',
+        diceDrawerOpen: false,
+        playCodexOpen: false,
+        commandPaletteOpen: false,
+      });
+    }
+  },
+
+  setPlayActiveSection: (section) => set({ playActiveSection: section }),
+  setPlayActiveMapId: (mapId) =>
+    set({
+      playActiveMapId: mapId,
+      playActiveSection: 'table',
+      selectedPinId: null,
+      selectedTokenId: null,
+    }),
+  openPlayCodex: (entityId = null) =>
+    set((s) => ({
+      playCodexOpen: true,
+      playCodexEntityId: entityId !== undefined ? entityId : s.playCodexEntityId,
+    })),
+  closePlayCodex: () => set({ playCodexOpen: false }),
+  setPlaySideDrawerOpen: (open) => set({ playSideDrawerOpen: open }),
+  togglePlaySideDrawer: () => set((s) => ({ playSideDrawerOpen: !s.playSideDrawerOpen })),
 
   setGmMode: (val) =>
     set((s) => {
@@ -99,16 +182,17 @@ export const createUiSlice: VaultSlice<UiSlice> = (set, get) => ({
     set((s) => ({ rightInspectorCollapsed: !s.rightInspectorCollapsed })),
   setCommandPaletteOpen: (open) => set({ commandPaletteOpen: open }),
   setSettingsModalOpen: (open) => set({ settingsModalOpen: open }),
-  openNewEntryModal: (defaultType = 'Location', defaultCategory = 'encyclopedia') =>
+  openNewEntryModal: (defaultType = 'Location', defaultCategory = 'encyclopedia', defaultTitle = '') =>
     set((s) => {
-      if (!s.isEffectiveGm()) return s;
+      if (!s.isEffectiveGm() || s.appMode !== 'studio') return s;
       return {
         newEntryModalOpen: true,
         newEntryDefaultType: defaultType,
         newEntryDefaultCategory: defaultCategory,
+        newEntryDefaultTitle: defaultTitle,
       };
     }),
-  closeNewEntryModal: () => set({ newEntryModalOpen: false }),
+  closeNewEntryModal: () => set({ newEntryModalOpen: false, newEntryDefaultTitle: '' }),
   setSelectedSidebarFilter: (filter) => set({ selectedSidebarFilter: filter }),
   setLeftFilterQuery: (q) => set({ leftFilterQuery: q }),
 
@@ -118,6 +202,15 @@ export const createUiSlice: VaultSlice<UiSlice> = (set, get) => ({
     const state = get();
     const entity = state.entities.find((e) => e.id === entityId);
     if (!entity) return;
+
+    if (state.appMode === 'play') {
+      const isGmOnly = Boolean(
+        entity.metadata?.is_gm_only || (entity as { is_gm_only?: boolean }).is_gm_only
+      );
+      if (!state.isEffectiveGm() && isGmOnly) return;
+      set({ playCodexOpen: true, playCodexEntityId: entity.id });
+      return;
+    }
 
     const existing = state.tabs.find((t) => t.kind === 'entity' && t.targetId === entityId);
     if (existing) {
@@ -147,13 +240,26 @@ export const createUiSlice: VaultSlice<UiSlice> = (set, get) => ({
     const found = state.entities.find(
       (e) => e.title.toLowerCase() === norm || e.slug.toLowerCase() === norm
     );
-    if (found) state.openEntityTab(found.id);
+    if (found) {
+      state.openEntityTab(found.id);
+    } else if (state.appMode === 'studio' && state.isEffectiveGm()) {
+      state.openNewEntryModal('Location', 'encyclopedia', titleOrSlug.trim());
+    }
   },
 
   openMapTab: (mapId) => {
     const state = get();
     const map = state.maps.find((m) => m.id === mapId);
     if (!map) return;
+    if (state.appMode === 'play') {
+      set({
+        playActiveMapId: map.id,
+        playActiveSection: 'table',
+        selectedPinId: null,
+        selectedTokenId: null,
+      });
+      return;
+    }
     const existing = state.tabs.find((t) => t.kind === 'map' && t.targetId === mapId);
     if (existing) {
       set({ activeTabId: existing.id });
@@ -173,6 +279,7 @@ export const createUiSlice: VaultSlice<UiSlice> = (set, get) => ({
     const state = get();
     const asset = state.assets.find((a) => a.id === assetId);
     if (!asset) return;
+    if (state.appMode === 'play') return;
     const existing = state.tabs.find((t) => t.kind === 'asset' && t.targetId === assetId);
     if (existing) {
       set({ activeTabId: existing.id });
@@ -190,6 +297,7 @@ export const createUiSlice: VaultSlice<UiSlice> = (set, get) => ({
 
   openTemplateTab: (type) => {
     const state = get();
+    if (state.appMode === 'play') return;
     const existing = state.tabs.find((t) => t.kind === 'template' && t.targetId === type);
     if (existing) {
       set({ activeTabId: existing.id });
@@ -209,46 +317,37 @@ export const createUiSlice: VaultSlice<UiSlice> = (set, get) => ({
   openJournalTab: (pageId = 'journals') => {
     const state = get();
     const page = pageId !== 'journals' ? state.journalPages.find((p) => p.id === pageId) : undefined;
-    const targetId = page ? page.id : 'journals';
-    const existing = state.tabs.find((t) => t.kind === 'journal' && t.targetId === targetId);
-    if (existing) {
-      set({ activeTabId: existing.id });
-      return;
+    const targetId = page ? page.id : null;
+    if (state.appMode !== 'play') {
+      state.setAppMode('play');
     }
-    const newTab: TabItem = {
-      id: `tab-journal-${targetId}`,
-      kind: 'journal',
-      targetId,
-      title: page ? page.title : 'Player Journals',
-      iconType: 'PlayerNote',
-    };
-    set({ tabs: [...state.tabs, newTab], activeTabId: newTab.id });
+    set({
+      playActiveSection: 'journals',
+      playFocusedJournalId: targetId,
+    });
   },
 
   openCharacterTab: (characterId = 'characters') => {
     const state = get();
     const charRec =
-      characterId !== 'characters'
+      characterId !== 'characters' && characterId !== 'roster'
         ? state.characters.find((c) => c.id === characterId)
         : undefined;
-    const targetId = charRec ? charRec.id : 'characters';
-    const existing = state.tabs.find((t) => t.kind === 'character' && t.targetId === targetId);
-    if (existing) {
-      set({ activeTabId: existing.id });
-      return;
+    if (state.appMode !== 'play') {
+      state.setAppMode('play');
     }
-    const newTab: TabItem = {
-      id: `tab-char-${targetId}`,
-      kind: 'character',
-      targetId,
-      title: charRec ? charRec.name : 'Characters & Sheets',
-      iconType: 'Character',
-    };
-    set({ tabs: [...state.tabs, newTab], activeTabId: newTab.id });
+    set({
+      playActiveSection: 'party',
+      playFocusedCharacterId: charRec ? charRec.id : null,
+    });
   },
 
   openSheetStudioTab: (templateId = 'sheet_studio') => {
     const state = get();
+    if (state.appMode !== 'studio') {
+      if (state.myRole === 'player') return;
+      state.setAppMode('studio');
+    }
     const tpl =
       templateId !== 'sheet_studio'
         ? state.sheetTemplates.find((t) => t.id === templateId)
@@ -271,6 +370,10 @@ export const createUiSlice: VaultSlice<UiSlice> = (set, get) => ({
 
   openTimelineTab: () => {
     const state = get();
+    if (state.appMode === 'play') {
+      set({ playActiveSection: 'timeline' });
+      return;
+    }
     const existing = state.tabs.find((t) => t.kind === 'timeline');
     if (existing) {
       set({ activeTabId: existing.id });
@@ -288,6 +391,10 @@ export const createUiSlice: VaultSlice<UiSlice> = (set, get) => ({
 
   openProfileHubTab: () => {
     const state = get();
+    if (state.appMode === 'play') {
+      set({ playActiveSection: 'hub' });
+      return;
+    }
     const existing = state.tabs.find((t) => t.kind === 'profile_hub');
     if (existing) {
       set({ activeTabId: existing.id });

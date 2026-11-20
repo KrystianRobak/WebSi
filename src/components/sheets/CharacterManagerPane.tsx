@@ -480,7 +480,7 @@ export const CharacterManagerPane: React.FC<{ initialCharacterId?: string }> = (
                     onClick={() => openSheetStudioTab(resolvedTemplate.id)}
                     className="px-2.5 py-1.5 rounded bg-[#0e121a] border border-[#222938] hover:border-[#b68d40] text-[11px] text-[#e6c687] flex items-center gap-1"
                   >
-                    <FileCode2 className="w-3 h-3" /> Edit Sheet Template
+                    <FileCode2 className="w-3 h-3" /> Edit Sheet in Studio
                   </button>
                 )}
 

@@ -1,6 +1,7 @@
 import { SHEET_PRESET_5E } from '../../data/sheetPresets';
 import { DEFAULT_CALENDAR_CONFIG } from '../../data/seedData';
 import { DEFAULT_TEMPLATES } from '../../data/templates';
+import { resolveEffectiveAppMode, setUrlAppMode, storeAppMode } from '../../lib/appRouter';
 import { importCampaignJson } from '../../lib/campaignArchive';
 import {
   normalizeMapOverlay,
@@ -139,6 +140,7 @@ export type CampaignSlice = Pick<
   | 'syncStatus'
   | 'lastSyncError'
   | 'isEffectiveGm'
+  | 'isStudioEditing'
   | 'canEditToken'
   | 'loadMyCampaigns'
   | 'switchCampaign'
@@ -166,6 +168,11 @@ export const createCampaignSlice: VaultSlice<CampaignSlice> = (set, get) => ({
   isEffectiveGm: () => {
     const s = get();
     return (s.myRole === 'gm' || s.myRole === 'co_gm') && s.gmMode;
+  },
+
+  isStudioEditing: () => {
+    const s = get();
+    return s.appMode === 'studio' && (s.myRole === 'gm' || s.myRole === 'co_gm') && s.gmMode;
   },
 
   canEditToken: (token: BattlemapToken) => {
@@ -753,7 +760,7 @@ export const createCampaignSlice: VaultSlice<CampaignSlice> = (set, get) => ({
           ? prevState.journalPages.find((pj) => pj.id === j.id) || j
           : j
       );
-      // Keep valid open tabs or open sensible initial tab
+      // Keep valid Studio tabs or open sensible initial Studio tab
       const validTabs: TabItem[] = [];
       for (const tab of prevState.tabs) {
         if (tab.kind === 'entity') {
@@ -765,21 +772,12 @@ export const createCampaignSlice: VaultSlice<CampaignSlice> = (set, get) => ({
         } else if (tab.kind === 'asset') {
           const hit = loadedAssets.find((a) => a.id === tab.targetId);
           if (hit) validTabs.push({ ...tab, title: hit.name });
-        } else if (tab.kind === 'character') {
-          if (tab.targetId === 'characters') {
-            validTabs.push(tab);
-          } else {
-            const hit = loadedCharacters.find((c) => c.id === tab.targetId);
-            if (hit) validTabs.push({ ...tab, title: hit.name });
-          }
-        } else if (tab.kind === 'journal') {
-          if (tab.targetId === 'journals') {
-            validTabs.push(tab);
-          } else {
-            const hit = loadedJournals.find((j) => j.id === tab.targetId);
-            if (hit) validTabs.push({ ...tab, title: hit.title });
-          }
-        } else {
+        } else if (
+          tab.kind === 'template' ||
+          tab.kind === 'sheet_studio' ||
+          tab.kind === 'timeline' ||
+          tab.kind === 'profile_hub'
+        ) {
           validTabs.push(tab);
         }
       }
@@ -819,6 +817,17 @@ export const createCampaignSlice: VaultSlice<CampaignSlice> = (set, get) => ({
       const effectiveGmMode =
         myRole === 'gm' || myRole === 'co_gm' ? prevState.gmMode : false;
 
+      const resolvedAppMode = resolveEffectiveAppMode(prevState.appMode, myRole);
+      if (resolvedAppMode !== prevState.appMode) {
+        storeAppMode(resolvedAppMode);
+        setUrlAppMode(resolvedAppMode, true);
+      }
+
+      const nextPlayMapId =
+        prevState.playActiveMapId && mergedMaps.some((m) => m.id === prevState.playActiveMapId)
+          ? prevState.playActiveMapId
+          : mergedMaps.find((m) => m.kind === '2d')?.id || mergedMaps[0]?.id || null;
+
       set((s) => ({
         world: activeWorld,
         campaigns: s.campaigns.some((c) => c.id === activeWorld.id)
@@ -827,6 +836,8 @@ export const createCampaignSlice: VaultSlice<CampaignSlice> = (set, get) => ({
         campaignMembers,
         myRole,
         gmMode: effectiveGmMode,
+        appMode: resolvedAppMode,
+        playActiveMapId: nextPlayMapId,
         entities: mergedEntities,
         entityLinks: loadedLinks,
         maps: mergedMaps,

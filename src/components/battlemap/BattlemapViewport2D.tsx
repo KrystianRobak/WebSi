@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertTriangle,
   Archive,
+  BookMarked,
   Bookmark,
   Compass,
   DoorClosed,
@@ -49,6 +50,7 @@ import {
   BattlemapPropKind,
   BattlemapToken,
   TokenDisposition,
+  ViewportSurface,
 } from '../../types/vault';
 import { GuildQuestBoardModal } from '../quests/GuildQuestBoardModal';
 import { InitiativeTrackerBar } from './InitiativeTrackerBar';
@@ -104,7 +106,10 @@ const PARTY_PRESETS = [
   { name: 'Vanguard Ally', hp: 32, maxHp: 32, ac: 16, lightRadiusFt: 15, color: '#38bdf8' },
 ];
 
-export const BattlemapViewport2D: React.FC<{ mapId: string }> = ({ mapId }) => {
+export const BattlemapViewport2D: React.FC<{ mapId: string; surface?: ViewportSurface }> = ({
+  mapId,
+  surface = 'studio',
+}) => {
   const {
     user,
     maps,
@@ -123,6 +128,7 @@ export const BattlemapViewport2D: React.FC<{ mapId: string }> = ({ mapId }) => {
     guildQuests,
     createQuestBoard,
     setActiveQuestBoardModalId,
+    openPlayCodex,
     battlemapMode,
     setBattlemapMode,
     battlemapTool,
@@ -158,6 +164,8 @@ export const BattlemapViewport2D: React.FC<{ mapId: string }> = ({ mapId }) => {
   } = useVaultStore();
 
   const effectiveGm = isEffectiveGm();
+  const isPlaySurface = surface === 'play';
+  const canAuthorScene = !isPlaySurface && effectiveGm;
   const rightInsetPx = 14;
 
   const mapData = maps.find((m) => m.id === mapId);
@@ -242,15 +250,29 @@ export const BattlemapViewport2D: React.FC<{ mapId: string }> = ({ mapId }) => {
     | { kind: 'line'; tool: 'draw-wall' | 'draw-door' | 'measure'; x1: number; y1: number; x2: number; y2: number }
   >(null);
 
-  // Auto-exit GM prep/tools when role switches to Player
+  // Auto-exit GM prep/tools when role switches to Player or when on Play surface
   useEffect(() => {
-    if (!effectiveGm) {
+    if (!effectiveGm || isPlaySurface) {
       if (battlemapMode === 'prep') setBattlemapMode('play');
-      if (battlemapTool !== 'select' && battlemapTool !== 'measure') {
+      if (
+        !effectiveGm &&
+        battlemapTool !== 'select' &&
+        battlemapTool !== 'measure'
+      ) {
+        setBattlemapTool('select');
+      } else if (
+        isPlaySurface &&
+        (battlemapTool === 'place-light' ||
+          battlemapTool === 'place-prop' ||
+          battlemapTool === 'place-quest-board' ||
+          battlemapTool === 'draw-wall' ||
+          battlemapTool === 'draw-door' ||
+          battlemapTool === 'erase')
+      ) {
         setBattlemapTool('select');
       }
     }
-  }, [effectiveGm, battlemapMode, battlemapTool, setBattlemapMode, setBattlemapTool]);
+  }, [effectiveGm, isPlaySurface, battlemapMode, battlemapTool, setBattlemapMode, setBattlemapTool]);
 
   // Keyboard shortcuts: Delete selected element (GM Prepare Scene) / Escape cancel
   useEffect(() => {
@@ -1532,24 +1554,26 @@ export const BattlemapViewport2D: React.FC<{ mapId: string }> = ({ mapId }) => {
         )}
       </div>
 
-      {/* Initiative Tracker Bar Overlay */}
-      <div
-        onPointerDown={(e) => e.stopPropagation()}
-        className="absolute top-14 left-3 z-20 pointer-events-none"
-      >
-        <InitiativeTrackerBar mapId={mapId} />
-      </div>
+      {/* Initiative Tracker Bar Overlay (Live Play Only) */}
+      {isPlaySurface && (
+        <div
+          onPointerDown={(e) => e.stopPropagation()}
+          className="absolute top-14 left-3 z-20 pointer-events-none"
+        >
+          <InitiativeTrackerBar mapId={mapId} />
+        </div>
+      )}
 
-      {/* Unified Top Control Overlay (Play vs Prep Scene + Map Tools) */}
+      {/* Unified Top Control Overlay */}
       <div className="absolute top-3 inset-x-3 z-20 flex flex-wrap items-start justify-between gap-2 pointer-events-none">
         {/* Top-Left Tactical Mode & Setup Controls */}
         <div
           onPointerDown={(e) => e.stopPropagation()}
           className="flex items-center gap-1.5 flex-wrap pointer-events-auto"
         >
-          {effectiveGm && (
+          {canAuthorScene && (
             <>
-              {/* Play | Prepare Scene Switcher */}
+              {/* Play | Prepare Scene Switcher (Studio Only) */}
               <div className="flex items-center p-0.5 rounded-md dark-glass shadow-glass">
                 <button
                   onClick={() => {
@@ -1571,7 +1595,7 @@ export const BattlemapViewport2D: React.FC<{ mapId: string }> = ({ mapId }) => {
                   }`}
                 >
                   <Play className="w-3 h-3" />
-                  <span>Play</span>
+                  <span>Preview</span>
                 </button>
                 <button
                   onClick={() => {
@@ -1648,13 +1672,26 @@ export const BattlemapViewport2D: React.FC<{ mapId: string }> = ({ mapId }) => {
                 <span>Snap 5ft</span>
               </button>
 
-              <button
-                onClick={() => setMapGeneratorModalOpen(true, '2d')}
-                className="flex items-center gap-1 px-2.5 py-1.5 rounded-md dark-glass-subtle hover:border-[#d4a853]/50 text-xs text-[#e7e2d8]"
-              >
-                <Sparkles className="w-3.5 h-3.5 text-[#d4a853]" />
-                <span>New Map</span>
-              </button>
+              {isPlaySurface && (
+                <button
+                  onClick={() => openPlayCodex()}
+                  title="Pull Campaign NPCs, Monsters & Lore into Play"
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md dark-glass hover:border-[#d4a853]/60 text-xs text-[#e2b969]"
+                >
+                  <BookMarked className="w-3.5 h-3.5" />
+                  <span>Pull from Campaign</span>
+                </button>
+              )}
+
+              {canAuthorScene && (
+                <button
+                  onClick={() => setMapGeneratorModalOpen(true, '2d')}
+                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-md dark-glass-subtle hover:border-[#d4a853]/50 text-xs text-[#e7e2d8]"
+                >
+                  <Sparkles className="w-3.5 h-3.5 text-[#d4a853]" />
+                  <span>New Map</span>
+                </button>
+              )}
             </>
           )}
         </div>
@@ -1674,6 +1711,7 @@ export const BattlemapViewport2D: React.FC<{ mapId: string }> = ({ mapId }) => {
                   label: 'Select / Move / Inspect',
                   modes: ['play', 'prep'],
                   gmOnly: false,
+                  playAllowed: true,
                 },
                 {
                   id: 'place-party',
@@ -1681,6 +1719,7 @@ export const BattlemapViewport2D: React.FC<{ mapId: string }> = ({ mapId }) => {
                   label: 'Place Party / Ally Token',
                   modes: ['play', 'prep'],
                   gmOnly: true,
+                  playAllowed: true,
                 },
                 {
                   id: 'place-enemy',
@@ -1688,6 +1727,7 @@ export const BattlemapViewport2D: React.FC<{ mapId: string }> = ({ mapId }) => {
                   label: 'Place Enemy Token',
                   modes: ['play', 'prep'],
                   gmOnly: true,
+                  playAllowed: true,
                 },
                 {
                   id: 'fog-reveal',
@@ -1695,6 +1735,7 @@ export const BattlemapViewport2D: React.FC<{ mapId: string }> = ({ mapId }) => {
                   label: 'Fog of War Brush',
                   modes: ['play', 'prep'],
                   gmOnly: true,
+                  playAllowed: true,
                 },
                 {
                   id: 'aoe',
@@ -1702,6 +1743,7 @@ export const BattlemapViewport2D: React.FC<{ mapId: string }> = ({ mapId }) => {
                   label: 'Place AoE Template',
                   modes: ['play', 'prep'],
                   gmOnly: true,
+                  playAllowed: true,
                 },
                 {
                   id: 'place-quest-board',
@@ -1709,6 +1751,7 @@ export const BattlemapViewport2D: React.FC<{ mapId: string }> = ({ mapId }) => {
                   label: 'Place Guild Quest Board',
                   modes: ['play', 'prep'],
                   gmOnly: true,
+                  playAllowed: false,
                 },
                 {
                   id: 'place-light',
@@ -1716,6 +1759,7 @@ export const BattlemapViewport2D: React.FC<{ mapId: string }> = ({ mapId }) => {
                   label: 'Place Scene Light',
                   modes: ['prep'],
                   gmOnly: true,
+                  playAllowed: false,
                 },
                 {
                   id: 'place-prop',
@@ -1723,6 +1767,7 @@ export const BattlemapViewport2D: React.FC<{ mapId: string }> = ({ mapId }) => {
                   label: 'Place Furniture, Traps & Markers',
                   modes: ['prep'],
                   gmOnly: true,
+                  playAllowed: false,
                 },
                 {
                   id: 'draw-wall',
@@ -1730,6 +1775,7 @@ export const BattlemapViewport2D: React.FC<{ mapId: string }> = ({ mapId }) => {
                   label: 'Draw Wall / Pillar / Secret Wall',
                   modes: ['prep'],
                   gmOnly: true,
+                  playAllowed: false,
                 },
                 {
                   id: 'draw-door',
@@ -1737,6 +1783,7 @@ export const BattlemapViewport2D: React.FC<{ mapId: string }> = ({ mapId }) => {
                   label: 'Draw Interactive Door',
                   modes: ['prep'],
                   gmOnly: true,
+                  playAllowed: false,
                 },
                 {
                   id: 'erase',
@@ -1744,6 +1791,7 @@ export const BattlemapViewport2D: React.FC<{ mapId: string }> = ({ mapId }) => {
                   label: 'Erase Wall, Door, Light, Prop or Token',
                   modes: ['prep'],
                   gmOnly: true,
+                  playAllowed: false,
                 },
                 {
                   id: 'measure',
@@ -1751,13 +1799,15 @@ export const BattlemapViewport2D: React.FC<{ mapId: string }> = ({ mapId }) => {
                   label: 'Measure Distance (5ft)',
                   modes: ['play', 'prep'],
                   gmOnly: false,
+                  playAllowed: true,
                 },
               ] as const
             )
               .filter(
                 (tool) =>
                   (!tool.gmOnly || effectiveGm) &&
-                  (tool.modes as readonly string[]).includes(battlemapMode)
+                  (tool.modes as readonly string[]).includes(battlemapMode) &&
+                  (!isPlaySurface || tool.playAllowed)
               )
               .map((tool) => {
                 const Icon = tool.icon;

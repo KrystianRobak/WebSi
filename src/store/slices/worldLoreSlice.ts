@@ -168,6 +168,7 @@ export type WorldLoreSlice = Pick<
   | 'deleteMapLabel'
   | 'createEntity'
   | 'updateEntity'
+  | 'toggleEntityPlayerVisibility'
   | 'deleteEntity'
   | 'toggleFavorite'
   | 'addAsset'
@@ -663,6 +664,20 @@ export const createWorldLoreSlice: VaultSlice<WorldLoreSlice> = (set, get) => ({
     }
 
     return newEntity;
+  },
+
+  toggleEntityPlayerVisibility: (id) => {
+    const state = get();
+    if (!state.isEffectiveGm()) return;
+    const target = state.entities.find((e) => e.id === id);
+    if (!target) return;
+    const currentHidden = Boolean(target.metadata?.is_gm_only);
+    state.updateEntity(id, {
+      metadata: {
+        ...target.metadata,
+        is_gm_only: !currentHidden,
+      },
+    });
   },
 
   updateEntity: (id, patch) => {

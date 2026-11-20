@@ -566,12 +566,22 @@
   height: 15px;
   margin-top: 0.25rem;
   border-radius: 4px;
-  border: 1px solid #283040;
+  border: 1px solid #2b3446;
   background: #07090d;
   font-size: 10px;
   font-weight: 700;
   color: #f6efe0;
   flex-shrink: 0;
+  transition: all 0.15s ease;
+}
+
+.vault-checkbox[data-task-index] {
+  cursor: pointer;
+}
+
+.vault-checkbox[data-task-index]:hover {
+  border-color: #d4a853;
+  background: rgba(212, 168, 83, 0.12);
 }
 
 .vault-checkbox.checked {
@@ -622,22 +632,37 @@
   pointer-events: none;
 }
 
-/* WikiLink Styling */
+/* Bracketless Obsidian WikiLink Styling */
 .wikilink-pill {
-  color: var(--note-accent, #caa257);
-  background: rgba(182, 141, 64, 0.08);
-  border-bottom: 1px dashed rgba(182, 141, 64, 0.48);
-  padding: 0.02rem 0.25rem;
-  border-radius: 3px;
+  color: var(--note-accent, #deb25e);
+  background: rgba(212, 168, 83, 0.07);
+  border-bottom: 1px solid rgba(212, 168, 83, 0.38);
+  padding: 0.02rem 0.28rem;
+  border-radius: 4px;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: color 0.15s ease, background 0.15s ease, border-color 0.15s ease;
   font-weight: 500;
+  text-decoration: none;
 }
 
-.wikilink-pill:hover {
-  background: rgba(182, 141, 64, 0.18);
-  color: #efe2c4;
-  border-bottom-style: solid;
+.wikilink-pill:hover,
+.wikilink-pill:focus-visible {
+  background: rgba(212, 168, 83, 0.18);
+  color: #f5e6c4;
+  border-bottom-color: #e2b969;
+  outline: none;
+}
+
+.wikilink-pill.wikilink-unresolved {
+  color: #a49c8e;
+  background: rgba(164, 156, 142, 0.06);
+  border-bottom: 1px dashed rgba(164, 156, 142, 0.48);
+}
+
+.wikilink-pill.wikilink-unresolved:hover {
+  color: #e2b969;
+  background: rgba(212, 168, 83, 0.1);
+  border-bottom-color: rgba(212, 168, 83, 0.55);
 }
 
 .vault-embedded-img {
